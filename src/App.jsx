@@ -100,7 +100,7 @@ despacho:       ["superadmin","produccion"],
 cerrar_dia:     ["superadmin","admin_suc","staff_suc"],
 nuevo_inv:      ["superadmin","admin_suc","staff_suc"],
 config_total:   ["superadmin"],
-crear_req:      ["superadmin","admin_suc","staff_suc"],
+crear_req:      ["superadmin","admin_suc"],
 registrar_venta:["superadmin","admin_suc","staff_suc"],
 };
 return (p[accion]||[]).includes(r);
@@ -1812,6 +1812,7 @@ setImportPreview(mapped);setModal("importar");
 }
 function confirmarImport(){
 setInvSucs(p=>p.map(s=>s.sucursal!==sucSel?s:{...s,items:importPreview}));
+syncInvSuc(sucSel,importPreview);
 setImportPreview(null);setModal(null);
 alert(importPreview.length+" ítems importados para "+sucSel+".");
 }
@@ -2179,7 +2180,7 @@ const[dSuc,setDSuc]=useState(sucsVisiblesCos[0]||"");
 const[dCants,setDCants]=useState({});
 function abrirModal(){
 setDFecha(today());
-setDSuc(sucs[0]||"");
+setDSuc(sucsVisiblesCos[0]||"");
 setDCants({});
 setModal(true);
 }
