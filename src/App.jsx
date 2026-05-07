@@ -88,7 +88,7 @@ const p={
 ver_inv:        ["superadmin","produccion"],
 ver_prod:       ["superadmin","produccion"],
 ver_recetas:    ["superadmin","admin_suc","produccion"],
-ver_req:        ["superadmin","admin_suc","staff_suc","produccion"],
+ver_req:        ["superadmin","admin_suc","produccion"],
 ver_comp:       ["superadmin","produccion"],
 ver_invsuc:     ["superadmin","admin_suc","staff_suc"],
 ver_cos:        ["superadmin","admin_suc","staff_suc"],
