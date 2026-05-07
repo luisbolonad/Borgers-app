@@ -23,6 +23,17 @@ const supaGet = (table, query="") => supa(table, "GET", null, query);
 const supaPost = (table, body) => supa(table, "POST", body);
 const supaPatch = (table, query, body) => supa(table, "PATCH", body, query);
 const supaDelete = (table, query) => supa(table, "DELETE", null, query);
+async function supaUpsert(table, body){
+  const url = SUPA_URL + "/rest/v1/" + table;
+  const res = await fetch(url, {
+    method:"POST",
+    headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json",
+              "Prefer":"resolution=merge-duplicates,return=representation"},
+    body:JSON.stringify(body),
+  });
+  const text=await res.text();
+  return text?JSON.parse(text):[];
+}
 const BG="#0F0E0C",SRF="#1A1916",CRD="#222018",BRD="#2E2C26";
 const ACC="#F5A623",RED="#E84040",GRN="#3ECF8E",BLU="#4A9EFF";
 const PRP="#9B72FF",TXT="#F0EDE6",MUT="#8A8578",FNT="#3A3830";
@@ -398,13 +409,16 @@ supaGet("ventas","?select=*&order=fecha.desc"),
     if(dbCatsVenta.length>0) setCatV(dbCatsVenta.map(c=>c.nombre));
     if(dbCatsInvSuc.length>0) setCats2(dbCatsInvSuc.map(c=>c.nombre));
     if(dbProvs.length>0) setProvs(dbProvs.map((p,i)=>({...p,id:p.id||i+1})));
-    if(dbInv.length>0) setInv(dbInv.map((i,idx)=>({...i,id:i.id||idx+1,stockMin:i.stock_min||0})));
-    if(dbRp.length>0) setRp(dbRp.map((r,i)=>({...r,id:r.id||i+1,ings:r.ings||[]})));
-    if(dbRv.length>0) setRv(dbRv.map((r,i)=>({...r,id:r.id||i+1,ings:r.ings||[]})));
-    if(dbReqs.length>0) setReqs(dbReqs.map((r,i)=>({...r,id:r.id||i+1,items:r.items||[],despacho:r.despacho||[]})));
+    if(dbInv.length>0) setInv(dbInv.map(i=>({...i,stockMin:i.stockMin||0})));
+    if(dbRp.length>0){
+      setRp(dbRp.map(r=>({...r,ings:r.ings||[]})));
+      setSp(dbRp.map(r=>({recetaId:r.id,stock:r.stock||0})));
+    }
+    if(dbRv.length>0) setRv(dbRv.map(r=>({...r,ings:r.ings||[]})));
+    if(dbReqs.length>0) setReqs(dbReqs.map(r=>({...r,items:r.items||[],despacho:r.despacho||[]})));
     if(dbInvSucs.length>0) setInvSucs(dbInvSucs.map(s=>({sucursal:s.sucursal,items:s.items||[]})));
-    if(dbRegs.length>0) setRegsSucs(dbRegs.map((r,i)=>({...r,id:r.id||i+1,numInv:r.num_inv,filas:r.filas||[],ventas:r.ventas||[]})));
-    if(dbVentas.length>0) setVentas(dbVentas.map((v,i)=>({...v,id:v.id||i+1,rId:v.receta_id,cant:v.cantidad})));
+    if(dbRegs.length>0) setRegsSucs(dbRegs.map(r=>({...r,numInv:r.numInv||1,filas:r.filas||[],ventas:r.ventas||[]})));
+    if(dbVentas.length>0) setVentas(dbVentas.map(v=>({...v,rId:v.rId,cant:v.cant})));
   }catch(err){
     console.error("Error cargando datos:",err);
   }finally{
@@ -567,17 +581,23 @@ const refXlsx=useRef();
 const f0={nombre:"",categoria:"Carnes",unidad:"kg",stock:0,stockMin:0,costo:0,proveedor:""};
 const[form,setForm]=useState(f0);
 const lista=inv.filter(i=>(cat==="Todas"||i.categoria===cat)&&i.nombre.toLowerCase().includes(fil.toLowerCase()));
-function save(){
+async function save(){
 if(!form.nombre)return;
-if(edit)setInv(p=>p.map(i=>i.id===edit.id?{...edit,...form}:i));
-else setInv(p=>[...p,{id:Math.max(0,...p.map(i=>i.id))+1,...form}]);
+if(edit){
+  await supaPatch("inventario","?id=eq."+edit.id,form).catch(console.error);
+  setInv(p=>p.map(i=>i.id===edit.id?{...edit,...form}:i));
+}else{
+  const [created]=await supaPost("inventario",form).catch(()=>[form]);
+  setInv(p=>[...p,created||form]);
+}
 setModal(null);setEdit(null);setForm(f0);
 }
 function startF(){const cf={};inv.forEach(i=>{cf[i.id]=i.stock;});setCF(cf);setMF(true);}
-function saveF(){
-const d=inv.filter(i=>cF[i.id]!==i.stock).map(i=>({id:i.id,nombre:i.nombre,anterior:i.stock,nuevo:cF[i.id]}));
+async function saveF(){
+const d=inv.filter(i=>cF[i.id]!==undefined&&cF[i.id]!==i.stock).map(i=>({id:i.id,nombre:i.nombre,anterior:i.stock,nuevo:cF[i.id]}));
 setInv(p=>p.map(i=>({...i,stock:cF[i.id]??i.stock})));
 setHI(p=>[...p,{id:Date.now(),fecha:today(),tipo:"Inventario Físico",descripcion:d.length+" ítems ajustados",diffs:d}]);
+await Promise.all(d.map(d=>supaPatch("inventario","?id=eq."+d.id,{stock:d.nuevo}).catch(console.error)));
 setMF(false);alert("Inventario físico guardado. "+d.length+" ítems ajustados.");
 }
 async function onXlsx(e){
@@ -605,11 +625,18 @@ setImportPreview(mapped);
 setModal("preview");
 }catch(err){alert("Error leyendo el archivo: "+err.message);}
 }
-function confirmarImport(){
-setInv(importPreview);
+async function confirmarImport(){
+const prev=importPreview;
+setInv(prev);
 setImportPreview(null);
 setModal(null);
-alert(importPreview.length+" ítems importados. El inventario fue reemplazado.");
+await supaDelete("inventario","?id=gt.0").catch(console.error);
+const {id:_,...rest}=prev[0]||{};
+for(const item of prev){
+  const{id:__,...data}=item;
+  await supaPost("inventario",data).catch(console.error);
+}
+alert(prev.length+" ítems importados. El inventario fue reemplazado.");
 }
 function descargarPlantilla(){
 if(!xlsxReady){alert("SheetJS cargando...");return;}
@@ -669,7 +696,7 @@ return <tr key={i.id}>
 <td><Bdg c={bajo?"red":"green"}>{bajo?"Bajo":"OK"}</Bdg></td>
 <td><div style={{display:"flex",gap:6}}>
 <button onClick={()=>{setEdit(i);setForm({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stock:i.stock,stockMin:i.stockMin,costo:i.costo,proveedor:i.proveedor});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
-<button onClick={()=>setConfirmar({msg:"¿Eliminar "+i.nombre+"?",fn:()=>setInv(p=>p.filter(x=>x.id!==i.id))})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+<button onClick={()=>setConfirmar({msg:"¿Eliminar "+i.nombre+"?",fn:()=>{setInv(p=>p.filter(x=>x.id!==i.id));supaDelete("inventario","?id=eq."+i.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
 </div></td>
 </tr>;
 })}</tbody>
@@ -726,7 +753,7 @@ const cc=r=>r.ings.reduce((s,ing)=>{const item=inv.find(i=>i.id===ing.invId);ret
 if(mF)return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>STOCK FÍSICO PRODUCCIÓN</h1>
-<div style={{display:"flex",gap:10}}><Btn v="ghost" onClick={()=>setMF(false)}>Cancelar</Btn><Btn onClick={()=>{rp.forEach(r=>ss(r.id,cF[r.id]??gs(r.id)));setMF(false);alert("Stock actualizado.");}}>Confirmar</Btn></div>
+<div style={{display:"flex",gap:10}}><Btn v="ghost" onClick={()=>setMF(false)}>Cancelar</Btn><Btn onClick={()=>{rp.forEach(r=>{const ns=cF[r.id]??gs(r.id);ss(r.id,ns);supaPatch("recetas_produccion","?id=eq."+r.id,{stock:ns}).catch(console.error);});setMF(false);alert("Stock actualizado.");}}>Confirmar</Btn></div>
 </div>
 <Card xtra={{padding:0}}>
 <table><thead><tr><th>Producto</th><th>Sistema</th><th>Físico</th><th>Diferencia</th></tr></thead>
@@ -783,8 +810,8 @@ const CV=catV;
 // Lista única de nombres de ítems de sucursal para el datalist
 const sucItemsUnicos=[...new Set((invSucs||[]).flatMap(s=>s.items.map(i=>i.nombre)))].sort((a,b)=>a.localeCompare(b,"es"));
 function ccv(ings){return ings.reduce((s,ing)=>{if(ing.tipo==="inv"){const item=inv.find(i=>i.id===ing.refId);return s+(item?item.costo*ing.cantidad:0);}else{const r=rp.find(x=>x.id===ing.refId);if(!r)return s;const cp=r.ings.reduce((cs,ri)=>{const item=inv.find(i=>i.id===ri.invId);return cs+(item?item.costo*ri.cantidad:0);},0);return s+(cp/r.rendimiento)*ing.cantidad;}},0);}
-function sv(){if(!fv.nombre)return;if(editR)setRv(p=>p.map(r=>r.id===editR.id?{...editR,...fv}:r));else setRv(p=>[...p,{id:Date.now(),...fv}]);setModal(null);setEditR(null);setFv(fV);}
-function sp2(){if(!fp.nombre)return;if(editR){setRp(p=>p.map(r=>r.id===editR.id?{...editR,...fp}:r));}else{const nid=Date.now();setRp(p=>[...p,{id:nid,...fp}]);setSp(p=>[...p,{recetaId:nid,stock:0}]);}setModal(null);setEditR(null);setFp(fP);}
+async function sv(){if(!fv.nombre)return;if(editR){await supaPatch("recetas_venta","?id=eq."+editR.id,fv).catch(console.error);setRv(p=>p.map(r=>r.id===editR.id?{...editR,...fv}:r));}else{const[created]=await supaPost("recetas_venta",fv).catch(()=>[fv]);setRv(p=>[...p,created||fv]);}setModal(null);setEditR(null);setFv(fV);}
+async function sp2(){if(!fp.nombre)return;if(editR){await supaPatch("recetas_produccion","?id=eq."+editR.id,fp).catch(console.error);setRp(p=>p.map(r=>r.id===editR.id?{...editR,...fp}:r));}else{const[created]=await supaPost("recetas_produccion",{...fp,stock:0}).catch(()=>[fp]);const nid=created?.id||Date.now();setRp(p=>[...p,{...fp,id:nid}]);setSp(p=>[...p,{recetaId:nid,stock:0}]);}setModal(null);setEditR(null);setFp(fP);}
 // FIX: al cambiar ingrediente, actualizar unidad automáticamente
 function cambiarIngV(idx,campo,valor){
 setFv(p=>({...p,ings:p.ings.map((x,i)=>{
@@ -822,7 +849,7 @@ return <div>
       <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="blue">{r.categoria}</Bdg></div>
       {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
         <button onClick={()=>{setEditR(r);setFv({nombre:r.nombre,categoria:r.categoria,precio:r.precio,ings:r.ings});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
-        <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>setRv(p=>p.filter(x=>x.id!==r.id))})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+        <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>{setRv(p=>p.filter(x=>x.id!==r.id));supaDelete("recetas_venta","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
       </div>}
     </div>
     <div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
@@ -842,7 +869,7 @@ return <div>
       <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><div style={{fontSize:12,color:MUT}}>Rinde {r.rendimiento} {r.unidad}</div></div>
       {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
         <button onClick={()=>{setEditR(r);setFp({nombre:r.nombre,unidad:r.unidad,rendimiento:r.rendimiento,ings:r.ings});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
-        <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>setRp(p=>p.filter(x=>x.id!==r.id))})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+        <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>{setRp(p=>p.filter(x=>x.id!==r.id));setSp(p=>p.filter(x=>x.recetaId!==r.id));supaDelete("recetas_produccion","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
       </div>}
     </div>
     <div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
@@ -1049,27 +1076,31 @@ setFecha(req.fecha);
 setEditId(req.id);
 setModal("form");
 }
-function guardar(){
+async function guardar(){
 const f=items.filter(i=>i.cantidad>0);
 if(!f.length){alert("Agrega al menos una cantidad > 0");return;}
 if(editId){
-setReqs(p=>p.map(r=>r.id===editId?{...r,fecha,items:f}:r));
+  await supaPatch("requerimientos","?id=eq."+editId,{fecha,items:f}).catch(console.error);
+  setReqs(p=>p.map(r=>r.id===editId?{...r,fecha,items:f}:r));
 }else{
-setReqs(p=>[{id:Date.now(),sucursal:sucSel,fecha,semana:getWeek(),estado:"borrador",items:f,despacho:[]},...p]);
+  const data={sucursal:sucSel,fecha,semana:getWeek(),estado:"borrador",items:f,despacho:[]};
+  const[created]=await supaPost("requerimientos",data).catch(()=>[data]);
+  setReqs(p=>[{...data,...created},...p]);
 }
 setModal(null);
 }
-function enviar(id){
+async function enviar(id){
+await supaPatch("requerimientos","?id=eq."+id,{estado:"enviado"}).catch(console.error);
 setReqs(p=>p.map(r=>r.id===id?{...r,estado:"enviado"}:r));
 }
 function abrirDespacho(req){
-// Precarga despacho con cantidades solicitadas como máximo
 const d=req.items.map(it=>({prodId:it.prodId,cantDespachada:it.cantidad}));
 setDespacho(d);
 setDespachoId(req.id);
 setModal("despacho");
 }
-function guardarDespacho(){
+async function guardarDespacho(){
+await supaPatch("requerimientos","?id=eq."+despachoId,{estado:"entregado",despacho}).catch(console.error);
 setReqs(p=>p.map(r=>r.id===despachoId?{...r,estado:"entregado",despacho}:r));
 setModal(null);
 }
@@ -1686,13 +1717,14 @@ const ant=[...p]
 
 }
 // Actualizar campo de una fila
+const saveRegTimer=useRef(null);
 function setFila(itemId,campo,valor){
-setRegsSucs(p=>p.map(r=>{
+setRegsSucs(p=>{
+const next=p.map(r=>{
 if(r.sucursal!==sucSel||r.fecha!==fecha)return r;
 const filas=r.filas.map(f=>{
 if(f.itemId!==itemId)return f;
 const upd={...f,[campo]:valor};
-// recalcular stockFinal
 const ini=parseFloat(upd.invInicial)||0;
 const ing=parseFloat(upd.ingreso)||0;
 const egr=parseFloat(upd.egreso)||0;
@@ -1700,31 +1732,59 @@ upd.stockFinal=ini+ing-egr;
 return upd;
 });
 return{...r,filas};
-}));
+});
+// debounce save
+clearTimeout(saveRegTimer.current);
+saveRegTimer.current=setTimeout(()=>{
+const reg=next.find(r=>r.sucursal===sucSel&&r.fecha===fecha);
+if(reg){
+if(reg.id&&reg.id<1000000000000){
+supaPatch("registros_sucursales","?id=eq."+reg.id,{filas:reg.filas}).catch(console.error);
+}else{
+const{id:_,...data}=reg;
+supaPost("registros_sucursales",data).then(([created])=>{
+if(created?.id) setRegsSucs(pp=>pp.map(r=>r.sucursal===sucSel&&r.fecha===fecha?{...r,id:created.id}:r));
+}).catch(console.error);
+}
+}
+},800);
+return next;
+});
+}
+function syncInvSuc(suc,nuevoItems){
+  supaUpsert("inventario_sucursales",{sucursal:suc,items:nuevoItems}).catch(console.error);
 }
 // CRUD ítems
 function saveItem(){
 if(!formItem.nombre.trim())return;
 let nuevaLista=null;
+let nuevosItems=null;
 setInvSucs(p=>p.map(s=>{
 if(s.sucursal!==sucSel)return s;
 if(editItem){
-return{...s,items:s.items.map(i=>i.id===editItem.id?{...editItem,...formItem}:i)};
+nuevosItems=s.items.map(i=>i.id===editItem.id?{...editItem,...formItem}:i);
+return{...s,items:nuevosItems};
 }else{
 const nid=Math.max(0,...s.items.map(i=>i.id))+1;
 const nuevoItem={id:nid,...formItem};
 nuevaLista=[...s.items,nuevoItem];
+nuevosItems=nuevaLista;
 return{...s,items:nuevaLista};
 }
 }));
-// Si se agregó un ítem nuevo, agregar su fila al registro del día
+if(nuevosItems) syncInvSuc(sucSel,nuevosItems);
 if(!editItem&&nuevaLista){
 setTimeout(()=>asegurarReg(fecha,sucSel,nuevaLista),50);
 }
 setModal(null);setEditItem(null);setFormItem({nombre:"",categoria:cats2[0]||"",unidad:"",stockMin:0,proveedorId:provs[0]?.id||1});
 }
 function eliminarItem(id){
-setConfirmar({msg:"¿Eliminar este ítem del inventario de "+sucSel+"?",fn:()=>setInvSucs(p=>p.map(s=>s.sucursal!==sucSel?s:{...s,items:s.items.filter(i=>i.id!==id)}))});
+setConfirmar({msg:"¿Eliminar este ítem del inventario de "+sucSel+"?",fn:()=>{
+const sData=invSucs.find(s=>s.sucursal===sucSel);
+const nuevosItems=(sData?.items||[]).filter(i=>i.id!==id);
+setInvSucs(p=>p.map(s=>s.sucursal!==sucSel?s:{...s,items:nuevosItems}));
+syncInvSuc(sucSel,nuevosItems);
+}});
 }
 // Excel import
 async function onXlsx(e){
@@ -1898,17 +1958,28 @@ return <div>
               </>
               :<Btn s="sm" v="success" disabled={!hayVentas}
                 xtra={!hayVentas?{opacity:0.4,cursor:"not-allowed"}:{}}
-                onClick={()=>{
+                onClick={async()=>{
                   if(!hayVentas)return;
+                  let regFinal=null;
                   setRegsSucs(p=>{
                     const existe=p.find(r=>r.sucursal===sucSel&&r.fecha===fecha);
                     if(existe){
-                      return p.map(r=>r.sucursal===sucSel&&r.fecha===fecha?{...r,estado:"cerrado"}:r);
+                      regFinal={...existe,estado:"cerrado"};
+                      return p.map(r=>r.sucursal===sucSel&&r.fecha===fecha?regFinal:r);
                     }else{
                       const filas=items.map(i=>({itemId:i.id,invInicial:0,ingreso:0,egreso:0,stockFinal:0,stockReal:"",obs:""}));
-                      return[...p,{id:Date.now(),numInv:nextNumInv(sucSel,p),sucursal:sucSel,fecha,filas,ventas:[],estado:"cerrado"}];
+                      regFinal={id:Date.now(),numInv:nextNumInv(sucSel,p),sucursal:sucSel,fecha,filas,ventas:[],estado:"cerrado"};
+                      return[...p,regFinal];
                     }
                   });
+                  if(regFinal){
+                    if(regFinal.id&&typeof regFinal.id==="number"&&regFinal.id>1000000000000){
+                      const{id:_,...data}=regFinal;
+                      supaPost("registros_sucursales",data).catch(console.error);
+                    }else{
+                      supaPatch("registros_sucursales","?id=eq."+regFinal.id,{estado:"cerrado"}).catch(console.error);
+                    }
+                  }
                   setDiaCerrado(true);
                 }}>Cerrar día</Btn>
             }
@@ -2118,10 +2189,11 @@ setDCants(p=>({...p,[rId]:val}));
 const dResumen=rv.map(r=>({r,cant:dCants[r.id]||0})).filter(x=>x.cant>0);
 const dTotalIngreso=dResumen.reduce((s,{r,cant})=>s+r.precio*cant,0);
 const dTotalCosto=dResumen.reduce((s,{r,cant})=>s+cc(r)*cant,0);
-function confirmarDia(){
+async function confirmarDia(){
 if(!dResumen.length){return;}
-const nuevas=dResumen.map(({r,cant})=>({id:Date.now()+Math.random(),fecha:dFecha,sucursal:dSuc,rId:r.id,cant}));
-setVentas(p=>[...nuevas,...p]);
+const nuevas=dResumen.map(({r,cant})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant}));
+await Promise.all(nuevas.map(v=>supaPost("ventas",v).catch(console.error)));
+setVentas(p=>[...nuevas.map((v,i)=>({...v,id:Date.now()+i})),...p]);
 
 // Calcular egresos por ítem de sucursal según recetas vendidas
 const egresosPorItem={};
@@ -2152,12 +2224,17 @@ setRegsSucs(p=>{
       return{...f,egreso:parseFloat(nuevoEgreso.toFixed(4)),stockFinal:ini+ing-nuevoEgreso};
     });
   }
+  let regActualizado=null;
   if(existe){
-    return p.map(r=>r.sucursal===dSuc&&r.fecha===dFecha?{...r,filas:actualizarFilas(r.filas)}:r);
+    regActualizado={...existe,filas:actualizarFilas(existe.filas)};
+    supaPatch("registros_sucursales","?id=eq."+existe.id,{filas:regActualizado.filas}).catch(console.error);
+    return p.map(r=>r.sucursal===dSuc&&r.fecha===dFecha?regActualizado:r);
   }else{
-    // Crear registro del día con egresos pre-cargados
     const filas=actualizarFilas(filaBase);
-    return[...p,{id:Date.now(),sucursal:dSuc,fecha:dFecha,filas,ventas:[],estado:"abierto"}];
+    regActualizado={id:Date.now(),sucursal:dSuc,fecha:dFecha,filas,ventas:[],estado:"abierto"};
+    const{id:_,...data}=regActualizado;
+    supaPost("registros_sucursales",data).catch(console.error);
+    return[...p,regActualizado];
   }
 });
 setModal(false);
@@ -2382,26 +2459,31 @@ const[editUser,setEditUser]=useState(null);
 const[modalUser,setModalUser]=useState(false);
 const[formUser,setFormUser]=useState({nombre:"",email:"",password:"",rol:"staff_suc",sucursal:sucs[0]||"",activo:true});
 const[confirmar,setConfirmar]=useState(null);
-function guardarSuc(){
+async function guardarSuc(){
 const nombre=editSuc.nombre.trim();
 if(!nombre)return;
 const anterior=sucs[editSuc.idx];
 setSucs(p=>p.map((s,i)=>i===editSuc.idx?nombre:s));
-// Renombrar en invSucs y regsSucs
 setInvSucs(p=>p.map(s=>s.sucursal===anterior?{...s,sucursal:nombre}:s));
 setRegsSucs(p=>p.map(r=>r.sucursal===anterior?{...r,sucursal:nombre}:r));
+await supaPatch("sucursales","?nombre=eq."+encodeURIComponent(anterior),{nombre}).catch(console.error);
 setEditSuc(null);
 }
-function agregarSuc(){
+async function agregarSuc(){
 const nombre=nuevaSuc.trim();
 if(!nombre||sucs.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
 setSucs(p=>[...p,nombre]);
-// Crear entrada vacía en invSucs para la nueva sucursal
 setInvSucs(p=>[...p,{sucursal:nombre,items:[]}]);
+await supaPost("sucursales",{nombre}).catch(console.error);
+await supaUpsert("inventario_sucursales",{sucursal:nombre,items:[]}).catch(console.error);
 setNuevaSuc("");
 }
 function eliminarSuc(idx){
-setConfirmar({msg:"Eliminar sucursal "+sucs[idx]+"?",fn:()=>setSucs(p=>p.filter((_,i)=>i!==idx))});
+const nom=sucs[idx];
+setConfirmar({msg:"Eliminar sucursal "+nom+"?",fn:async()=>{
+setSucs(p=>p.filter((_,i)=>i!==idx));
+await supaDelete("sucursales","?nombre=eq."+encodeURIComponent(nom)).catch(console.error);
+}});
 }
 function descargarPlantillaSuc(nombre){
 if(!xlsxReady){alert("SheetJS cargando...");return;}
@@ -2411,39 +2493,15 @@ const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Requerimiento");
 window.XLSX.writeFile(wb,"requerimiento*"+nombre.replace(/ /g,"*")+".xlsx");
 }
-function guardarCat(){
-const nombre=editCat.nombre.trim();
-if(!nombre)return;
-setCats(p=>p.map((c,i)=>i===editCat.idx?nombre:c));
-setEditCat(null);
-}
-function agregarCat(){
-const nombre=nuevaCat.trim();
-if(!nombre||cats.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
-setCats(p=>[...p,nombre]);
-setNuevaCat("");
-}
-function eliminarCat(idx){
-setConfirmar({msg:"Eliminar categoría "+cats[idx]+"? Los ítems con esta categoría quedarán sin clasificar.",fn:()=>setCats(p=>p.filter((_,i)=>i!==idx))});
-}
-function guardarCatV(){
-const nombre=editCatV.nombre.trim();
-if(!nombre)return;
-setCatV(p=>p.map((c,i)=>i===editCatV.idx?nombre:c));
-setEditCatV(null);
-}
-function agregarCatV(){
-const nombre=nuevaCatV.trim();
-if(!nombre||catV.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
-setCatV(p=>[...p,nombre]);
-setNuevaCatV("");
-}
-function eliminarCatV(idx){
-setConfirmar({msg:"Eliminar categoría de venta "+catV[idx]+"? Las recetas con esta categoría quedarán sin clasificar.",fn:()=>setCatV(p=>p.filter((_,i)=>i!==idx))});
-}
-function guardarCat2(){const nombre=editCat2.nombre.trim();if(!nombre)return;setCats2(p=>p.map((c,i)=>i===editCat2.idx?nombre:c));setEditCat2(null);}
-function agregarCat2(){const nombre=nuevaCat2.trim();if(!nombre||cats2.includes(nombre)){alert("Nombre vacío o ya existe.");return;}setCats2(p=>[...p,nombre]);setNuevaCat2("");}
-function eliminarCat2(idx){setConfirmar({msg:"Eliminar categoría "+cats2[idx]+"?",fn:()=>setCats2(p=>p.filter((_,i)=>i!==idx))});}
+function guardarCat(){const nombre=editCat.nombre.trim();if(!nombre)return;const ant=cats[editCat.idx];setCats(p=>p.map((c,i)=>i===editCat.idx?nombre:c));supaPatch("categorias_inv","?nombre=eq."+encodeURIComponent(ant),{nombre}).catch(console.error);setEditCat(null);}
+function agregarCat(){const nombre=nuevaCat.trim();if(!nombre||cats.includes(nombre)){alert("Nombre vacío o ya existe.");return;}setCats(p=>[...p,nombre]);supaPost("categorias_inv",{nombre}).catch(console.error);setNuevaCat("");}
+function eliminarCat(idx){const nom=cats[idx];setConfirmar({msg:"Eliminar categoría "+nom+"? Los ítems con esta categoría quedarán sin clasificar.",fn:()=>{setCats(p=>p.filter((_,i)=>i!==idx));supaDelete("categorias_inv","?nombre=eq."+encodeURIComponent(nom)).catch(console.error);}});}
+function guardarCatV(){const nombre=editCatV.nombre.trim();if(!nombre)return;const ant=catV[editCatV.idx];setCatV(p=>p.map((c,i)=>i===editCatV.idx?nombre:c));supaPatch("categorias_venta","?nombre=eq."+encodeURIComponent(ant),{nombre}).catch(console.error);setEditCatV(null);}
+function agregarCatV(){const nombre=nuevaCatV.trim();if(!nombre||catV.includes(nombre)){alert("Nombre vacío o ya existe.");return;}setCatV(p=>[...p,nombre]);supaPost("categorias_venta",{nombre}).catch(console.error);setNuevaCatV("");}
+function eliminarCatV(idx){const nom=catV[idx];setConfirmar({msg:"Eliminar categoría de venta "+nom+"? Las recetas con esta categoría quedarán sin clasificar.",fn:()=>{setCatV(p=>p.filter((_,i)=>i!==idx));supaDelete("categorias_venta","?nombre=eq."+encodeURIComponent(nom)).catch(console.error);}});}
+function guardarCat2(){const nombre=editCat2.nombre.trim();if(!nombre)return;const ant=cats2[editCat2.idx];setCats2(p=>p.map((c,i)=>i===editCat2.idx?nombre:c));supaPatch("categorias_inv_suc","?nombre=eq."+encodeURIComponent(ant),{nombre}).catch(console.error);setEditCat2(null);}
+function agregarCat2(){const nombre=nuevaCat2.trim();if(!nombre||cats2.includes(nombre)){alert("Nombre vacío o ya existe.");return;}setCats2(p=>[...p,nombre]);supaPost("categorias_inv_suc",{nombre}).catch(console.error);setNuevaCat2("");}
+function eliminarCat2(idx){const nom=cats2[idx];setConfirmar({msg:"Eliminar categoría "+nom+"?",fn:()=>{setCats2(p=>p.filter((_,i)=>i!==idx));supaDelete("categorias_inv_suc","?nombre=eq."+encodeURIComponent(nom)).catch(console.error);}});}
 return <div>
 <div style={{marginBottom:24}}>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CONFIGURACIÓN</h1>
@@ -2598,7 +2656,7 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
         <div style={{display:"flex",gap:6}}>
           <button onClick={()=>{setEditProv(p);setFormProv({nombre:p.nombre,tipo:p.tipo,contacto:p.contacto||"",notas:p.notas||""});setModalProv(true);}}
             style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
-          {p.tipo!=="produccion"&&<button onClick={()=>setConfirmar({msg:"Eliminar proveedor "+p.nombre+"?",fn:()=>setProvs(prev=>prev.filter(x=>x.id!==p.id))})}
+          {p.tipo!=="produccion"&&<button onClick={()=>setConfirmar({msg:"Eliminar proveedor "+p.nombre+"?",fn:()=>{setProvs(prev=>prev.filter(x=>x.id!==p.id));supaDelete("proveedores","?id=eq."+p.id).catch(console.error);}})}
             style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>}
         </div>
       </div>
@@ -2625,12 +2683,14 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
   </div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
     <Btn v="ghost" onClick={()=>setModalProv(false)}>Cancelar</Btn>
-    <Btn onClick={()=>{
+    <Btn onClick={async()=>{
       if(!formProv.nombre.trim())return;
       if(editProv){
+        await supaPatch("proveedores","?id=eq."+editProv.id,formProv).catch(console.error);
         setProvs(p=>p.map(x=>x.id===editProv.id?{...editProv,...formProv}:x));
       }else{
-        setProvs(p=>[...p,{id:Math.max(0,...p.map(x=>x.id))+1,...formProv}]);
+        const[created]=await supaPost("proveedores",formProv).catch(()=>[formProv]);
+        setProvs(p=>[...p,created||formProv]);
       }
       setModalProv(false);
     }}>Guardar</Btn>
@@ -2654,7 +2714,7 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
         <div style={{display:"flex",gap:6}}>
           <button onClick={()=>{setEditUser(u);setFormUser({nombre:u.nombre,email:u.email,password:u.password,rol:u.rol,sucursal:u.sucursal||sucs[0]||"",activo:u.activo});setModalUser(true);}}
             style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
-          {u.rol!=="superadmin"&&<button onClick={()=>setConfirmar({msg:"Eliminar usuario "+u.nombre+"?",fn:()=>setUsers(p=>p.filter(x=>x.id!==u.id))})}
+          {u.rol!=="superadmin"&&<button onClick={()=>setConfirmar({msg:"Eliminar usuario "+u.nombre+"?",fn:()=>{setUsers(p=>p.filter(x=>x.id!==u.id));supaDelete("users","?id=eq."+u.id).catch(console.error);}})}
             style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>}
         </div>
       </div>
@@ -2692,13 +2752,16 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
   </div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
     <Btn v="ghost" onClick={()=>setModalUser(false)}>Cancelar</Btn>
-    <Btn onClick={()=>{
+    <Btn onClick={async()=>{
       if(!formUser.nombre.trim()||!formUser.email.trim()||!formUser.password.trim())return;
       const suc=(formUser.rol==="admin_suc"||formUser.rol==="staff_suc")?formUser.sucursal:null;
+      const data={...formUser,sucursal:suc};
       if(editUser){
-        setUsers(p=>p.map(u=>u.id===editUser.id?{...editUser,...formUser,sucursal:suc}:u));
+        await supaPatch("users","?id=eq."+editUser.id,data).catch(console.error);
+        setUsers(p=>p.map(u=>u.id===editUser.id?{...editUser,...data}:u));
       }else{
-        setUsers(p=>[...p,{id:Math.max(0,...p.map(u=>u.id))+1,...formUser,sucursal:suc}]);
+        const[created]=await supaPost("users",data).catch(()=>[data]);
+        setUsers(p=>[...p,created||data]);
       }
       setModalUser(false);
     }}>Guardar</Btn>
