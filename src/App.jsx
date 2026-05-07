@@ -1,0 +1,2710 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+// ── Supabase config ──────────────────────────────────────────────────────────
+const SUPA_URL = "https://paqgselmbbtndgmbtbym.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhcWdzZWxtYmJ0bmRnbWJ0YnltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjMxODEsImV4cCI6MjA5MDk5OTE4MX0.l_T4xe-Q85kIWblq9OM3mudQftyaD3tzONFZ35q34Zs";
+async function supa(table, method="GET", body=null, query="") {
+const url = SUPA_URL + "/rest/v1/" + table + query;
+const res = await fetch(url, {
+method,
+headers: {
+"apikey": SUPA_KEY,
+"Authorization": "Bearer " + SUPA_KEY,
+"Content-Type": "application/json",
+"Prefer": method==="POST"?"return=representation":"",
+},
+body: body ? JSON.stringify(body) : null,
+});
+if(!res.ok) { const e=await res.text(); throw new Error(e); }
+const text = await res.text();
+return text ? JSON.parse(text) : [];
+}
+// Helpers
+const supaGet = (table, query="") => supa(table, "GET", null, query);
+const supaPost = (table, body) => supa(table, "POST", body);
+const supaPatch = (table, query, body) => supa(table, "PATCH", body, query);
+const supaDelete = (table, query) => supa(table, "DELETE", null, query);
+const BG="#0F0E0C",SRF="#1A1916",CRD="#222018",BRD="#2E2C26";
+const ACC="#F5A623",RED="#E84040",GRN="#3ECF8E",BLU="#4A9EFF";
+const PRP="#9B72FF",TXT="#F0EDE6",MUT="#8A8578",FNT="#3A3830";
+const b1=(c)=>"1px solid "+c;
+const iSUCS=["Sucursal Norte","Sucursal Sur","Sucursal Centro"];
+const iCATS=["Carnes","Vegetales","Lácteos","Panadería","Salsas","Bebidas","Congelados","Secos","Insumos"];
+const iCATV=["Hamburguesas","Papas / Snacks","Bebidas","Postres"];
+const iCATS2=["Carnes","Salsas","Panadería","Vegetales","Bebidas","Insumos"];
+const iPROVS=[
+{id:1,nombre:"Centro de Producción",tipo:"produccion",contacto:"",notas:""},
+{id:2,nombre:"Coca-Cola",tipo:"externo",contacto:"",notas:""},
+{id:3,nombre:"Tipti",tipo:"externo",contacto:"",notas:""},
+{id:4,nombre:"La Masa",tipo:"externo",contacto:"",notas:""},
+];
+// Ítems base por sucursal: {sucursal, items:[{id,nombre,categoria,unidad}]}
+const iINVS=[
+{sucursal:"Sucursal Norte",items:[
+{id:1,nombre:"Bolita de carne 120g",categoria:"Carnes",unidad:"und",stockMin:300,proveedorId:1},
+{id:2,nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stockMin:120,proveedorId:4},
+{id:3,nombre:"Salsa Borgers 1L",categoria:"Salsas",unidad:"litro",stockMin:3,proveedorId:1},
+{id:4,nombre:"Coca-Cola 330ml",categoria:"Bebidas",unidad:"lata",stockMin:24,proveedorId:2},
+]},
+{sucursal:"Sucursal Sur",items:[
+{id:1,nombre:"Bolita de carne 120g",categoria:"Carnes",unidad:"und",stockMin:300,proveedorId:1},
+{id:2,nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stockMin:120,proveedorId:4},
+{id:3,nombre:"Salsa Borgers 1L",categoria:"Salsas",unidad:"litro",stockMin:3,proveedorId:1},
+{id:4,nombre:"Coca-Cola 330ml",categoria:"Bebidas",unidad:"lata",stockMin:24,proveedorId:2},
+]},
+{sucursal:"Sucursal Centro",items:[
+{id:1,nombre:"Bolita de carne 120g",categoria:"Carnes",unidad:"und",stockMin:300,proveedorId:1},
+{id:2,nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stockMin:120,proveedorId:4},
+{id:3,nombre:"Salsa Borgers 1L",categoria:"Salsas",unidad:"litro",stockMin:3,proveedorId:1},
+{id:4,nombre:"Coca-Cola 330ml",categoria:"Bebidas",unidad:"lata",stockMin:24,proveedorId:2},
+]},
+];
+// Registros diarios de inventario por sucursal
+// [{id, sucursal, fecha, filas:[{itemId, invInicial, ingreso, stockReal, obs}]}]
+const iREGS=[];
+// Usuarios iniciales
+const iUSERS=[
+{id:1,nombre:"Luis",email:"luis@borgers.com",password:"admin123",rol:"superadmin",sucursal:null,activo:true},
+{id:2,nombre:"Admin Norte",email:"norte@borgers.com",password:"norte123",rol:"admin_suc",sucursal:"Sucursal Norte",activo:true},
+{id:3,nombre:"Staff Norte",email:"staffnorte@borgers.com",password:"staff123",rol:"staff_suc",sucursal:"Sucursal Norte",activo:true},
+{id:4,nombre:"Producción",email:"prod@borgers.com",password:"prod123",rol:"produccion",sucursal:null,activo:true},
+];
+// Helper de permisos
+function puedePor(user,accion){
+if(!user)return false;
+const r=user.rol;
+const p={
+// Módulos visibles
+ver_inv:        ["superadmin","produccion"],
+ver_prod:       ["superadmin","produccion"],
+ver_recetas:    ["superadmin","admin_suc","produccion"],
+ver_req:        ["superadmin","admin_suc","staff_suc","produccion"],
+ver_comp:       ["superadmin","produccion"],
+ver_invsuc:     ["superadmin","admin_suc","staff_suc"],
+ver_cos:        ["superadmin","admin_suc","staff_suc"],
+ver_hist:       ["superadmin","admin_suc","produccion"],
+ver_config:     ["superadmin"],
+// Acciones
+editar_recetas: ["superadmin"],
+despacho:       ["superadmin","produccion"],
+cerrar_dia:     ["superadmin","admin_suc","staff_suc"],
+nuevo_inv:      ["superadmin","admin_suc","staff_suc"],
+config_total:   ["superadmin"],
+crear_req:      ["superadmin","admin_suc","staff_suc"],
+registrar_venta:["superadmin","admin_suc","staff_suc"],
+};
+return (p[accion]||[]).includes(r);
+}
+const iINV=[
+{id:1,nombre:"Carne de res 80/20",categoria:"Carnes",unidad:"kg",stock:45,stockMin:20,costo:8500,proveedor:"Carnes Premium SA"},
+{id:2,nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stock:120,stockMin:60,costo:350,proveedor:"Panadería Central"},
+{id:3,nombre:"Queso cheddar",categoria:"Lácteos",unidad:"kg",stock:12,stockMin:8,costo:9200,proveedor:"Lácteos del Sur"},
+{id:4,nombre:"Lechuga",categoria:"Vegetales",unidad:"kg",stock:8,stockMin:5,costo:1200,proveedor:"Verduras Frescas"},
+{id:5,nombre:"Tomate",categoria:"Vegetales",unidad:"kg",stock:10,stockMin:6,costo:950,proveedor:"Verduras Frescas"},
+{id:6,nombre:"Cebolla morada",categoria:"Vegetales",unidad:"kg",stock:7,stockMin:4,costo:780,proveedor:"Verduras Frescas"},
+{id:7,nombre:"Papas congeladas",categoria:"Congelados",unidad:"kg",stock:80,stockMin:40,costo:2100,proveedor:"FoodService"},
+{id:8,nombre:"Coca-Cola 330ml",categoria:"Bebidas",unidad:"lata",stock:200,stockMin:80,costo:680,proveedor:"Distribuidora Bebidas"},
+{id:9,nombre:"Aceite vegetal",categoria:"Secos",unidad:"litro",stock:25,stockMin:10,costo:1800,proveedor:"FoodService"},
+{id:10,nombre:"Tocino",categoria:"Carnes",unidad:"kg",stock:9,stockMin:5,costo:12000,proveedor:"Carnes Premium SA"},
+{id:11,nombre:"Huevos",categoria:"Lácteos",unidad:"und",stock:60,stockMin:30,costo:200,proveedor:"Avícola Norte"},
+{id:12,nombre:"Mayonesa industrial",categoria:"Salsas",unidad:"kg",stock:5,stockMin:3,costo:3200,proveedor:"FoodService"},
+{id:13,nombre:"Mostaza amarilla",categoria:"Salsas",unidad:"kg",stock:4,stockMin:2,costo:2800,proveedor:"FoodService"},
+];
+const iRP=[
+{id:1,nombre:"Bolita de carne 120g",unidad:"und",rendimiento:10,ings:[{invId:1,cantidad:1.3,unidad:"kg"}]},
+{id:2,nombre:"Salsa Borgers 1L",unidad:"litro",rendimiento:1,ings:[{invId:6,cantidad:0.15,unidad:"kg"},{invId:4,cantidad:0.08,unidad:"kg"},{invId:12,cantidad:0.1,unidad:"kg"}]},
+{id:3,nombre:"Mix papas sazonadas",unidad:"kg",rendimiento:1,ings:[{invId:7,cantidad:1.1,unidad:"kg"},{invId:9,cantidad:0.05,unidad:"litro"}]},
+];
+const iSP=[{recetaId:1,stock:20},{recetaId:2,stock:5},{recetaId:3,stock:8}];
+const iRV=[
+{id:1,nombre:"Borger Clásico",categoria:"Hamburguesas",precio:9900,ings:[{tipo:"prod",refId:1,cantidad:1,unidad:"und",sucItemNombre:"Bolita de carne 120g"},{tipo:"inv",refId:2,cantidad:1,unidad:"und",sucItemNombre:"Pan de hamburguesa"},{tipo:"inv",refId:3,cantidad:0.04,unidad:"kg"},{tipo:"inv",refId:4,cantidad:0.03,unidad:"kg"},{tipo:"inv",refId:5,cantidad:0.04,unidad:"kg"},{tipo:"prod",refId:2,cantidad:0.03,unidad:"litro",sucItemNombre:"Salsa Borgers 1L"}]},
+{id:2,nombre:"Borger Doble",categoria:"Hamburguesas",precio:13900,ings:[{tipo:"prod",refId:1,cantidad:2,unidad:"und",sucItemNombre:"Bolita de carne 120g"},{tipo:"inv",refId:2,cantidad:1,unidad:"und",sucItemNombre:"Pan de hamburguesa"},{tipo:"inv",refId:3,cantidad:0.06,unidad:"kg"},{tipo:"inv",refId:5,cantidad:0.04,unidad:"kg"},{tipo:"prod",refId:2,cantidad:0.04,unidad:"litro",sucItemNombre:"Salsa Borgers 1L"}]},
+{id:3,nombre:"Papas Borgers",categoria:"Papas / Snacks",precio:3500,ings:[{tipo:"prod",refId:3,cantidad:0.2,unidad:"kg"}]},
+];
+// Requerimientos ahora son por sucursal individual
+const iRQ=[
+{id:1,sucursal:"Sucursal Norte",fecha:"2025-03-25",semana:"2025-W13",estado:"enviado",items:[{prodId:1,cantidad:40},{prodId:2,cantidad:3}],despacho:[]},
+{id:2,sucursal:"Sucursal Sur",fecha:"2025-03-25",semana:"2025-W13",estado:"enviado",items:[{prodId:1,cantidad:30},{prodId:3,cantidad:20}],despacho:[]},
+{id:3,sucursal:"Sucursal Centro",fecha:"2025-03-25",semana:"2025-W13",estado:"enviado",items:[{prodId:1,cantidad:25},{prodId:2,cantidad:2}],despacho:[]},
+];
+const fmt=n=>new Intl.NumberFormat("es-CL",{style:"currency",currency:"CLP",minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
+const fmtN=n=>new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
+const fmtC=n=>(parseFloat(n)||0).toFixed(2);
+const today=()=>new Date().toISOString().split("T")[0];
+const getWeek=()=>{const d=new Date(),j=new Date(d.getFullYear(),0,4),w=Math.ceil(((d-j)/86400000+j.getDay()+1)/7);return d.getFullYear()+"-W"+String(w).padStart(2,"0");};
+const globalCss="@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');"
++"*{box-sizing:border-box;margin:0;padding:0}"
++"body{background:"+BG+";color:"+TXT+";font-family:'DM Sans',sans-serif}"
++"::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:"+SRF+"}::-webkit-scrollbar-thumb{background:"+FNT+";border-radius:2px}"
++"input,select{background:"+BG+";color:"+TXT+";border:1px solid "+BRD+";border-radius:6px;padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:13px;outline:none}"
++"input:focus,select:focus{border-color:"+ACC+"}"
++"button{cursor:pointer;font-family:'DM Sans',sans-serif;border:none}"
++"table{border-collapse:collapse;width:100%}"
++"th{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:"+MUT+";padding:8px 12px;text-align:left;border-bottom:1px solid "+BRD+"}"
++"td{padding:10px 12px;font-size:13px;border-bottom:1px solid "+FNT+"}"
++"tr:hover td{background:"+SRF+"}"
++".tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}";
+// ── SheetJS loader ──────────────────────────────────────────────────────────
+function useSheetJS(){
+const [ready,setReady]=useState(!!window.XLSX);
+useEffect(()=>{
+if(window.XLSX){setReady(true);return;}
+const s=document.createElement("script");
+s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+s.onload=()=>setReady(true);
+document.head.appendChild(s);
+},[]);
+return ready;
+}
+function readXLSX(file){
+return new Promise((res,rej)=>{
+const r=new FileReader();
+r.onload=ev=>{
+try{
+const wb=window.XLSX.read(ev.target.result,{type:"array"});
+const ws=wb.Sheets[wb.SheetNames[0]];
+const data=window.XLSX.utils.sheet_to_json(ws,{defval:""});
+res(data);
+}catch(e){rej(e);}
+};
+r.onerror=rej;
+r.readAsArrayBuffer(file);
+});
+}
+// ── Componentes base ────────────────────────────────────────────────────────
+function Bdg({c,children}){
+const m={green:[GRN+"22",GRN],red:[RED+"22",RED],orange:[ACC+"22",ACC],blue:[BLU+"22",BLU],purple:[PRP+"22",PRP],muted:[FNT,MUT]};
+const[bg,fg]=m[c]||m.muted;
+return <span className="tag" style={{background:bg,color:fg}}>{children}</span>;
+}
+function Btn({children,onClick,v="primary",s="md",disabled,xtra={}}){
+const vs={primary:{background:ACC,color:"#000",fontWeight:600},ghost:{background:"transparent",color:TXT,border:b1(BRD)},success:{background:GRN+"22",color:GRN,border:b1(GRN+"44")}};
+const sz={sm:{padding:"5px 12px",fontSize:12},md:{padding:"8px 16px",fontSize:13}};
+return <button onClick={onClick} disabled={disabled} style={{borderRadius:8,opacity:disabled?0.5:1,...vs[v],...sz[s],...xtra}}>{children}</button>;
+}
+function Card({children,xtra={}}){return <div style={{background:CRD,border:b1(BRD),borderRadius:12,padding:20,...xtra}}>{children}</div>;}
+function LI({label,children}){return <div><label style={{fontSize:11,color:MUT,display:"block",marginBottom:5}}>{label}</label>{children}</div>;}
+function SC({label,value,sub,color=ACC,icon}){
+return <Card><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontSize:11,color:MUT,fontWeight:600,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>{label}</div><div style={{fontFamily:"'Bebas Neue'",fontSize:32,color:color,letterSpacing:1}}>{value}</div>{sub&&<div style={{fontSize:12,color:MUT,marginTop:4}}>{sub}</div>}</div>{icon&&<span style={{fontSize:28,opacity:0.5}}>{icon}</span>}</div></Card>;
+}
+function Mdl({title,onClose,children,wide}){
+return <div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+<div style={{background:CRD,border:b1(BRD),borderRadius:16,width:"100%",maxWidth:wide?900:520,maxHeight:"90vh",overflow:"auto"}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 24px",borderBottom:b1(BRD)}}>
+<span style={{fontFamily:"'Bebas Neue'",fontSize:22,color:ACC}}>{title}</span>
+<button onClick={onClose} style={{background:FNT,color:MUT,border:"none",borderRadius:6,padding:"4px 10px"}}>X</button>
+</div>
+<div style={{padding:24}}>{children}</div>
+</div>
+  </div>;
+}
+function Confirmar({mensaje,onSi,onNo}){
+return <div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+<div style={{background:CRD,border:b1(BRD),borderRadius:16,width:"100%",maxWidth:380,padding:28,textAlign:"center"}}>
+<div style={{fontSize:28,marginBottom:12}}>🗑</div>
+<div style={{fontWeight:600,fontSize:15,marginBottom:8}}>Confirmar eliminación</div>
+<div style={{fontSize:13,color:MUT,marginBottom:24}}>{mensaje}</div>
+<div style={{display:"flex",gap:10,justifyContent:"center"}}>
+<Btn v="ghost" onClick={onNo}>Cancelar</Btn>
+<Btn v="danger" xtra={{background:RED,color:"#fff",fontWeight:600}} onClick={onSi}>Sí, eliminar</Btn>
+</div>
+</div>
+  </div>;
+}
+// ── Buscador predictivo de ítems ────────────────────────────────────────────
+function BuscadorItem({opciones, valorId, onChange, placeholder="Buscar..."}){
+const opcsOrdenadas=[...opciones].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+const seleccionado=opcsOrdenadas.find(o=>o.id===valorId);
+const[query,setQuery]=useState(seleccionado?.nombre||"");
+const[abierto,setAbierto]=useState(false);
+const[highlightIdx,setHighlightIdx]=useState(0);
+const ref=useRef();
+const filtrados=opcsOrdenadas.filter(o=>o.nombre.toLowerCase().includes(query.toLowerCase()));
+useEffect(()=>{
+// Si cambia valorId externamente, actualizar texto
+const sel=opcsOrdenadas.find(o=>o.id===valorId);
+if(sel&&sel.nombre!==query&&!abierto)setQuery(sel.nombre);
+},[valorId]);
+useEffect(()=>{setHighlightIdx(0);},[query]);
+function seleccionar(opc){
+setQuery(opc.nombre);
+setAbierto(false);
+onChange(opc.id);
+}
+function onKey(e){
+if(!abierto){setAbierto(true);return;}
+if(e.key==="ArrowDown"){e.preventDefault();setHighlightIdx(i=>Math.min(i+1,filtrados.length-1));}
+else if(e.key==="ArrowUp"){e.preventDefault();setHighlightIdx(i=>Math.max(i-1,0));}
+else if(e.key==="Enter"){e.preventDefault();if(filtrados[highlightIdx])seleccionar(filtrados[highlightIdx]);}
+else if(e.key==="Escape"){setAbierto(false);const sel=opcsOrdenadas.find(o=>o.id===valorId);if(sel)setQuery(sel.nombre);}
+}
+return(
+<div ref={ref} style={{position:"relative",flex:1}}>
+<input
+value={query}
+onChange={e=>{setQuery(e.target.value);setAbierto(true);}}
+onFocus={()=>setAbierto(true)}
+onBlur={()=>setTimeout(()=>setAbierto(false),150)}
+onKeyDown={onKey}
+placeholder={placeholder}
+style={{width:"100%"}}
+autoComplete="off"
+/>
+{abierto&&filtrados.length>0&&(
+<div style={{position:"absolute",top:"100%",left:0,right:0,background:CRD,border:b1(BRD),borderRadius:8,zIndex:500,maxHeight:200,overflowY:"auto",marginTop:2,boxShadow:"0 8px 24px #00000066"}}>
+{filtrados.map((o,i)=>(
+<div key={o.id}
+onMouseDown={()=>seleccionar(o)}
+style={{padding:"8px 12px",fontSize:13,cursor:"pointer",background:i===highlightIdx?ACC+"22":"transparent",color:i===highlightIdx?ACC:TXT,borderBottom:i<filtrados.length-1?b1(FNT):"none"}}>
+{o.nombre}
+{o.unidad&&<span style={{fontSize:11,color:MUT,marginLeft:6}}>{o.unidad}</span>}
+</div>
+))}
+</div>
+)}
+{abierto&&filtrados.length===0&&query&&(
+<div style={{position:"absolute",top:"100%",left:0,right:0,background:CRD,border:b1(BRD),borderRadius:8,zIndex:500,padding:"10px 12px",fontSize:13,color:MUT,marginTop:2}}>
+Sin resultados para "{query}"
+</div>
+)}
+</div>
+);
+}
+// ── Buscador predictivo por texto (para sucItemNombre) ─────────────────────
+function BuscadorTexto({opciones,valor,onChange,placeholder="Buscar..."}){
+const opts=[...opciones].sort((a,b)=>a.localeCompare(b,"es"));
+const[query,setQuery]=useState(valor||"");
+const[abierto,setAbierto]=useState(false);
+const[hi,setHi]=useState(0);
+useEffect(()=>{if(!abierto)setQuery(valor||"");},[valor]);
+useEffect(()=>{setHi(0);},[query]);
+const filtrados=opts.filter(o=>o.toLowerCase().includes(query.toLowerCase()));
+function seleccionar(v){setQuery(v);setAbierto(false);onChange(v);}
+function onKey(e){
+if(!abierto){setAbierto(true);return;}
+if(e.key==="ArrowDown"){e.preventDefault();setHi(i=>Math.min(i+1,filtrados.length-1));}
+else if(e.key==="ArrowUp"){e.preventDefault();setHi(i=>Math.max(i-1,0));}
+else if(e.key==="Enter"){e.preventDefault();if(filtrados[hi])seleccionar(filtrados[hi]);}
+else if(e.key==="Escape"){setAbierto(false);setQuery(valor||"");}
+}
+return <div style={{position:"relative",flex:1}}>
+<input value={query}
+onChange={e=>{setQuery(e.target.value);setAbierto(true);onChange(e.target.value);}}
+onFocus={()=>setAbierto(true)}
+onBlur={()=>setTimeout(()=>setAbierto(false),150)}
+onKeyDown={onKey}
+placeholder={placeholder}
+style={{width:"100%"}}
+autoComplete="off"
+/>
+{abierto&&filtrados.length>0&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:CRD,border:b1(BRD),borderRadius:8,zIndex:500,maxHeight:180,overflowY:"auto",marginTop:2,boxShadow:"0 8px 24px #00000066"}}>
+{filtrados.map((o,i)=><div key={i} onMouseDown={()=>seleccionar(o)}
+style={{padding:"8px 12px",fontSize:13,cursor:"pointer",background:i===hi?ACC+"22":"transparent",color:i===hi?ACC:TXT,borderBottom:i<filtrados.length-1?b1(FNT):"none"}}>
+{o}
+</div>)}
+</div>}
+{abierto&&filtrados.length===0&&query&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:CRD,border:b1(BRD),borderRadius:8,zIndex:500,padding:"10px 12px",fontSize:13,color:MUT,marginTop:2}}>
+Sin resultados
+</div>}
+  </div>;
+}
+// ── Login ───────────────────────────────────────────────────────────────────
+function Login({users,onLogin}){
+const[email,setEmail]=useState("");
+const[pass,setPass]=useState("");
+const[error,setError]=useState("");
+function intentarLogin(){
+const u=users.find(u=>u.email.toLowerCase()===email.toLowerCase()&&u.password===pass&&u.activo);
+if(u){onLogin(u);setError("");}
+else setError("Email o contraseña incorrectos");
+}
+return <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+<div style={{width:"100%",maxWidth:400}}>
+<div style={{textAlign:"center",marginBottom:40}}>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:64,color:ACC,letterSpacing:4,lineHeight:1}}>BORGERS</div>
+<div style={{fontSize:13,color:MUT,letterSpacing:".1em",marginTop:4}}>SISTEMA DE GESTIÓN</div>
+</div>
+<Card>
+<div style={{marginBottom:20}}>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:22,color:TXT,letterSpacing:2,marginBottom:4}}>INICIAR SESIÓN</div>
+<div style={{fontSize:12,color:MUT}}>Ingresa tus credenciales para continuar</div>
+</div>
+<div style={{display:"grid",gap:14,marginBottom:20}}>
+<LI label="Email">
+<input type="email" value={email} onChange={e=>setEmail(e.target.value)}
+onKeyDown={e=>e.key==="Enter"&&intentarLogin()}
+style={{width:"100%"}} placeholder="tu@email.com" autoComplete="email"/>
+</LI>
+<LI label="Contraseña">
+<input type="password" value={pass} onChange={e=>setPass(e.target.value)}
+onKeyDown={e=>e.key==="Enter"&&intentarLogin()}
+style={{width:"100%"}} placeholder="••••••••" autoComplete="current-password"/>
+</LI>
+</div>
+{error&&<div style={{background:RED+"18",color:RED,borderRadius:8,padding:"10px 14px",fontSize:13,marginBottom:16,border:b1(RED+"44")}}>{error}</div>}
+<Btn onClick={intentarLogin} xtra={{width:"100%",textAlign:"center",padding:"12px"}}>Ingresar</Btn>
+</Card>
+</div>
+  </div>;
+}
+// ── App Root ────────────────────────────────────────────────────────────────
+export default function App(){
+const xlsxReady=useSheetJS();
+const[tab,setTab]=useState("inicio");
+const[cargando,setCargando]=useState(true);
+const[inv,setInv]=useState(iINV);
+const[sp,setSp]=useState(iSP);
+const[rp,setRp]=useState(iRP);
+const[rv,setRv]=useState(iRV);
+const[reqs,setReqs]=useState(iRQ);
+const[hI,setHI]=useState([]);
+const[hC,setHC]=useState([]);
+const[sucs,setSucs]=useState(iSUCS);
+const[cats,setCats]=useState(iCATS);
+const[catV,setCatV]=useState(iCATV);
+const[cats2,setCats2]=useState(iCATS2);
+const[invSucs,setInvSucs]=useState(iINVS);
+const[regsSucs,setRegsSucs]=useState(iREGS);
+const[provs,setProvs]=useState(iPROVS);
+const[ventas,setVentas]=useState([]);
+const[users,setUsers]=useState(iUSERS);
+const[userActivo,setUserActivo]=useState(null);
+// Cargar datos desde Supabase al iniciar
+useEffect(()=>{
+async function cargarDatos(){
+try{
+const[
+dbUsers,dbSucs,dbCatsInv,dbCatsVenta,dbCatsInvSuc,
+dbProvs,dbInv,dbRp,dbRv,dbReqs,
+dbInvSucs,dbRegs,dbVentas
+]=await Promise.all([
+supaGet("users","?select=*&order=created_at"),
+supaGet("sucursales","?select=*&order=nombre"),
+supaGet("categorias_inv","?select=*"),
+supaGet("categorias_venta","?select=*"),
+supaGet("categorias_inv_suc","?select=*"),
+supaGet("proveedores","?select=*&order=created_at"),
+supaGet("inventario","?select=*&order=nombre"),
+supaGet("recetas_produccion","?select=*&order=nombre"),
+supaGet("recetas_venta","?select=*&order=nombre"),
+supaGet("requerimientos","?select=*&order=created_at.desc"),
+supaGet("inventario_sucursales","?select=*"),
+supaGet("registros_sucursales","?select=*&order=fecha.desc"),
+supaGet("ventas","?select=*&order=fecha.desc"),
+]);
+
+    if(dbUsers.length>0) setUsers(dbUsers.map(u=>({...u,id:u.id})));
+    if(dbSucs.length>0) setSucs(dbSucs.map(s=>s.nombre));
+    if(dbCatsInv.length>0) setCats(dbCatsInv.map(c=>c.nombre));
+    if(dbCatsVenta.length>0) setCatV(dbCatsVenta.map(c=>c.nombre));
+    if(dbCatsInvSuc.length>0) setCats2(dbCatsInvSuc.map(c=>c.nombre));
+    if(dbProvs.length>0) setProvs(dbProvs.map((p,i)=>({...p,id:p.id||i+1})));
+    if(dbInv.length>0) setInv(dbInv.map((i,idx)=>({...i,id:i.id||idx+1,stockMin:i.stock_min||0})));
+    if(dbRp.length>0) setRp(dbRp.map((r,i)=>({...r,id:r.id||i+1,ings:r.ings||[]})));
+    if(dbRv.length>0) setRv(dbRv.map((r,i)=>({...r,id:r.id||i+1,ings:r.ings||[]})));
+    if(dbReqs.length>0) setReqs(dbReqs.map((r,i)=>({...r,id:r.id||i+1,items:r.items||[],despacho:r.despacho||[]})));
+    if(dbInvSucs.length>0) setInvSucs(dbInvSucs.map(s=>({sucursal:s.sucursal,items:s.items||[]})));
+    if(dbRegs.length>0) setRegsSucs(dbRegs.map((r,i)=>({...r,id:r.id||i+1,numInv:r.num_inv,filas:r.filas||[],ventas:r.ventas||[]})));
+    if(dbVentas.length>0) setVentas(dbVentas.map((v,i)=>({...v,id:v.id||i+1,rId:v.receta_id,cant:v.cantidad})));
+  }catch(err){
+    console.error("Error cargando datos:",err);
+  }finally{
+    setCargando(false);
+  }
+}
+cargarDatos();
+
+},[]);
+const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo};
+const[menuAbierto,setMenuAbierto]=useState(true);
+// puede debe definirse antes de allTabs — usa userActivo que puede ser null
+const puede=(accion)=>puedePor(userActivo,accion);
+const allTabs=[
+{id:"inicio",l:"Inicio",i:"🏠",perm:null},
+{id:"dash",l:"Dashboard",i:"📊",perm:"ver_config"},
+{id:"inv",l:"Inventario",i:"📦",perm:"ver_inv"},
+{id:"prod",l:"Stock Producción",i:"🏭",perm:"ver_prod"},
+{id:"rec",l:"Recetas",i:"📋",perm:"ver_recetas"},
+{id:"req",l:"Requerimientos",i:"🏪",perm:"ver_req"},
+{id:"comp",l:"Lista Compras",i:"🛒",perm:"ver_comp"},
+{id:"invsuc",l:"Inv. Sucursales",i:"🏬",perm:"ver_invsuc"},
+{id:"cos",l:"Costos & Ingresos",i:"💰",perm:"ver_cos"},
+{id:"hist",l:"Historial",i:"🕐",perm:"ver_hist"},
+{id:"config",l:"Configuración",i:"⚙️",perm:"ver_config"},
+];
+const T=allTabs.filter(t=>!t.perm||puede(t.perm));
+// Pantalla de carga
+if(cargando) return <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:64,color:ACC,letterSpacing:4}}>BORGERS</div>
+<div style={{fontSize:13,color:MUT}}>Cargando datos...</div>
+<div style={{width:40,height:40,border:"3px solid "+BRD,borderTop:"3px solid "+ACC,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}></div>
+<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+  </div>;
+// Login gate — después de todos los hooks
+if(!userActivo) return <Login users={users} onLogin={setUserActivo}/>;
+return <>
+<style>{globalCss}</style>
+<div style={{display:"flex",minHeight:"100vh"}}>
+{/* Menú lateral */}
+<div style={{width:menuAbierto?220:56,background:SRF,borderRight:b1(BRD),display:"flex",flexDirection:"column",position:"fixed",height:"100vh",zIndex:100,transition:"width 0.2s ease",overflow:"hidden"}}>
+<div style={{padding:"16px 12px",borderBottom:b1(BRD),display:"flex",alignItems:"center",justifyContent:menuAbierto?"space-between":"center"}}>
+{menuAbierto&&<div>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:36,color:ACC,letterSpacing:3,lineHeight:1}}>BORGERS</div>
+<div style={{fontSize:11,color:MUT,letterSpacing:".1em",marginTop:2}}>SISTEMA DE GESTIÓN</div>
+</div>}
+<button onClick={()=>setMenuAbierto(p=>!p)} style={{background:"transparent",border:"none",color:MUT,cursor:"pointer",padding:6,borderRadius:6,display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+<span style={{display:"block",width:18,height:2,background:MUT,borderRadius:1}}></span>
+<span style={{display:"block",width:18,height:2,background:MUT,borderRadius:1}}></span>
+<span style={{display:"block",width:18,height:2,background:MUT,borderRadius:1}}></span>
+</button>
+</div>
+<nav style={{flex:1,padding:"12px 8px",overflowY:"auto"}}>
+{T.map(t=>{const a=tab===t.id;return <button key={t.id} onClick={()=>setTab(t.id)} title={t.l} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",borderRadius:8,marginBottom:2,background:a?ACC+"18":"transparent",color:a?ACC:MUT,border:"none",textAlign:"left",fontSize:13,fontWeight:a?600:400,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden"}}><span style={{flexShrink:0}}>{t.i}</span>{menuAbierto&&t.l}</button>;})}
+</nav>
+<div style={{padding:menuAbierto?"12px 16px":"8px",borderTop:b1(BRD)}}>
+{menuAbierto
+?<div>
+<div style={{fontSize:12,fontWeight:600,color:TXT,marginBottom:2}}>{userActivo.nombre}</div>
+<div style={{fontSize:11,color:MUT,marginBottom:8}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:"Producción"}</div>
+<button onClick={()=>{setUserActivo(null);setTab("inicio");}} style={{fontSize:11,color:RED,background:"transparent",border:"none",cursor:"pointer",padding:0}}>Cerrar sesión</button>
+</div>
+:<button onClick={()=>{setUserActivo(null);setTab("inicio");}} title="Cerrar sesión" style={{background:"transparent",border:"none",color:RED,cursor:"pointer",fontSize:16,width:"100%",textAlign:"center"}}>⏏</button>
+}
+</div>
+</div>
+<div style={{marginLeft:menuAbierto?220:56,flex:1,padding:28,minWidth:0,transition:"margin-left 0.2s ease"}}>
+{tab==="inicio"&&<Inicio userActivo={userActivo} setTab={setTab} tabs={T}/>
+}{tab==="dash"&&<Dash {...sh} puede={puede}/>}
+{tab==="inv"&&<Inv {...sh}/>}
+{tab==="prod"&&<Prod {...sh}/>}
+{tab==="rec"&&<Rec {...sh} puede={puede}/>}
+{tab==="req"&&<Req {...sh} puede={puede} userActivo={userActivo}/>}
+{tab==="comp"&&<Comp {...sh}/>}
+{tab==="invsuc"&&<InvSuc {...sh} puede={puede}/>}
+{tab==="cos"&&<Cos {...sh} puede={puede} userActivo={userActivo}/>}
+{tab==="hist"&&<Hist {...sh} userActivo={userActivo}/>}
+{tab==="config"&&<Config {...sh} puede={puede}/>}
+</div>
+</div>
+</>;
+}
+// ── Dashboard ───────────────────────────────────────────────────────────────
+// ── Inicio (todos los usuarios) ─────────────────────────────────────────────
+function Inicio({userActivo,setTab,tabs}){
+const modulosAccesibles=(tabs||[]).filter(t=>t.id!=="inicio"&&t.id!=="dash");
+const hora=new Date().getHours();
+const saludo=hora<12?"Buenos días":hora<18?"Buenas tardes":"Buenas noches";
+return <div>
+<div style={{marginBottom:32}}>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:48,color:ACC,letterSpacing:3,lineHeight:1}}>BORGERS</div>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:28,letterSpacing:1,marginTop:8,marginBottom:4}}>
+{saludo}, {userActivo?.nombre}
+</h1>
+<p style={{color:MUT,fontSize:13}}>{new Date().toLocaleDateString("es-CL",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>
+</div>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:MUT,letterSpacing:1,marginBottom:16}}>TUS MÓDULOS</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
+{modulosAccesibles.map(t=><button key={t.id} onClick={()=>setTab(t.id)}
+style={{background:CRD,border:b1(BRD),borderRadius:12,padding:"24px 16px",cursor:"pointer",textAlign:"left",display:"block",width:"100%"}}
+onMouseEnter={e=>e.currentTarget.style.borderColor=ACC}
+onMouseLeave={e=>e.currentTarget.style.borderColor=BRD}>
+<div style={{fontSize:32,marginBottom:10}}>{t.i}</div>
+<div style={{fontWeight:600,fontSize:14,color:TXT}}>{t.l}</div>
+</button>)}
+</div>
+  </div>;
+}
+// ── Dashboard (solo superadmin) ──────────────────────────────────────────────
+function Dash({inv,sp,rp,rv,reqs}){
+const bajo=inv.filter(i=>i.stock<=i.stockMin);
+const val=inv.reduce((s,i)=>s+i.stock*i.costo,0);
+const pendReqs=reqs.filter(r=>r.estado==="enviado");
+const totalUnids=pendReqs.reduce((s,r)=>s+r.items.reduce((ss,i)=>ss+i.cantidad,0),0);
+const res=rp.map(r=>{
+const sa=sp.find(s=>s.recetaId===r.id)?.stock||0;
+const tr=pendReqs.reduce((s,req)=>s+req.items.filter(i=>i.prodId===r.id).reduce((ss,i)=>ss+i.cantidad,0),0);
+return{n:r.nombre,sa,tr,el:Math.max(0,tr-sa)};
+}).filter(r=>r.tr>0);
+return <div>
+<div style={{marginBottom:24}}>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>DASHBOARD</h1>
+<p style={{color:MUT,fontSize:13}}>{new Date().toLocaleDateString("es-CL",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>
+</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
+<SC label="Valor Inventario" value={fmt(val)} sub={inv.length+" ítems"} icon="📦"/>
+<SC label="Bajo Stock" value={bajo.length} sub="Ítems bajo mínimo" color={bajo.length>0?RED:GRN} icon="⚠️"/>
+<SC label="Reqs. Enviados" value={pendReqs.length} sub={totalUnids+" unidades totales"} color={ACC} icon="🏪"/>
+<SC label="Recetas Venta" value={rv.length} sub="Productos activos" color={BLU} icon="📋"/>
+</div>
+<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+<Card>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,marginBottom:16}}>INVENTARIO BAJO MÍNIMO</div>
+{bajo.length===0?<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Todo en orden</div>:
+<table><thead><tr><th>Ítem</th><th>Stock</th><th>Mínimo</th></tr></thead>
+<tbody>{bajo.map(i=><tr key={i.id}><td>{i.nombre}</td><td style={{fontFamily:"'DM Mono'",color:RED}}>{fmtN(i.stock)} {i.unidad}</td><td style={{fontFamily:"'DM Mono'",color:MUT}}>{fmtN(i.stockMin)}</td></tr>)}</tbody>
+</table>}
+</Card>
+<Card>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,marginBottom:16}}>PRODUCCIÓN ESTA SEMANA</div>
+{res.length===0?<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Sin requerimientos pendientes</div>:
+<table><thead><tr><th>Producto</th><th>Stock</th><th>Req. Total</th><th>Elaborar</th></tr></thead>
+<tbody>{res.map((r,i)=><tr key={i}><td style={{fontSize:12}}>{r.n}</td><td style={{fontFamily:"'DM Mono'",color:MUT}}>{r.sa}</td><td style={{fontFamily:"'DM Mono'"}}>{r.tr}</td><td style={{fontFamily:"'DM Mono'",color:r.el>0?ACC:GRN,fontWeight:600}}>{r.el}</td></tr>)}</tbody>
+</table>}
+</Card>
+</div>
+  </div>;
+}
+// ── Inventario ──────────────────────────────────────────────────────────────
+function Inv({inv,setInv,setHI,xlsxReady,cats}){
+const[modal,setModal]=useState(null);
+const[edit,setEdit]=useState(null);
+const[mF,setMF]=useState(false);
+const[cF,setCF]=useState({});
+const[fil,setFil]=useState("");
+const[cat,setCat]=useState("Todas");
+const[importPreview,setImportPreview]=useState(null);
+const[confirmar,setConfirmar]=useState(null);
+const refXlsx=useRef();
+const f0={nombre:"",categoria:"Carnes",unidad:"kg",stock:0,stockMin:0,costo:0,proveedor:""};
+const[form,setForm]=useState(f0);
+const lista=inv.filter(i=>(cat==="Todas"||i.categoria===cat)&&i.nombre.toLowerCase().includes(fil.toLowerCase()));
+function save(){
+if(!form.nombre)return;
+if(edit)setInv(p=>p.map(i=>i.id===edit.id?{...edit,...form}:i));
+else setInv(p=>[...p,{id:Math.max(0,...p.map(i=>i.id))+1,...form}]);
+setModal(null);setEdit(null);setForm(f0);
+}
+function startF(){const cf={};inv.forEach(i=>{cf[i.id]=i.stock;});setCF(cf);setMF(true);}
+function saveF(){
+const d=inv.filter(i=>cF[i.id]!==i.stock).map(i=>({id:i.id,nombre:i.nombre,anterior:i.stock,nuevo:cF[i.id]}));
+setInv(p=>p.map(i=>({...i,stock:cF[i.id]??i.stock})));
+setHI(p=>[...p,{id:Date.now(),fecha:today(),tipo:"Inventario Físico",descripcion:d.length+" ítems ajustados",diffs:d}]);
+setMF(false);alert("Inventario físico guardado. "+d.length+" ítems ajustados.");
+}
+async function onXlsx(e){
+const file=e.target.files[0];if(!file)return;
+e.target.value="";
+if(!xlsxReady){alert("SheetJS aún cargando, intenta en un momento.");return;}
+try{
+const rows=await readXLSX(file);
+// Mapear columnas flexibles
+const mapped=rows.map((row,idx)=>{
+const keys=Object.keys(row).map(k=>k.toLowerCase().trim());
+const get=(names)=>{for(const n of names){const k=Object.keys(row).find(k=>k.toLowerCase().trim()===n);if(k!==undefined&&row[k]!=="")return row[k];}return "";};
+return{
+id:Math.max(0,...inv.map(i=>i.id))+idx+1,
+nombre:String(get(["nombre","item","ingrediente","name"])||"").trim(),
+categoria:String(get(["categoria","categoría","category"])||"Secos").trim(),
+unidad:String(get(["unidad","unit","ud"])||"und").trim(),
+stock:parseFloat(get(["stock","cantidad","qty","quantity"]))||0,
+stockMin:parseFloat(get(["stockmin","stock minimo","stock mínimo","minimo","mínimo","min"]))||0,
+costo:parseFloat(get(["costo","costounit","costo unit","precio","price","cost"]))||0,
+proveedor:String(get(["proveedor","supplier","prov"])||"").trim(),
+};
+}).filter(i=>i.nombre);
+setImportPreview(mapped);
+setModal("preview");
+}catch(err){alert("Error leyendo el archivo: "+err.message);}
+}
+function confirmarImport(){
+setInv(importPreview);
+setImportPreview(null);
+setModal(null);
+alert(importPreview.length+" ítems importados. El inventario fue reemplazado.");
+}
+function descargarPlantilla(){
+if(!xlsxReady){alert("SheetJS cargando...");return;}
+const datos=[
+{nombre:"Carne de res 80/20",categoria:"Carnes",unidad:"kg",stock:45,stockMin:20,costo:8500,proveedor:"Carnes Premium SA"},
+{nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stock:120,stockMin:60,costo:350,proveedor:"Panadería Central"},
+];
+const ws=window.XLSX.utils.json_to_sheet(datos);
+const wb=window.XLSX.utils.book_new();
+window.XLSX.utils.book_append_sheet(wb,ws,"Inventario");
+window.XLSX.writeFile(wb,"plantilla_inventario_borgers.xlsx");
+}
+if(mF)return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>INVENTARIO FÍSICO</h1></div>
+<div style={{display:"flex",gap:10}}><Btn v="ghost" onClick={()=>setMF(false)}>Cancelar</Btn><Btn onClick={saveF}>Confirmar</Btn></div>
+</div>
+<Card xtra={{padding:0}}>
+<table><thead><tr><th>Ítem</th><th>Categoría</th><th>Sistema</th><th>Físico</th><th>Diferencia</th></tr></thead>
+<tbody>{inv.map(i=>{const d=(cF[i.id]??i.stock)-i.stock;return <tr key={i.id}><td>{i.nombre}</td><td style={{color:MUT}}>{i.categoria}</td><td style={{fontFamily:"'DM Mono'"}}>{i.stock}</td><td><input type="number" value={cF[i.id]??i.stock} step="0.01" onChange={e=>setCF(p=>({...p,[i.id]:parseFloat(e.target.value)||0}))} style={{width:80}}/></td><td style={{fontFamily:"'DM Mono'",color:d===0?MUT:d>0?GRN:RED,fontWeight:d!==0?600:400}}>{d>0?"+":""}{d.toFixed(2)}</td></tr>;})}</tbody>
+</table>
+</Card>
+  </div>;
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<div>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>INVENTARIO</h1>
+<p style={{color:MUT,fontSize:13}}>{inv.length+" ítems · "+fmt(inv.reduce((s,i)=>s+i.stock*i.costo,0))}</p>
+</div>
+<div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
+<Btn v="ghost" s="sm" onClick={descargarPlantilla} disabled={!xlsxReady}>📥 Plantilla Excel</Btn>
+<Btn v="ghost" s="sm" onClick={()=>refXlsx.current.click()} disabled={!xlsxReady}>📤 Subir Excel</Btn>
+<input ref={refXlsx} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={onXlsx}/>
+<Btn v="success" s="sm" onClick={startF}>🔢 Inv. Físico</Btn>
+<Btn s="sm" onClick={()=>{setEdit(null);setForm(f0);setModal("f");}}>+ Agregar</Btn>
+</div>
+</div>
+<div style={{display:"flex",gap:12,marginBottom:20}}>
+<input placeholder="Buscar..." value={fil} onChange={e=>setFil(e.target.value)} style={{flex:1}}/>
+<select value={cat} onChange={e=>setCat(e.target.value)}>
+<option>Todas</option>{cats.map(c=><option key={c}>{c}</option>)}
+</select>
+</div>
+<Card xtra={{padding:0}}>
+<table>
+<thead><tr><th>Nombre</th><th>Cat.</th><th>Stock</th><th>Mín.</th><th>Costo</th><th>Valor Total</th><th>Proveedor</th><th>Estado</th><th></th></tr></thead>
+<tbody>{lista.map(i=>{
+const bajo=i.stock<=i.stockMin;
+return <tr key={i.id}>
+<td style={{fontWeight:500}}>{i.nombre}</td>
+<td style={{color:MUT,fontSize:12}}>{i.categoria}</td>
+<td style={{fontFamily:"'DM Mono'",color:bajo?RED:TXT}}>{fmtN(i.stock)} {i.unidad}</td>
+<td style={{fontFamily:"'DM Mono'",color:MUT}}>{fmtN(i.stockMin)}</td>
+<td style={{fontFamily:"'DM Mono'"}}>{fmt(i.costo)}</td>
+<td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmt(i.stock*i.costo)}</td>
+<td style={{color:MUT,fontSize:12}}>{i.proveedor}</td>
+<td><Bdg c={bajo?"red":"green"}>{bajo?"Bajo":"OK"}</Bdg></td>
+<td><div style={{display:"flex",gap:6}}>
+<button onClick={()=>{setEdit(i);setForm({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stock:i.stock,stockMin:i.stockMin,costo:i.costo,proveedor:i.proveedor});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+<button onClick={()=>setConfirmar({msg:"¿Eliminar "+i.nombre+"?",fn:()=>setInv(p=>p.filter(x=>x.id!==i.id))})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+</div></td>
+</tr>;
+})}</tbody>
+</table>
+</Card>
+
+{modal==="preview" && importPreview && (
+  <Mdl title={"PREVIEW — "+importPreview.length+" ÍTEMS A IMPORTAR"} onClose={()=>setModal(null)} wide>
+    <div style={{background:BG,borderRadius:8,padding:12,marginBottom:16,fontSize:12,color:MUT}}>
+      Este archivo reemplazará el inventario actual completamente. Verifica que los datos sean correctos.
+    </div>
+    <div style={{maxHeight:360,overflow:"auto",marginBottom:16}}>
+      <table>
+        <thead><tr><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Stock</th><th>Mín.</th><th>Costo</th><th>Proveedor</th></tr></thead>
+        <tbody>{importPreview.map((i,idx)=><tr key={idx}><td style={{fontWeight:500}}>{i.nombre}</td><td style={{color:MUT}}>{i.categoria}</td><td style={{color:MUT}}>{i.unidad}</td><td style={{fontFamily:"'DM Mono'"}}>{fmtN(i.stock)}</td><td style={{fontFamily:"'DM Mono'"}}>{fmtN(i.stockMin)}</td><td style={{fontFamily:"'DM Mono'"}}>{fmt(i.costo)}</td><td style={{color:MUT,fontSize:12}}>{i.proveedor}</td></tr>)}</tbody>
+      </table>
+    </div>
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+      <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+      <Btn onClick={confirmarImport}>Confirmar Importación</Btn>
+    </div>
+  </Mdl>
+)}
+{modal==="f" && (
+  <Mdl title={edit?"EDITAR ÍTEM":"NUEVO ÍTEM"} onClose={()=>setModal(null)}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+      <div style={{gridColumn:"1/3"}}><LI label="Nombre"><input value={form.nombre} onChange={e=>setForm(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
+      <LI label="Categoría"><select value={form.categoria} onChange={e=>setForm(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>{cats.map(c=><option key={c}>{c}</option>)}</select></LI>
+      <LI label="Unidad"><input value={form.unidad} onChange={e=>setForm(p=>({...p,unidad:e.target.value}))} style={{width:"100%"}}/></LI>
+      <LI label="Stock"><input type="number" step="0.01" value={form.stock} onChange={e=>setForm(p=>({...p,stock:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+      <LI label="Stock mínimo"><input type="number" step="0.01" value={form.stockMin} onChange={e=>setForm(p=>({...p,stockMin:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+      <LI label="Costo ($)"><input type="number" step="0.01" value={form.costo} onChange={e=>setForm(p=>({...p,costo:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+      <div style={{gridColumn:"1/3"}}><LI label="Proveedor"><input value={form.proveedor} onChange={e=>setForm(p=>({...p,proveedor:e.target.value}))} style={{width:"100%"}}/></LI></div>
+    </div>
+    <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
+      <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+      <Btn onClick={save}>Guardar</Btn>
+    </div>
+  </Mdl>
+)}
+{confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+
+  </div>;
+}
+// ── Stock Producción ────────────────────────────────────────────────────────
+function Prod({rp,sp,setSp,inv,reqs}){
+const[mF,setMF]=useState(false);
+const[cF,setCF]=useState({});
+const pendReqs=reqs.filter(r=>r.estado==="enviado");
+const gs=id=>sp.find(s=>s.recetaId===id)?.stock||0;
+const ss=(id,v)=>setSp(p=>{const e=p.find(s=>s.recetaId===id);return e?p.map(s=>s.recetaId===id?{...s,stock:Math.max(0,v)}:s):[...p,{recetaId:id,stock:Math.max(0,v)}];});
+const gr=id=>pendReqs.reduce((s,req)=>s+req.items.filter(i=>i.prodId===id).reduce((ss,i)=>ss+i.cantidad,0),0);
+const cc=r=>r.ings.reduce((s,ing)=>{const item=inv.find(i=>i.id===ing.invId);return s+(item?item.costo*ing.cantidad:0);},0);
+if(mF)return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>STOCK FÍSICO PRODUCCIÓN</h1>
+<div style={{display:"flex",gap:10}}><Btn v="ghost" onClick={()=>setMF(false)}>Cancelar</Btn><Btn onClick={()=>{rp.forEach(r=>ss(r.id,cF[r.id]??gs(r.id)));setMF(false);alert("Stock actualizado.");}}>Confirmar</Btn></div>
+</div>
+<Card xtra={{padding:0}}>
+<table><thead><tr><th>Producto</th><th>Sistema</th><th>Físico</th><th>Diferencia</th></tr></thead>
+<tbody>{rp.map(r=>{const sys=gs(r.id),fis=cF[r.id]??sys,d=fis-sys;return <tr key={r.id}><td style={{fontWeight:500}}>{r.nombre}</td><td style={{fontFamily:"'DM Mono'"}}>{fmtN(sys)}</td><td><input type="number" step="0.01" value={fis} onChange={e=>setCF(p=>({...p,[r.id]:parseFloat(e.target.value)||0}))} style={{width:90}}/></td><td style={{fontFamily:"'DM Mono'",color:d===0?MUT:d>0?GRN:RED,fontWeight:d!==0?600:400}}>{d>0?"+":""}{d.toFixed(2)}</td></tr>;})}</tbody>
+</table>
+</Card>
+  </div>;
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>STOCK DE PRODUCCIÓN</h1><p style={{color:MUT,fontSize:13}}>Productos semi-elaborados en el centro de producción</p></div>
+<Btn v="success" onClick={()=>{const cf={};rp.forEach(r=>{cf[r.id]=gs(r.id);});setCF(cf);setMF(true);}}>Actualizar Stock Físico</Btn>
+</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:16}}>
+{rp.map(r=>{
+const sa=gs(r.id),req=gr(r.id),el=Math.max(0,req-sa),cpu=cc(r)/r.rendimiento;
+return <Card key={r.id} xtra={{borderColor:el>0?ACC+"44":BRD}}>
+<div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+<div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><div style={{fontSize:12,color:MUT}}>Rinde {r.rendimiento} {r.unidad}/tanda</div></div>
+<div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono'",fontSize:28,fontWeight:700,color:sa>0?GRN:RED}}>{fmtN(sa)}</div><div style={{fontSize:11,color:MUT}}>{r.unidad} en stock</div></div>
+</div>
+<div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
+{r.ings.map((ing,i)=>{const item=inv.find(x=>x.id===ing.invId);return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:MUT}}>{item?.nombre||"?"}</span><span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span></div>;})}
+</div>
+<div style={{background:BG,borderRadius:8,padding:12}}>
+<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,textAlign:"center"}}>
+<div><div style={{fontSize:10,color:MUT}}>Req. Total</div><div style={{fontFamily:"'DM Mono'",fontSize:18}}>{fmtN(req)}</div></div>
+<div><div style={{fontSize:10,color:MUT}}>En stock</div><div style={{fontFamily:"'DM Mono'",fontSize:18,color:GRN}}>{fmtN(sa)}</div></div>
+<div><div style={{fontSize:10,color:MUT}}>Elaborar</div><div style={{fontFamily:"'DM Mono'",fontSize:18,color:el>0?ACC:GRN,fontWeight:700}}>{fmtN(el)}</div></div>
+</div>
+{el>0&&<div style={{marginTop:8,paddingTop:8,borderTop:b1(FNT),display:"flex",justifyContent:"space-between",fontSize:12}}><span style={{color:MUT}}>Costo elaboración</span><span style={{fontFamily:"'DM Mono'",color:ACC}}>{fmt(el*cpu)}</span></div>}
+</div>
+<div style={{marginTop:12,display:"flex",alignItems:"center",gap:8}}>
+<span style={{fontSize:12,color:MUT,flex:1}}>Ajuste:</span>
+<button onClick={()=>ss(r.id,sa-1)} style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:30,height:30,fontSize:16}}>-</button>
+<span style={{fontFamily:"'DM Mono'",fontSize:14,minWidth:30,textAlign:"center"}}>{fmtN(sa)}</span>
+<button onClick={()=>ss(r.id,sa+1)} style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:30,height:30,fontSize:16}}>+</button>
+</div>
+</Card>;
+})}
+</div>
+  </div>;
+}
+// ── Recetas ─────────────────────────────────────────────────────────────────
+function Rec({rp,setRp,rv,setRv,inv,setSp,catV,invSucs,puede}){
+const[st,setSt]=useState("v");
+const[modal,setModal]=useState(null);
+const[editR,setEditR]=useState(null);
+const[confirmar,setConfirmar]=useState(null);
+const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[]};
+const fP={nombre:"",unidad:"und",rendimiento:1,ings:[]};
+const[fv,setFv]=useState(fV);
+const[fp,setFp]=useState(fP);
+const CV=catV;
+// Lista única de nombres de ítems de sucursal para el datalist
+const sucItemsUnicos=[...new Set((invSucs||[]).flatMap(s=>s.items.map(i=>i.nombre)))].sort((a,b)=>a.localeCompare(b,"es"));
+function ccv(ings){return ings.reduce((s,ing)=>{if(ing.tipo==="inv"){const item=inv.find(i=>i.id===ing.refId);return s+(item?item.costo*ing.cantidad:0);}else{const r=rp.find(x=>x.id===ing.refId);if(!r)return s;const cp=r.ings.reduce((cs,ri)=>{const item=inv.find(i=>i.id===ri.invId);return cs+(item?item.costo*ri.cantidad:0);},0);return s+(cp/r.rendimiento)*ing.cantidad;}},0);}
+function sv(){if(!fv.nombre)return;if(editR)setRv(p=>p.map(r=>r.id===editR.id?{...editR,...fv}:r));else setRv(p=>[...p,{id:Date.now(),...fv}]);setModal(null);setEditR(null);setFv(fV);}
+function sp2(){if(!fp.nombre)return;if(editR){setRp(p=>p.map(r=>r.id===editR.id?{...editR,...fp}:r));}else{const nid=Date.now();setRp(p=>[...p,{id:nid,...fp}]);setSp(p=>[...p,{recetaId:nid,stock:0}]);}setModal(null);setEditR(null);setFp(fP);}
+// FIX: al cambiar ingrediente, actualizar unidad automáticamente
+function cambiarIngV(idx,campo,valor){
+setFv(p=>({...p,ings:p.ings.map((x,i)=>{
+if(i!==idx)return x;
+const upd={...x,[campo]:valor};
+if(campo==="refId"){
+if(x.tipo==="inv"){const item=inv.find(i=>i.id===parseInt(valor));if(item)upd.unidad=item.unidad;}
+else{const r=rp.find(r=>r.id===parseInt(valor));if(r)upd.unidad=r.unidad;}
+}
+return upd;
+})}));
+}
+function cambiarIngP(idx,campo,valor){
+setFp(p=>({...p,ings:p.ings.map((x,i)=>{
+if(i!==idx)return x;
+const upd={...x,[campo]:valor};
+if(campo==="invId"){const item=inv.find(i=>i.id===parseInt(valor));if(item)upd.unidad=item.unidad;}
+return upd;
+})}));
+}
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>RECETAS</h1>
+{(!puede||puede("editar_recetas"))&&<Btn onClick={()=>{setEditR(null);st==="v"?setFv(fV):setFp(fP);setModal("f");}}>+ Nueva Receta</Btn>}
+</div>
+<div style={{display:"flex",gap:8,marginBottom:20}}>
+{[["v","Productos de Venta"],["p","Producción Interna"]]
+.filter(([id])=>id!=="p"||(puede&&(puede("editar_recetas")||puede("ver_prod"))))
+.map(([id,l])=>{const a=st===id;return <button key={id} onClick={()=>setSt(id)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT}}>{l}</button>;})}
+</div>
+
+{st==="v"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+  {rv.map(r=>{const c=ccv(r.ings),m=r.precio>0?((r.precio-c)/r.precio*100):0;return <Card key={r.id}>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+      <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="blue">{r.categoria}</Bdg></div>
+      {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
+        <button onClick={()=>{setEditR(r);setFv({nombre:r.nombre,categoria:r.categoria,precio:r.precio,ings:r.ings});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+        <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>setRv(p=>p.filter(x=>x.id!==r.id))})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+      </div>}
+    </div>
+    <div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
+      {r.ings.map((ing,i)=>{const n=ing.tipo==="inv"?inv.find(x=>x.id===ing.refId)?.nombre:rp.find(x=>x.id===ing.refId)?.nombre;return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:ing.tipo==="prod"?ACC:MUT}}>{ing.tipo==="prod"?"[P] ":""}{n||"?"}</span><span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span></div>;})}
+      <div style={{fontSize:10,color:FNT,marginTop:4}}>[P] = producción interna</div>
+    </div>
+    {(!puede||puede("editar_recetas"))&&<div style={{borderTop:b1(BRD),paddingTop:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:MUT}}>Costo</span><span style={{fontFamily:"'DM Mono'",fontSize:12}}>{fmt(c)}</span></div>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:MUT}}>Precio</span><span style={{fontFamily:"'DM Mono'",fontSize:12,color:ACC}}>{fmt(r.precio)}</span></div>
+      <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:12,color:MUT}}>Margen</span><span style={{fontFamily:"'DM Mono'",fontSize:12,color:m>50?GRN:m>30?ACC:RED}}>{m.toFixed(1)}%</span></div>
+    </div>}
+  </Card>;})}
+</div>}
+{st==="p"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+  {rp.map(r=>{const c=r.ings.reduce((s,ing)=>{const item=inv.find(i=>i.id===ing.invId);return s+(item?item.costo*ing.cantidad:0);},0);return <Card key={r.id}>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+      <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><div style={{fontSize:12,color:MUT}}>Rinde {r.rendimiento} {r.unidad}</div></div>
+      {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
+        <button onClick={()=>{setEditR(r);setFp({nombre:r.nombre,unidad:r.unidad,rendimiento:r.rendimiento,ings:r.ings});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+        <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>setRp(p=>p.filter(x=>x.id!==r.id))})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+      </div>}
+    </div>
+    <div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
+      {r.ings.map((ing,i)=>{const item=inv.find(x=>x.id===ing.invId);return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:MUT}}>{item?.nombre||"?"}</span><span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span></div>;})}
+    </div>
+    <div style={{borderTop:b1(BRD),paddingTop:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:MUT}}>Costo tanda</span><span style={{fontFamily:"'DM Mono'",fontSize:12}}>{fmt(c)}</span></div>
+      <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:12,color:MUT}}>Costo/{r.unidad}</span><span style={{fontFamily:"'DM Mono'",fontSize:12,color:ACC}}>{fmt(c/r.rendimiento)}</span></div>
+    </div>
+  </Card>;})}
+</div>}
+{modal==="f"&&st==="v"&&<Mdl title={editR?"EDITAR RECETA VENTA":"NUEVA RECETA VENTA"} onClose={()=>setModal(null)} wide>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+    <div style={{gridColumn:"1/3"}}><LI label="Nombre"><input value={fv.nombre} onChange={e=>setFv(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
+    <LI label="Categoría"><select value={fv.categoria} onChange={e=>setFv(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>{CV.map(c=><option key={c}>{c}</option>)}</select></LI>
+    <LI label="Precio ($)"><input type="number" step="0.01" value={fv.precio} onChange={e=>setFv(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+  </div>
+  <div style={{marginBottom:12}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontSize:13,fontWeight:600}}>Ingredientes</span>
+      <div style={{display:"flex",gap:8}}>
+        <Btn s="sm" v="ghost" onClick={()=>{if(!inv.length)return;const item=inv[0];setFv(p=>({...p,ings:[...p.ings,{tipo:"inv",refId:item.id,cantidad:0.1,unidad:item.unidad}]}));}}>+ Inventario</Btn>
+        <Btn s="sm" v="ghost" onClick={()=>{if(!rp.length){alert("Primero crea una receta de producción.");return;}const r=rp[0];setFv(p=>({...p,ings:[...p.ings,{tipo:"prod",refId:r.id,cantidad:1,unidad:r.unidad}]}));}}>+ Producción</Btn>
+      </div>
+    </div>
+    {fv.ings.map((ing,idx)=>(
+      <div key={idx} style={{marginBottom:10,background:BG,borderRadius:8,padding:10,border:b1(FNT)}}>
+        <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 80px 36px",gap:8,marginBottom:8,alignItems:"center"}}>
+          <div style={{fontSize:11,padding:"4px 8px",borderRadius:6,textAlign:"center",background:ing.tipo==="prod"?ACC+"18":BLU+"18",color:ing.tipo==="prod"?ACC:BLU}}>{ing.tipo==="prod"?"Prod.":"Inv."}</div>
+          <BuscadorItem
+            opciones={ing.tipo==="inv"
+              ? [...inv].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
+              : [...rp].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
+            }
+            valorId={ing.refId}
+            onChange={id=>cambiarIngV(idx,"refId",id)}
+            placeholder={ing.tipo==="inv"?"Buscar ingrediente...":"Buscar producto..."}
+          />
+          <input type="number" step="0.01" value={ing.cantidad} placeholder="Cant." onChange={e=>cambiarIngV(idx,"cantidad",parseFloat(e.target.value)||0)}/>
+          <input value={ing.unidad} placeholder="Unid." onChange={e=>cambiarIngV(idx,"unidad",e.target.value)}/>
+          <button onClick={()=>setFv(p=>({...p,ings:p.ings.filter((_,i)=>i!==idx)}))} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,height:34}}>X</button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,color:MUT,flexShrink:0}}>Descontar de inv. sucursal:</span>
+          <BuscadorTexto
+            opciones={sucItemsUnicos}
+            valor={ing.sucItemNombre||""}
+            onChange={v=>cambiarIngV(idx,"sucItemNombre",v)}
+            placeholder="Buscar ítem de sucursal..."
+          />
+          {ing.sucItemNombre&&<span style={{fontSize:10,color:GRN,flexShrink:0}}>✓</span>}
+        </div>
+      </div>
+    ))}
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={sv}>Guardar</Btn></div>
+</Mdl>}
+{modal==="f"&&st==="p"&&<Mdl title={editR?"EDITAR RECETA PROD.":"NUEVA RECETA PROD."} onClose={()=>setModal(null)} wide>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:20}}>
+    <div style={{gridColumn:"1/4"}}><LI label="Nombre"><input value={fp.nombre} onChange={e=>setFp(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
+    <LI label="Unidad"><input value={fp.unidad} onChange={e=>setFp(p=>({...p,unidad:e.target.value}))} style={{width:"100%"}}/></LI>
+    <LI label="Rendimiento/tanda"><input type="number" step="0.01" value={fp.rendimiento} onChange={e=>setFp(p=>({...p,rendimiento:parseFloat(e.target.value)||1}))} style={{width:"100%"}}/></LI>
+  </div>
+  <div style={{marginBottom:12}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{fontSize:13,fontWeight:600}}>Ingredientes (inventario)</span>
+      <Btn s="sm" v="ghost" onClick={()=>{if(!inv.length)return;const item=inv[0];setFp(p=>({...p,ings:[...p.ings,{invId:item.id,cantidad:0.1,unidad:item.unidad}]}));}}>+ Agregar</Btn>
+    </div>
+    {fp.ings.map((ing,idx)=>(
+      <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 36px",gap:8,marginBottom:8}}>
+        <BuscadorItem
+          opciones={[...inv].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))}
+          valorId={ing.invId}
+          onChange={id=>cambiarIngP(idx,"invId",id)}
+          placeholder="Buscar ingrediente..."
+        />
+        <input type="number" step="0.01" value={ing.cantidad} placeholder="Cant." onChange={e=>cambiarIngP(idx,"cantidad",parseFloat(e.target.value)||0)}/>
+        <input value={ing.unidad} placeholder="Unid." onChange={e=>cambiarIngP(idx,"unidad",e.target.value)}/>
+        <button onClick={()=>setFp(p=>({...p,ings:p.ings.filter((_,i)=>i!==idx)}))} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,height:34}}>X</button>
+      </div>
+    ))}
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={sp2}>Guardar</Btn></div>
+</Mdl>}
+{confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+
+  </div>;
+}
+// ── Requerimientos (por sucursal individual) ────────────────────────────────
+function Req({reqs,setReqs,rp,xlsxReady,sucs,invSucs,regsSucs,provs,puede,userActivo}){
+const sucsVisiblesReq=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
+?sucs.filter(s=>s===userActivo.sucursal)
+:sucs;
+const[sucSel,setSucSel]=useState(sucsVisiblesReq[0]||"");
+const[modal,setModal]=useState(null); // "nuevo" | "editar" | "despacho"
+const[items,setItems]=useState([]);
+const[fecha,setFecha]=useState(today());
+const[editId,setEditId]=useState(null);
+const[despachoId,setDespachoId]=useState(null);
+const[despacho,setDespacho]=useState([]);
+const refXlsx=useRef();
+const[modalAutoReq,setModalAutoReq]=useState(false);
+const[autoReqData,setAutoReqData]=useState(null); // {prod:[...], externos:{provId:[...]}}
+const reqsDeEsta=reqs.filter(r=>r.sucursal===sucSel);
+// Solo puede haber un req en borrador o enviado por sucursal
+const activo=reqsDeEsta.find(r=>r.estado==="borrador"||r.estado==="enviado");
+const eC={borrador:"muted",enviado:"orange",entregado:"green"};
+const eL={borrador:"Borrador",enviado:"Enviado",entregado:"Entregado"};
+function generarAutoReq(){
+// Obtener último inventario cerrado de esta sucursal
+const ultCierre=[...regsSucs]
+.filter(r=>r.sucursal===sucSel&&r.estado==="cerrado")
+.sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+if(!ultCierre){
+alert("No hay inventario cerrado para "+sucSel+". Cierra un inventario primero.");
+return;
+}
+// Obtener ítems de la sucursal
+const sucData=invSucs.find(s=>s.sucursal===sucSel);
+if(!sucData||!sucData.items.length){
+alert("No hay ítems configurados para "+sucSel+".");
+return;
+}
+// Calcular necesidad por ítem: stockMin - stockActual (del último cierre)
+const necesidades=sucData.items.map(item=>{
+const fila=ultCierre.filas.find(f=>f.itemId===item.id);
+const stockActual=fila
+?(fila.stockReal!=null&&fila.stockReal!==""
+?parseFloat(fila.stockReal)||0
+:parseFloat(fila.stockFinal)||0)
+:0;
+const necesidad=Math.max(0,(item.stockMin||0)-stockActual);
+return{item,stockActual,necesidad};
+});
+
+// Separar por proveedor — incluir TODOS los ítems, necesidad 0 = no urgente pero editable
+const prod=[];
+const externos={};
+necesidades.forEach(({item,stockActual,necesidad})=>{
+  const prov=provs.find(p=>p.id===item.proveedorId);
+  if(prov?.tipo==="produccion"){
+    const rpMatch=rp.find(r=>r.nombre.toLowerCase()===item.nombre.toLowerCase());
+    prod.push({item,stockActual,necesidad,rpId:rpMatch?.id||null,prov});
+  }else{
+    const pid=item.proveedorId||0;
+    if(!externos[pid])externos[pid]={prov:prov||{nombre:"Sin proveedor",tipo:"externo"},items:[]};
+    externos[pid].items.push({item,stockActual,necesidad});
+  }
+});
+if(!prod.length&&!Object.keys(externos).length){
+  alert("No hay ítems configurados con proveedor para "+sucSel+".");
+  return;
+}
+setAutoReqData({prod,externos,fecha:ultCierre.fecha,sucursal:sucSel});
+setModalAutoReq(true);
+
+}
+function confirmarAutoReqProd(itemsSeleccionados){
+// Incluir TODOS los ítems con cantidad > 0
+// Guardar nombre del ítem directamente, sin requerir match con recetas de producción
+const items=itemsSeleccionados.filter(i=>i.cantidad>0).map(i=>{
+// Intentar match con rp por nombre (opcional, para referencia)
+const match=rp.find(r=>
+r.nombre.toLowerCase()===( i.itemNombre||"").toLowerCase()||
+r.nombre.toLowerCase().includes((i.itemNombre||"").toLowerCase())||
+(i.itemNombre||"").toLowerCase().includes(r.nombre.toLowerCase())
+);
+return {
+prodId:i.rpId||match?.id||null,
+itemNombre:i.itemNombre, // guardar nombre siempre
+cantidad:i.cantidad
+};
+});
+if(!items.length)return;
+setReqs(p=>[{id:Date.now(),sucursal:sucSel,fecha:today(),semana:getWeek(),estado:"borrador",items,despacho:[]},...p]);
+}
+function exportarOrdenCompra(provNombre,items){
+if(!xlsxReady){alert("SheetJS cargando...");return;}
+const datos=items.map(({item,stockActual,necesidad,cantidad})=>({
+fecha:today(),
+sucursal:sucSel,
+item:item.nombre,
+cantidad_pedido:cantidad||necesidad,
+}));
+const ws=window.XLSX.utils.json_to_sheet(datos);
+const wb=window.XLSX.utils.book_new();
+window.XLSX.utils.book_append_sheet(wb,ws,"Orden");
+window.XLSX.writeFile(wb,"orden_"+provNombre.replace(/ /g,"*")+"*"+sucSel.replace(/ /g,"_")+".xlsx");
+}
+function abrirNuevo(){
+setItems(rp.map(r=>({prodId:r.id,cantidad:0})));
+setFecha(today());
+setEditId(null);
+setModal("form");
+}
+function abrirEditar(req){
+// Precarga con cantidades existentes
+const its=rp.map(r=>{
+const ex=req.items.find(i=>i.prodId===r.id);
+return{prodId:r.id,cantidad:ex?.cantidad||0};
+});
+setItems(its);
+setFecha(req.fecha);
+setEditId(req.id);
+setModal("form");
+}
+function guardar(){
+const f=items.filter(i=>i.cantidad>0);
+if(!f.length){alert("Agrega al menos una cantidad > 0");return;}
+if(editId){
+setReqs(p=>p.map(r=>r.id===editId?{...r,fecha,items:f}:r));
+}else{
+setReqs(p=>[{id:Date.now(),sucursal:sucSel,fecha,semana:getWeek(),estado:"borrador",items:f,despacho:[]},...p]);
+}
+setModal(null);
+}
+function enviar(id){
+setReqs(p=>p.map(r=>r.id===id?{...r,estado:"enviado"}:r));
+}
+function abrirDespacho(req){
+// Precarga despacho con cantidades solicitadas como máximo
+const d=req.items.map(it=>({prodId:it.prodId,cantDespachada:it.cantidad}));
+setDespacho(d);
+setDespachoId(req.id);
+setModal("despacho");
+}
+function guardarDespacho(){
+setReqs(p=>p.map(r=>r.id===despachoId?{...r,estado:"entregado",despacho}:r));
+setModal(null);
+}
+async function onXlsx(e){
+const file=e.target.files[0];if(!file)return;e.target.value="";
+if(!xlsxReady){alert("SheetJS cargando...");return;}
+try{
+const rows=await readXLSX(file);
+const get=(row,names)=>{for(const n of names){const k=Object.keys(row).find(k=>k.toLowerCase().trim()===n);if(k!==undefined&&row[k]!=="")return row[k];}return "";};
+const firstRow=rows[0]||{};
+const sucursalArchivo=String(get(firstRow,["sucursal","branch"])||sucSel).trim();
+const fechaArchivo=String(get(firstRow,["fecha","date"])||today()).trim();
+const mapped=rows.map(row=>{
+const nombreItem=String(get(row,["item","nombre","producto"])||"").trim();
+const cant=parseFloat(get(row,["requerimiento","cantidad","qty","req"]))||0;
+const prod=rp.find(r=>r.nombre.toLowerCase()===nombreItem.toLowerCase());
+return prod?{prodId:prod.id,cantidad:cant}:null;
+}).filter(i=>i&&i.cantidad>0);
+if(!mapped.length){alert("No se encontraron ítems válidos.");return;}
+setReqs(p=>[{id:Date.now(),sucursal:sucursalArchivo,fecha:fechaArchivo,semana:getWeek(),estado:"borrador",items:mapped,despacho:[]},...p]);
+alert("Requerimiento importado como borrador: "+mapped.length+" productos.");
+}catch(err){alert("Error: "+err.message);}
+}
+function descargarPlantilla(){
+if(!xlsxReady){alert("SheetJS cargando...");return;}
+const datos=rp.map(r=>({sucursal:sucSel,fecha:today(),item:r.nombre,unidad:r.unidad,requerimiento:0}));
+const ws=window.XLSX.utils.json_to_sheet(datos);
+const wb=window.XLSX.utils.book_new();
+window.XLSX.utils.book_append_sheet(wb,ws,"Requerimiento");
+window.XLSX.writeFile(wb,"requerimiento_"+sucSel.replace(/ /g,"_")+".xlsx");
+}
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<div>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>REQUERIMIENTOS</h1>
+<p style={{color:MUT,fontSize:13}}>Cada sucursal ingresa y envía su pedido al centro de producción</p>
+</div>
+<div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
+<Btn v="success" s="sm" onClick={generarAutoReq}>⚡ Generar automático</Btn>
+<Btn v="ghost" s="sm" onClick={descargarPlantilla} disabled={!xlsxReady}>📥 Plantilla</Btn>
+<Btn v="ghost" s="sm" onClick={()=>refXlsx.current.click()} disabled={!xlsxReady}>📤 Subir Excel</Btn>
+<input ref={refXlsx} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={onXlsx}/>
+<Btn onClick={abrirNuevo} disabled={!!activo}>
+{activo?"Hay req. activo":"+ Nuevo Requerimiento"}
+</Btn>
+</div>
+</div>
+
+{/* Selector de sucursal */}
+<div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+  {sucsVisiblesReq.map(s=>{const a=sucSel===s;return <button key={s} onClick={()=>setSucSel(s)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT}}>{s}</button>;})}
+</div>
+{/* Requerimiento activo */}
+{activo&&<Card xtra={{marginBottom:20,borderColor:activo.estado==="enviado"?ACC+"66":BRD}}>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+    <div>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:ACC}}>
+        {activo.estado==="borrador"?"BORRADOR":"ENVIADO"} — {activo.fecha}
+      </div>
+      <div style={{fontSize:12,color:MUT,marginTop:4}}>
+        {activo.sucursal} · <Bdg c={eC[activo.estado]}>{eL[activo.estado]}</Bdg>
+        {activo.estado==="borrador"&&<span style={{color:MUT,marginLeft:8}}>Puedes editar hasta enviarlo</span>}
+        {activo.estado==="enviado"&&<span style={{color:ACC,marginLeft:8}}>Pedido confirmado — ingresa cantidades despachadas</span>}
+      </div>
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+      {activo.estado==="borrador"&&<>
+        <Btn s="sm" v="ghost" onClick={()=>abrirEditar(activo)}>Editar</Btn>
+        <Btn s="sm" onClick={()=>enviar(activo.id)}>Enviar pedido</Btn>
+      </>}
+      {activo.estado==="enviado"&&(!puede||puede("despacho"))&&
+        <Btn s="sm" v="success" onClick={()=>abrirDespacho(activo)}>Ingresar despacho</Btn>
+      }
+    </div>
+  </div>
+  {/* Tabla: solicitado vs despachado */}
+  <table>
+    <thead>
+      <tr>
+        <th>Producto</th>
+        <th>Unidad</th>
+        <th>Solicitado</th>
+        {activo.estado==="enviado"&&<th style={{color:ACC}}>Despacho (pendiente)</th>}
+      </tr>
+    </thead>
+    <tbody>
+      {activo.items.map((it,i)=>{
+        const prod=rp.find(r=>r.id===it.prodId);
+        const nombA=it.itemNombre||prod?.nombre||"?";
+        return <tr key={i}>
+          <td style={{fontWeight:500}}>{nombA}</td>
+          <td style={{color:MUT}}>{prod?.unidad||it.unidad||""}</td>
+          <td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:600}}>{fmtN(it.cantidad)}</td>
+          {activo.estado==="enviado"&&<td style={{color:MUT,fontSize:12}}>— ingresa con "Ingresar despacho"</td>}
+        </tr>;
+      })}
+    </tbody>
+  </table>
+</Card>}
+{/* Historial */}
+<Card xtra={{padding:0}}>
+  <div style={{padding:"16px 20px",borderBottom:b1(BRD)}}>
+    <span style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC}}>HISTORIAL — {sucSel.toUpperCase()}</span>
+  </div>
+  {reqsDeEsta.length===0
+    ?<div style={{padding:32,textAlign:"center",color:MUT}}>Sin requerimientos registrados</div>
+    :<table>
+      <thead><tr><th>Fecha</th><th>Producto</th><th>Solicitado</th><th>Despachado</th><th>Estado</th></tr></thead>
+      <tbody>
+        {reqsDeEsta.map(req=>
+          req.items.map((it,i)=>{
+            const prod=rp.find(r=>r.id===it.prodId);
+            const nomb2=it.itemNombre||prod?.nombre||"?";
+            const disp=req.despacho?.find(d=>d.prodId===it.prodId);
+            const diff=disp?disp.cantDespachada-it.cantidad:null;
+            return <tr key={req.id+"-"+i}>
+              {i===0&&<td style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT,verticalAlign:"top"}} rowSpan={req.items.length}>{req.fecha}</td>}
+              <td style={{fontWeight:500,fontSize:13}}>{it.itemNombre||prod?.nombre||"?"}</td>
+              <td style={{fontFamily:"'DM Mono'"}}>{fmtN(it.cantidad)}</td>
+              <td style={{fontFamily:"'DM Mono'",color:disp?diff<0?RED:GRN:MUT}}>
+                {disp?fmtN(disp.cantDespachada):"—"}
+                {disp&&diff!==0&&<span style={{fontSize:11,marginLeft:6}}>{diff>0?"+":""}{fmtN(diff)}</span>}
+              </td>
+              {i===0&&<td rowSpan={req.items.length}><Bdg c={eC[req.estado]||"muted"}>{eL[req.estado]||req.estado}</Bdg></td>}
+            </tr>;
+          })
+        )}
+      </tbody>
+    </table>}
+</Card>
+{/* Modal: crear/editar requerimiento */}
+{/* Modal requerimiento automático */}
+{modalAutoReq&&autoReqData&&<ModalAutoReq
+  data={autoReqData}
+  rp={rp}
+  provs={provs}
+  xlsxReady={xlsxReady}
+  onClose={()=>setModalAutoReq(false)}
+  onConfirmProd={confirmarAutoReqProd}
+  onExportarCompra={exportarOrdenCompra}
+/>}
+{modal==="form"&&<Mdl title={(editId?"EDITAR":"NUEVO")+" REQUERIMIENTO — "+sucSel.toUpperCase()} onClose={()=>setModal(null)}>
+  <div style={{marginBottom:16}}>
+    <LI label="Fecha"><input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} style={{width:"100%"}}/></LI>
+  </div>
+  <div style={{marginBottom:12}}>
+    <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Cantidades requeridas</div>
+    {rp.map(r=>{
+      const val=items.find(i=>i.prodId===r.id)?.cantidad||0;
+      return <div key={r.id} style={{display:"grid",gridTemplateColumns:"1fr 110px 60px",gap:10,marginBottom:10,alignItems:"center"}}>
+        <div><div style={{fontWeight:500,fontSize:13}}>{r.nombre}</div><div style={{fontSize:11,color:MUT}}>{r.unidad}</div></div>
+        <input type="number" min="0" step="0.01" value={val}
+          onChange={e=>setItems(p=>[...p.filter(i=>i.prodId!==r.id),{prodId:r.id,cantidad:parseFloat(e.target.value)||0}])}
+          style={{textAlign:"center"}}/>
+        <span style={{fontSize:11,color:MUT}}>{r.unidad}</span>
+      </div>;
+    })}
+  </div>
+  <div style={{background:BG,borderRadius:8,padding:12,marginBottom:16,fontSize:12,color:MUT}}>
+    El requerimiento se guardará como <strong style={{color:TXT}}>Borrador</strong>. Podrás seguir editándolo hasta que presiones "Enviar pedido".
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+    <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+    <Btn onClick={guardar}>{editId?"Guardar cambios":"Crear borrador"}</Btn>
+  </div>
+</Mdl>}
+{/* Modal: ingresar despacho */}
+{modal==="despacho"&&<Mdl title={"INGRESAR DESPACHO — "+sucSel.toUpperCase()} onClose={()=>setModal(null)}>
+  <div style={{background:BG,borderRadius:8,padding:12,marginBottom:16,fontSize:12,color:MUT}}>
+    Ingresa las cantidades que <strong style={{color:TXT}}>realmente se despacharán</strong>. Pueden ser iguales o menores a lo solicitado.
+  </div>
+  <table style={{marginBottom:16}}>
+    <thead><tr><th>Producto</th><th>Solicitado</th><th>A despachar</th></tr></thead>
+    <tbody>
+      {reqs.find(r=>r.id===despachoId)?.items.map((it,i)=>{
+        const prod=rp.find(r=>r.id===it.prodId);
+        const val=despacho.find(d=>d.prodId===it.prodId)?.cantDespachada??it.cantidad;
+        return <tr key={i}>
+          <td style={{fontWeight:500}}>{it.itemNombre||prod?.nombre||"?"}</td>
+          <td style={{fontFamily:"'DM Mono'",color:MUT}}>{fmtN(it.cantidad)}</td>
+          <td>
+            <input type="number" min="0" step="0.01" value={val}
+              onChange={e=>setDespacho(p=>[...p.filter(d=>d.prodId!==it.prodId),{prodId:it.prodId,cantDespachada:parseFloat(e.target.value)||0}])}
+              style={{width:100,textAlign:"center"}}/>
+          </td>
+        </tr>;
+      })}
+    </tbody>
+  </table>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+    <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+    <Btn v="success" onClick={guardarDespacho}>Confirmar entrega</Btn>
+  </div>
+</Mdl>}
+
+  </div>;
+}
+// ── Modal Requerimiento Automático ─────────────────────────────────────────
+function ModalAutoReq({data,rp,provs,xlsxReady,onClose,onConfirmProd,onExportarCompra}){
+const{prod,externos,fecha,sucursal}=data;
+// Estado editable para cantidades de producción
+const[prodConfirmado,setProdConfirmado]=useState(false);
+const[cantsProd,setCantsProd]=useState(()=>{
+const m={};
+prod.forEach(({item,necesidad,rpId})=>{
+const key=rpId||item.id;
+m[key]=necesidad;
+});
+return m;
+});
+// Estado editable para cantidades de externos
+const[cantsExt,setCantsExt]=useState(()=>{
+const m={};
+Object.entries(externos).forEach(([pid,{items}])=>{
+items.forEach(({item,necesidad})=>{m[item.id]=necesidad;});
+});
+return m;
+});
+const hasProd=prod.length>0;
+const hasExt=Object.keys(externos).length>0;
+return <div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+<div style={{background:CRD,border:b1(BRD),borderRadius:16,width:"100%",maxWidth:900,maxHeight:"90vh",overflow:"auto"}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 24px",borderBottom:b1(BRD)}}>
+<div>
+<span style={{fontFamily:"'Bebas Neue'",fontSize:22,color:ACC}}>REQUERIMIENTO AUTOMÁTICO — {sucursal.toUpperCase()}</span>
+<div style={{fontSize:12,color:MUT,marginTop:2}}>Basado en inventario cerrado del {fecha} · Edita las cantidades antes de confirmar</div>
+</div>
+<button onClick={onClose} style={{background:FNT,color:MUT,border:"none",borderRadius:6,padding:"4px 10px"}}>X</button>
+</div>
+<div style={{padding:24}}>
+
+    {/* ── CENTRO DE PRODUCCIÓN ── */}
+    {hasProd&&<div style={{marginBottom:28}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <Bdg c="orange">Centro de Producción</Bdg>
+        <span style={{fontSize:13,color:MUT}}>Se generará como requerimiento borrador editable</span>
+        <span style={{fontSize:11,color:MUT}}>({prod.length} ítems)</span>
+      </div>
+      <table style={{marginBottom:14}}>
+        <thead><tr><th>Ítem</th><th>Stock Actual</th><th>Stock Mínimo</th><th>Necesidad</th><th>Cantidad a pedir</th></tr></thead>
+        <tbody>
+          {prod.map(({item,stockActual,necesidad,rpId})=>{
+            const urgente=necesidad>0;
+            return <tr key={item.id} style={{opacity:urgente?1:0.6}}>
+              <td style={{fontWeight:500}}>
+                {item.nombre}
+                {urgente
+                  ?<span style={{fontSize:10,color:RED,marginLeft:6,fontWeight:600}}>BAJO MÍNIMO</span>
+                  :<span style={{fontSize:10,color:MUT,marginLeft:6}}>OK</span>
+                }
+              </td>
+              <td style={{fontFamily:"'DM Mono'",color:urgente?RED:GRN}}>{fmtN(stockActual)}</td>
+              <td style={{fontFamily:"'DM Mono'",color:BLU}}>{fmtN(item.stockMin||0)}</td>
+              <td style={{fontFamily:"'DM Mono'",color:urgente?ACC:MUT,fontWeight:urgente?700:400}}>{urgente?fmtN(necesidad):"—"}</td>
+              <td>
+                <input type="number" step="0.01" min="0"
+                  value={cantsProd[rpId||item.id]||0}
+                  onChange={e=>setCantsProd(p=>({...p,[rpId||item.id]:parseFloat(e.target.value)||0}))}
+                  style={{width:90,textAlign:"center",borderColor:urgente?ACC+"66":BRD}}/>
+              </td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+      {prodConfirmado
+        ?<div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:GRN+"18",borderRadius:8,border:b1(GRN+"44")}}>
+          <span style={{fontSize:18}}>✅</span>
+          <div>
+            <div style={{fontWeight:600,color:GRN,fontSize:13}}>Borrador creado exitosamente</div>
+            <div style={{fontSize:12,color:MUT}}>Puedes editarlo en el módulo de Requerimientos antes de enviarlo</div>
+          </div>
+        </div>
+        :<Btn onClick={()=>{
+          const sel=prod.map(({item,rpId,necesidad})=>({
+            rpId,
+            itemNombre:item.nombre,
+            cantidad:cantsProd[rpId||item.id]||necesidad
+          }));
+          onConfirmProd(sel);
+          setProdConfirmado(true);
+        }}>Crear requerimiento borrador (Producción)</Btn>
+      }
+    </div>}
+    {/* ── OTROS PROVEEDORES ── */}
+    {hasExt&&<div>
+      {Object.entries(externos).map(([pid,{prov,items}])=>(
+        <div key={pid} style={{marginBottom:24}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <Bdg c="blue">{prov.nombre}</Bdg>
+              <span style={{fontSize:13,color:MUT}}>Orden de compra exportable a Excel</span>
+            </div>
+            <Btn s="sm" v="ghost" disabled={!xlsxReady} onClick={()=>{
+              const its=items.map(({item,stockActual,necesidad})=>({
+                item,stockActual,necesidad,cantidad:cantsExt[item.id]||necesidad
+              }));
+              onExportarCompra(prov.nombre,its);
+            }}>📥 Exportar Excel</Btn>
+          </div>
+          <table>
+            <thead><tr><th>Ítem</th><th>Stock Actual</th><th>Stock Mínimo</th><th>Necesidad</th><th>Cantidad a pedir</th></tr></thead>
+            <tbody>
+              {items.map(({item,stockActual,necesidad})=><tr key={item.id}>
+                <td style={{fontWeight:500}}>{item.nombre}</td>
+                <td style={{fontFamily:"'DM Mono'",color:MUT}}>{fmtN(stockActual)}</td>
+                <td style={{fontFamily:"'DM Mono'",color:BLU}}>{fmtN(item.stockMin||0)}</td>
+                <td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmtN(necesidad)}</td>
+                <td>
+                  <input type="number" step="0.01" min="0"
+                    value={cantsExt[item.id]||0}
+                    onChange={e=>setCantsExt(p=>({...p,[item.id]:parseFloat(e.target.value)||0}))}
+                    style={{width:90,textAlign:"center"}}/>
+                </td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>}
+    {!hasProd&&!hasExt&&<div style={{textAlign:"center",padding:32,color:MUT}}>
+      No hay necesidades de reposición para esta sucursal.
+    </div>}
+    <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16,paddingTop:16,borderTop:b1(BRD)}}>
+      <div style={{fontSize:12,color:MUT,flex:1,alignSelf:"center"}}>
+        Cuando termines de exportar todas las órdenes, cierra esta pantalla.
+      </div>
+      <Btn onClick={onClose}>Cerrar y terminar</Btn>
+    </div>
+  </div>
+</div>
+
+  </div>;
+}
+// ── Lista de Compras ────────────────────────────────────────────────────────
+function Comp({inv,sp,rp,reqs,hC,setHC}){
+// Todos los reqs pendientes o en proceso de todas las sucursales
+const pendReqs=reqs.filter(r=>r.estado==="enviado");
+// PASO 1: sumar requerimientos totales por prodId
+const reqTotales={};
+pendReqs.forEach(req=>{
+req.items.forEach(it=>{reqTotales[it.prodId]=(reqTotales[it.prodId]||0)+it.cantidad;});
+});
+// PASO 2: calcular cuánto hay que elaborar (req total - stock producción)
+const plan=rp.map(r=>{
+const sa=sp.find(s=>s.recetaId===r.id)?.stock||0;
+const tr=reqTotales[r.id]||0;
+return{r,sa,tr,el:Math.max(0,tr-sa)};
+});
+// PASO 3: descomponer elaboración en ingredientes de inventario necesarios
+const necProd={};
+plan.forEach(({r,el})=>{
+if(el<=0)return;
+const tandas=el/r.rendimiento;
+r.ings.forEach(ing=>{necProd[ing.invId]=(necProd[ing.invId]||0)+ing.cantidad*tandas;});
+});
+// PASO 4 eliminado — el stock mínimo ahora se incluye directamente en la fórmula del PASO 5
+// PASO 5: consolidar — fórmula: Requerimiento + Stock Mínimo - Stock Actual
+// Ejemplo: req=10, stockMin=10, stock=2 → comprar = 10 + 10 - 2 = 18
+const todos=new Set([...Object.keys(necProd).map(Number),...inv.map(i=>i.id)]);
+const lista=[...todos].map(id=>{
+const item=inv.find(i=>i.id===id);if(!item)return null;
+const porProd=necProd[id]||0;  // ingredientes necesarios para producción
+// A comprar = lo que necesita producción + stock mínimo - stock actual
+const aComprar=Math.max(0, porProd + item.stockMin - item.stock);
+const mot=porProd>0&&item.stock<item.stockMin?"Ambos":porProd>0?"Producción":item.stock<item.stockMin?"Stock mínimo":null;
+if(!mot||aComprar<=0.001)return null;
+return{item,aComprar,porProd:porProd.toFixed(2),porStock:item.stockMin,sa:item.stock,mot};
+}).filter(r=>r&&r.aComprar>0.001);
+const tc=lista.reduce((s,r)=>s+r.aComprar*r.item.costo,0);
+const re=plan.filter(e=>e.el>0);
+function confirmar(){
+setHC(p=>[{
+id:Date.now(),fecha:today(),semana:getWeek(),
+sucursales:pendReqs.map(r=>r.sucursal),
+items:lista.map(r=>({nombre:r.item.nombre,cantidad:r.aComprar.toFixed(2),unidad:r.item.unidad,costoUnit:r.item.costo,total:r.aComprar*r.item.costo,motivo:r.mot})),
+resumenElaboracion:re.map(e=>({producto:e.r.nombre,aElaborar:e.el,unidad:e.r.unidad})),
+totalCosto:tc
+},...p]);
+alert("Lista de compras guardada en historial.");
+}
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>LISTA DE COMPRAS SEMANAL</h1><p style={{color:MUT,fontSize:13}}>Requerimientos de todas las sucursales + stock mínimo</p></div>
+<div style={{display:"flex",gap:10}}>
+{lista.length>0&&<Btn v="ghost" s="sm" onClick={()=>{
+const style=document.createElement("style");
+style.id="print-override";
+style.innerHTML="@media print{body *{visibility:hidden!important;}#lista-compras-print,#lista-compras-print *{visibility:visible!important;}#lista-compras-print{position:fixed!important;top:0!important;left:0!important;width:100%!important;background:#fff!important;color:#000!important;padding:20px!important;}table{border-collapse:collapse!important;width:100%!important;}th,td{border:1px solid #ccc!important;padding:6px 10px!important;color:#000!important;background:#fff!important;}th{background:#f0f0f0!important;}}";
+document.head.appendChild(style);
+window.print();
+setTimeout(()=>{const s=document.getElementById("print-override");if(s)s.remove();},1000);
+}}>🖨 Imprimir</Btn>}
+{lista.length>0&&<Btn v="ghost" s="sm" onClick={()=>{
+if(!window.XLSX){alert("SheetJS cargando, intenta en un momento.");return;}
+const datos=lista.map(r=>({
+"Item":r.item.nombre,
+"Categoria":r.item.categoria,
+"Unidad":r.item.unidad,
+"Stock Actual":r.sa,
+"Stock Minimo":r.item.stockMin,
+"A Comprar":parseFloat(r.aComprar.toFixed(4)),
+"Costo Unit":r.item.costo,
+"Total":parseFloat((r.aComprar*r.item.costo).toFixed(2)),
+"Motivo":r.mot,
+}));
+const ws=window.XLSX.utils.json_to_sheet(datos);
+ws["!cols"]=[{wch:28},{wch:15},{wch:10},{wch:12},{wch:12},{wch:10},{wch:12},{wch:12},{wch:14}];
+const wb=window.XLSX.utils.book_new();
+window.XLSX.utils.book_append_sheet(wb,ws,"Lista Compras");
+window.XLSX.writeFile(wb,"lista_compras_"+today()+".xlsx");
+}}>📥 Excel</Btn>}
+{lista.length>0&&<Btn onClick={confirmar}>Confirmar Compra</Btn>}
+</div>
+</div>
+
+{/* Resumen de reqs incluidos */}
+{pendReqs.length>0&&<Card xtra={{marginBottom:20,borderColor:ACC+"33"}}>
+  <div style={{fontFamily:"'Bebas Neue'",fontSize:15,color:ACC,marginBottom:10}}>REQUERIMIENTOS CONSIDERADOS</div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+    {pendReqs.map(r=><div key={r.id} style={{background:BG,borderRadius:8,padding:10}}>
+      <div style={{fontWeight:600,fontSize:13,marginBottom:4}}>{r.sucursal}</div>
+      <div style={{fontSize:11,color:MUT,marginBottom:6}}>{r.fecha} · <Bdg c="orange">{r.estado}</Bdg></div>
+      {r.items.map((it,i)=>{const p=rp.find(x=>x.id===it.prodId);const pn=it.itemNombre||p?.nombre||"?";return <div key={i} style={{fontSize:12,color:MUT}}>{pn}: <span style={{color:TXT,fontFamily:"'DM Mono'"}}>{it.cantidad}</span></div>;})}
+    </div>)}
+  </div>
+</Card>}
+<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:24}}>
+  <SC label="Ítems a Comprar" value={lista.length} sub="Ingredientes" icon="🛒"/>
+  <SC label="Costo Estimado" value={fmt(tc)} sub="Total orden" color={GRN} icon="💵"/>
+  <SC label="Prod. a Elaborar" value={re.length} sub="Tipos de productos" color={ACC} icon="🏭"/>
+</div>
+{re.length>0&&<Card xtra={{marginBottom:20,borderColor:ACC+"33"}}>
+  <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,marginBottom:12}}>PLAN DE ELABORACIÓN</div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
+    {plan.map(({r,sa,tr,el})=><div key={r.id} style={{background:BG,borderRadius:8,padding:12,border:b1(el>0?ACC+"44":FNT)}}>
+      <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{r.nombre}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,textAlign:"center"}}>
+        <div><div style={{fontSize:10,color:MUT}}>Req.</div><div style={{fontFamily:"'DM Mono'",fontSize:16}}>{fmtN(tr)}</div></div>
+        <div><div style={{fontSize:10,color:MUT}}>Stock</div><div style={{fontFamily:"'DM Mono'",fontSize:16,color:GRN}}>{fmtN(sa)}</div></div>
+        <div><div style={{fontSize:10,color:MUT}}>Elaborar</div><div style={{fontFamily:"'DM Mono'",fontSize:16,color:el>0?ACC:GRN,fontWeight:700}}>{fmtN(el)}</div></div>
+      </div>
+    </div>)}
+  </div>
+</Card>}
+{lista.length===0
+  ?<Card xtra={{textAlign:"center",padding:48}}><div style={{fontSize:32,marginBottom:12}}>OK</div><div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:GRN}}>SIN COMPRAS NECESARIAS</div><div style={{color:MUT,fontSize:13,marginTop:8}}>El inventario cubre todos los requerimientos y stocks mínimos</div></Card>
+  :<div id="lista-compras-print"><Card xtra={{padding:0}}>
+    <table>
+      <thead><tr><th>Ítem</th><th>Cat.</th><th>Stock Actual</th><th>Nec. Producción</th><th>Stock Mínimo</th><th>A Comprar</th><th>Unidad</th><th>Costo</th><th>Total</th><th>Motivo</th></tr></thead>
+      <tbody>
+        {lista.map((r,i)=><tr key={i}>
+          <td style={{fontWeight:500}}>{r.item.nombre}</td>
+          <td style={{color:MUT,fontSize:12}}>{r.item.categoria}</td>
+          <td style={{fontFamily:"'DM Mono'",color:MUT}}>{r.sa}</td>
+          <td style={{fontFamily:"'DM Mono'",color:BLU}}>{r.porProd}</td>
+          <td style={{fontFamily:"'DM Mono'",color:PRP}}>{r.porStock}</td>
+          <td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:700}}>{r.aComprar.toFixed(2)}</td>
+          <td style={{color:MUT}}>{r.item.unidad}</td>
+          <td style={{fontFamily:"'DM Mono'"}}>{fmt(r.item.costo)}</td>
+          <td style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(r.aComprar*r.item.costo)}</td>
+          <td><Bdg c={r.mot==="Ambos"?"purple":r.mot==="Producción"?"blue":"orange"}>{r.mot}</Bdg></td>
+        </tr>)}
+        <tr><td colSpan={8} style={{textAlign:"right",fontWeight:600,paddingRight:20}}>TOTAL ESTIMADO</td><td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:700,fontSize:15}}>{fmt(tc)}</td><td></td></tr>
+      </tbody>
+    </table>
+  </Card></div>}
+
+  </div>;
+}
+// ── Inventario Sucursales ───────────────────────────────────────────────────
+function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,ventas:ventasProp,xlsxReady,provs,puede,userActivo}){
+// Filtrar sucursales según usuario
+const sucsVisibles=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
+?sucs.filter(s=>s===userActivo.sucursal)
+:sucs;
+const[sucSel,setSucSel]=useState(sucsVisibles[0]||"");
+const[vista,setVista]=useState("hoy");
+// Fecha independiente por sucursal: {nombreSucursal: "YYYY-MM-DD"}
+const[fechas,setFechas]=useState({});
+const[modal,setModal]=useState(null);
+const[editItem,setEditItem]=useState(null);
+const[formItem,setFormItem]=useState({nombre:"",categoria:cats2[0]||"",unidad:"",stockMin:0,proveedorId:provs[0]?.id||1});
+const[confirmar,setConfirmar]=useState(null);
+const[importPreview,setImportPreview]=useState(null);
+const[diaCerrado,setDiaCerrado]=useState(false);
+const[modalNuevoInv,setModalNuevoInv]=useState(false);
+const[nuevaFechaInv,setNuevaFechaInv]=useState("");
+const refXlsx=useRef();
+// Fecha activa de la sucursal seleccionada
+const fecha=fechas[sucSel]||today();
+function setFecha(f){setFechas(p=>({...p,[sucSel]:f}));}
+// Ítems de esta sucursal — si no existe la entrada, la crea
+const sucData=invSucs.find(s=>s.sucursal===sucSel)||{sucursal:sucSel,items:[]};
+useEffect(()=>{
+if(sucSel&&!invSucs.find(s=>s.sucursal===sucSel)){
+setInvSucs(p=>[...p,{sucursal:sucSel,items:[]}]);
+}
+},[sucSel]);
+const items=[...sucData.items].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+// Registro de hoy para esta sucursal
+const regHoy=regsSucs.find(r=>r.sucursal===sucSel&&r.fecha===fecha);
+// Sincronizar estado de cierre con el registro real de cada sucursal
+useEffect(()=>{
+const reg=regsSucs.find(r=>r.sucursal===sucSel&&r.fecha===fecha);
+setDiaCerrado(reg?.estado==="cerrado"||false);
+},[sucSel,fecha,regsSucs]);
+// Verificar si hay ventas del día ya registradas (para mostrar estado)
+// Las ventas se acceden desde props ventas global (pasadas por InvSuc si se agrega)
+// Por ahora el egreso ya viene calculado en regsSucs via confirmarDia
+// Registro del día anterior para pre-cargar inv inicial
+const fechaAyer=regsSucs
+.filter(r=>r.sucursal===sucSel&&r.fecha<fecha)
+.sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+// Calcular egreso desde ventas del día
+// ventas viene de Cos — como no tenemos acceso directo, las guardamos en regsSucs
+function calcEgreso(itemId,fec,suc,rvList){
+// Buscar ventas de esa fecha y sucursal en el registro
+const reg=regsSucs.find(r=>r.sucursal===suc&&r.fecha===fec);
+const ventasDia=reg?.ventas||[];
+// Para cada venta, buscar en las recetas qué ingredientes usa
+let total=0;
+ventasDia.forEach(v=>{
+const rec=rvList.find(r=>r.id===v.rId);
+if(!rec)return;
+// Buscar si algún ingrediente de la receta coincide con este ítem por nombre
+const item=sucData.items.find(i=>i.id===itemId);
+if(!item)return;
+rec.ings.forEach(ing=>{
+if(ing.tipo==="prod")return; // solo ingredientes directos
+// match por nombre aproximado
+// Para simplificar, dejamos que el usuario lo vincule por nombre exacto
+});
+});
+// Egreso calculado desde ventas guardadas en el registro
+const filasReg=reg?.filas||[];
+const fila=filasReg.find(f=>f.itemId===itemId);
+return fila?.egreso||0;
+}
+// Obtener valor de una fila del registro de hoy
+function getVal(itemId,campo){
+if(!regHoy)return "";
+const fila=regHoy.filas.find(f=>f.itemId===itemId);
+if(!fila)return "";
+return fila[campo]??""  ;
+}
+// Calcular egreso automático desde ventas del día
+function calcEgresoAuto(itemId,fec,suc){
+const reg=regsSucs.find(r=>r.sucursal===suc&&r.fecha===fec);
+const ventasDia=reg?.ventas||[];
+const item=sucData.items.find(i=>i.id===itemId);
+if(!item)return 0;
+let total=0;
+ventasDia.forEach(v=>{
+const rec=rv.find(r=>r.id===v.rId);
+if(!rec)return;
+rec.ings.forEach(ing=>{
+if(ing.tipo!=="inv")return;
+// match por nombre del item del inventario de producción vs item de sucursal
+// por ahora match exacto de nombre
+if(ing.nombre===item.nombre||
+(ing.refNombre&&ing.refNombre.toLowerCase()===item.nombre.toLowerCase()))
+total+=ing.cantidad*v.cant;
+});
+});
+return total;
+}
+// Inicializar o actualizar registro del día
+// Calcular próximo número de inventario para una sucursal
+function nextNumInv(suc,regsArr){
+const regs=regsArr||regsSucs;
+const nums=regs.filter(r=>r.sucursal===suc&&r.numInv).map(r=>r.numInv);
+return nums.length>0?Math.max(...nums)+1:1;
+}
+// Obtener día siguiente en formato YYYY-MM-DD
+function diaSiguiente(fec){
+const d=new Date(fec+"T12:00:00");
+d.setDate(d.getDate()+1);
+return d.toISOString().split("T")[0];
+}
+function asegurarReg(fec,suc,itemsList){
+const itsToUse=itemsList||sucData.items;
+setRegsSucs(p=>{
+const existe=p.find(r=>r.sucursal===suc&&r.fecha===fec);
+// Solo tomar el último registro CERRADO como base para inv inicial
+const ant=[...p]
+.filter(r=>r.sucursal===suc&&r.fecha<fec&&r.estado==="cerrado")
+.sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+
+  function getInvInicial(itemId){
+    if(!ant)return 0;
+    const filaAnt=ant.filas.find(f=>f.itemId===itemId);
+    if(!filaAnt)return 0;
+    if(filaAnt.stockReal!=null&&filaAnt.stockReal!=="")
+      return parseFloat(filaAnt.stockReal)||0;
+    return parseFloat(filaAnt.stockFinal)||0;
+  }
+  if(!existe){
+    const filas=itsToUse.map(i=>{
+      const invInicial=getInvInicial(i.id);
+      return{itemId:i.id,invInicial,ingreso:0,egreso:0,stockFinal:invInicial,stockReal:"",obs:""};
+    });
+    return[...p,{id:Date.now(),numInv:nextNumInv(suc,p),sucursal:suc,fecha:fec,filas,ventas:[],estado:"abierto"}];
+  }else{
+    const idsExistentes=new Set(existe.filas.map(f=>f.itemId));
+    const faltantes=itsToUse.filter(i=>!idsExistentes.has(i.id));
+    if(faltantes.length===0)return p;
+    const nuevasFilas=faltantes.map(i=>{
+      const invInicial=getInvInicial(i.id);
+      return{itemId:i.id,invInicial,ingreso:0,egreso:0,stockFinal:invInicial,stockReal:"",obs:""};
+    });
+    return p.map(r=>r.sucursal===suc&&r.fecha===fec?{...r,filas:[...r.filas,...nuevasFilas]}:r);
+  }
+});
+
+}
+// Actualizar campo de una fila
+function setFila(itemId,campo,valor){
+setRegsSucs(p=>p.map(r=>{
+if(r.sucursal!==sucSel||r.fecha!==fecha)return r;
+const filas=r.filas.map(f=>{
+if(f.itemId!==itemId)return f;
+const upd={...f,[campo]:valor};
+// recalcular stockFinal
+const ini=parseFloat(upd.invInicial)||0;
+const ing=parseFloat(upd.ingreso)||0;
+const egr=parseFloat(upd.egreso)||0;
+upd.stockFinal=ini+ing-egr;
+return upd;
+});
+return{...r,filas};
+}));
+}
+// CRUD ítems
+function saveItem(){
+if(!formItem.nombre.trim())return;
+let nuevaLista=null;
+setInvSucs(p=>p.map(s=>{
+if(s.sucursal!==sucSel)return s;
+if(editItem){
+return{...s,items:s.items.map(i=>i.id===editItem.id?{...editItem,...formItem}:i)};
+}else{
+const nid=Math.max(0,...s.items.map(i=>i.id))+1;
+const nuevoItem={id:nid,...formItem};
+nuevaLista=[...s.items,nuevoItem];
+return{...s,items:nuevaLista};
+}
+}));
+// Si se agregó un ítem nuevo, agregar su fila al registro del día
+if(!editItem&&nuevaLista){
+setTimeout(()=>asegurarReg(fecha,sucSel,nuevaLista),50);
+}
+setModal(null);setEditItem(null);setFormItem({nombre:"",categoria:cats2[0]||"",unidad:"",stockMin:0,proveedorId:provs[0]?.id||1});
+}
+function eliminarItem(id){
+setConfirmar({msg:"¿Eliminar este ítem del inventario de "+sucSel+"?",fn:()=>setInvSucs(p=>p.map(s=>s.sucursal!==sucSel?s:{...s,items:s.items.filter(i=>i.id!==id)}))});
+}
+// Excel import
+async function onXlsx(e){
+const file=e.target.files[0];if(!file)return;e.target.value="";
+if(!xlsxReady){alert("SheetJS cargando...");return;}
+try{
+const rows=await readXLSX(file);
+const get=(row,names)=>{for(const n of names){const k=Object.keys(row).find(k=>k.toLowerCase().trim()===n);if(k!==undefined&&row[k]!=="")return row[k];}return "";};
+const mapped=rows.map((row,idx)=>{
+const nombreProv=String(get(row,["proveedor","supplier","prov"])||"").trim();
+// Buscar proveedorId por nombre (match parcial)
+const provMatch=provs.find(p=>p.nombre.toLowerCase()===nombreProv.toLowerCase()||p.nombre.toLowerCase().includes(nombreProv.toLowerCase()));
+return{
+id:idx+1,
+nombre:String(get(row,["nombre","item","name"])||"").trim(),
+categoria:String(get(row,["categoria","categoría","category"])||cats2[0]||"").trim(),
+unidad:String(get(row,["unidad","unit","ud"])||"").trim(),
+stockMin:parseFloat(get(row,["stock_minimo","stockmin","stock minimo","stock mínimo","minimo","mínimo","min"]))||0,
+proveedorId:provMatch?.id||provs[0]?.id||1,
+};
+}).filter(i=>i.nombre);
+if(!mapped.length){alert("No se encontraron ítems válidos.");return;}
+setImportPreview(mapped);setModal("importar");
+}catch(err){alert("Error: "+err.message);}
+}
+function confirmarImport(){
+setInvSucs(p=>p.map(s=>s.sucursal!==sucSel?s:{...s,items:importPreview}));
+setImportPreview(null);setModal(null);
+alert(importPreview.length+" ítems importados para "+sucSel+".");
+}
+function descargarPlantilla(){
+if(!xlsxReady){alert("SheetJS cargando...");return;}
+// Incluir todos los campos requeridos con ejemplos
+const datos=[
+{nombre:"Bolita de carne 120g",categoria:"Carnes",unidad:"und",stock_minimo:300,proveedor:"Centro de Producción"},
+{nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stock_minimo:120,proveedor:"La Masa"},
+{nombre:"Salsa Borgers 1L",categoria:"Salsas",unidad:"litro",stock_minimo:3,proveedor:"Centro de Producción"},
+{nombre:"Coca-Cola 330ml",categoria:"Bebidas",unidad:"lata",stock_minimo:24,proveedor:"Coca-Cola"},
+];
+const ws=window.XLSX.utils.json_to_sheet(datos);
+// Ajustar ancho de columnas
+ws["!cols"]=[{wch:25},{wch:15},{wch:10},{wch:14},{wch:25}];
+const wb=window.XLSX.utils.book_new();
+window.XLSX.utils.book_append_sheet(wb,ws,"Items");
+window.XLSX.writeFile(wb,"plantilla_items_"+sucSel.replace(/ /g,"_")+".xlsx");
+}
+// Al cambiar sucursal o fecha, asegurar registro
+useEffect(()=>{
+if(sucSel&&fecha&&items.length>0)asegurarReg(fecha,sucSel,items);
+},[sucSel,fecha,items.length,regsSucs.filter(r=>r.sucursal===sucSel&&r.estado==="cerrado").length]);
+const eC={borrador:"muted",cerrado:"green"};
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<div>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>INVENTARIO SUCURSALES</h1>
+<p style={{color:MUT,fontSize:13}}>Control diario de stock por sucursal</p>
+</div>
+<div style={{display:"flex",gap:8}}>
+{vista==="items"&&<>
+<Btn v="ghost" s="sm" onClick={descargarPlantilla} disabled={!xlsxReady}>📥 Plantilla</Btn>
+<Btn v="ghost" s="sm" onClick={()=>refXlsx.current.click()} disabled={!xlsxReady}>📤 Subir Excel</Btn>
+<input ref={refXlsx} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={onXlsx}/>
+<Btn s="sm" onClick={()=>{setEditItem(null);setFormItem({nombre:"",categoria:cats2[0]||"",unidad:""});setModal("item");}}>+ Agregar ítem</Btn>
+</>}
+</div>
+</div>
+
+{/* Selector sucursal */}
+<div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+  {sucsVisibles.map(s=>{const a=sucSel===s;return <button key={s} onClick={()=>setSucSel(s)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT}}>{s}</button>;})}
+</div>
+{/* Sub-tabs */}
+<div style={{display:"flex",gap:8,marginBottom:20}}>
+  {[["hoy","📋 Registro del Día"],["items","📦 Ítems"],["historial","🕐 Historial"]].map(([id,l])=>{
+    const a=vista===id;
+    return <button key={id} onClick={()=>setVista(id)} style={{padding:"7px 16px",borderRadius:8,fontSize:12,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
+  })}
+</div>
+{/* ── REGISTRO DEL DÍA ── */}
+{vista==="hoy"&&<div>
+  <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:20}}>
+    <LI label="Fecha del registro">
+      <input type="date" value={fecha} onChange={e=>{setFecha(e.target.value);}} style={{width:180}}/>
+    </LI>
+    {items.length===0&&<div style={{color:MUT,fontSize:13,marginTop:16}}>Esta sucursal no tiene ítems configurados. Ve a la pestaña "Ítems" para agregar.</div>}
+  </div>
+  {items.length>0&&<Card xtra={{padding:0}}>
+    <div style={{overflowX:"auto"}}>
+      <table>
+        <thead>
+          <tr>
+            <th>Ítem</th><th>Categoría</th><th>Unidad</th>
+            <th style={{color:BLU}}>Inv. Inicial</th>
+            <th style={{color:GRN}}>Ingreso</th>
+            <th style={{color:RED}}>Egreso</th>
+            <th style={{color:ACC}}>Stock Final</th>
+            <th style={{color:PRP}}>Stock Real</th>
+            <th>Observaciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(item=>{
+            const fila=regHoy?.filas.find(f=>f.itemId===item.id)||{invInicial:0,ingreso:0,egreso:0,stockFinal:0,stockReal:"",obs:""};
+            const sf=(parseFloat(fila.invInicial)||0)+(parseFloat(fila.ingreso)||0)-(parseFloat(fila.egreso)||0);
+            const diff=fila.stockReal!==""?(parseFloat(fila.stockReal)||0)-sf:null;
+            return <tr key={item.id}>
+              <td style={{fontWeight:500,minWidth:140}}>{item.nombre}</td>
+              <td style={{color:MUT,fontSize:12}}>{item.categoria}</td>
+              <td style={{color:MUT,fontSize:12}}>{item.unidad}</td>
+              <td>
+                <input type="number" step="0.01" value={fila.invInicial}
+                  onChange={e=>setFila(item.id,"invInicial",parseFloat(e.target.value)||0)}
+                  style={{width:80,textAlign:"center",borderColor:BLU+"66"}}/>
+              </td>
+              <td>
+                <input type="number" step="0.01" value={fila.ingreso}
+                  onChange={e=>setFila(item.id,"ingreso",parseFloat(e.target.value)||0)}
+                  style={{width:80,textAlign:"center",borderColor:GRN+"66"}}/>
+              </td>
+              <td>
+                <div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:RED,padding:"8px 12px",background:RED+"0A",borderRadius:6,border:b1(RED+"22")}}>
+                  {fmtN(parseFloat(fila.egreso)||0)}
+                </div>
+              </td>
+              <td>
+                <div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:ACC,fontWeight:700,padding:"8px 12px"}}>
+                  {fmtN(sf)}
+                </div>
+              </td>
+              <td>
+                <input type="number" step="0.01" value={fila.stockReal}
+                  onChange={e=>setFila(item.id,"stockReal",e.target.value)}
+                  style={{width:80,textAlign:"center",borderColor:PRP+"66"}}/>
+                {diff!==null&&<div style={{fontSize:10,textAlign:"center",color:diff===0?GRN:diff>0?BLU:RED,marginTop:2}}>{diff>0?"+":""}{fmtN(diff)}</div>}
+              </td>
+              <td>
+                <input value={fila.obs||""}
+                  onChange={e=>setFila(item.id,"obs",e.target.value)}
+                  placeholder="Observación..."
+                  style={{width:160,fontSize:12}}/>
+              </td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>
+    <div style={{padding:"12px 20px",borderTop:b1(BRD),display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+      {(()=>{
+        // Ventas registradas para esta sucursal y fecha
+        const ventasDelDia=(ventasProp||[]).filter(v=>v.sucursal===sucSel&&v.fecha===fecha);
+        const hayVentas=ventasDelDia.length>0;
+        return <>
+          <div style={{fontSize:12,color:MUT}}>
+            {hayVentas
+              ?ventasDelDia.length+" venta(s) registrada(s) — egresos calculados automáticamente"
+              :<span style={{color:ACC}}>⚠ Registra las ventas del día antes de cerrar</span>
+            }
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {diaCerrado
+              ?<>
+                <Bdg c="green">Día cerrado</Bdg>
+                <Btn s="sm" v="ghost" onClick={()=>{
+                  setRegsSucs(p=>p.map(r=>r.sucursal===sucSel&&r.fecha===fecha?{...r,estado:"abierto"}:r));
+                  setDiaCerrado(false);
+                }}>Reabrir</Btn>
+                <Btn s="sm" onClick={()=>{
+                  setNuevaFechaInv(diaSiguiente(fecha));
+                  setModalNuevoInv(true);
+                }}>+ Abrir nuevo inventario</Btn>
+              </>
+              :<Btn s="sm" v="success" disabled={!hayVentas}
+                xtra={!hayVentas?{opacity:0.4,cursor:"not-allowed"}:{}}
+                onClick={()=>{
+                  if(!hayVentas)return;
+                  setRegsSucs(p=>{
+                    const existe=p.find(r=>r.sucursal===sucSel&&r.fecha===fecha);
+                    if(existe){
+                      return p.map(r=>r.sucursal===sucSel&&r.fecha===fecha?{...r,estado:"cerrado"}:r);
+                    }else{
+                      const filas=items.map(i=>({itemId:i.id,invInicial:0,ingreso:0,egreso:0,stockFinal:0,stockReal:"",obs:""}));
+                      return[...p,{id:Date.now(),numInv:nextNumInv(sucSel,p),sucursal:sucSel,fecha,filas,ventas:[],estado:"cerrado"}];
+                    }
+                  });
+                  setDiaCerrado(true);
+                }}>Cerrar día</Btn>
+            }
+          </div>
+        </>;
+      })()}
+    </div>
+  </Card>}
+</div>}
+{/* ── ÍTEMS ── */}
+{vista==="items"&&<div>
+  {items.length===0
+    ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin ítems. Agrega manualmente o importa desde Excel.</Card>
+    :<Card xtra={{padding:0}}>
+      <table>
+        <thead><tr><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Stock Mín.</th><th>Proveedor</th><th></th></tr></thead>
+        <tbody>{items.map(i=>{const prov=provs.find(p=>p.id===i.proveedorId);return <tr key={i.id}>
+          <td style={{fontWeight:500}}>{i.nombre}</td>
+          <td style={{color:MUT}}>{i.categoria}</td>
+          <td style={{color:MUT}}>{i.unidad}</td>
+          <td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmtN(i.stockMin||0)}</td>
+          <td style={{fontSize:12}}><Bdg c={prov?.tipo==="produccion"?"orange":"blue"}>{prov?.nombre||"—"}</Bdg></td>
+          <td><div style={{display:"flex",gap:6}}>
+            <button onClick={()=>{setEditItem(i);setFormItem({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stockMin:i.stockMin||0,proveedorId:i.proveedorId||provs[0]?.id||1});setModal("item");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+            <button onClick={()=>eliminarItem(i.id)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+          </div></td>
+        </tr>;})}
+        </tbody>
+      </table>
+    </Card>}
+</div>}
+{/* ── HISTORIAL ── */}
+{vista==="historial"&&<HistInvSuc regsSucs={regsSucs} sucSel={sucSel} sucData={sucData} items={items}/>}
+{/* Modal abrir nuevo inventario */}
+{modalNuevoInv&&<Mdl title={"ABRIR NUEVO INVENTARIO — "+sucSel.toUpperCase()} onClose={()=>setModalNuevoInv(false)}>
+  <div style={{background:BG,borderRadius:8,padding:14,marginBottom:20,fontSize:13,color:MUT}}>
+    Se creará un nuevo registro pre-cargando el <strong style={{color:TXT}}>Inv. Inicial</strong> de cada ítem con el <strong style={{color:TXT}}>Stock Real</strong> del cierre anterior (o el Stock Final si no se ingresó Stock Real).
+  </div>
+  <LI label="Fecha del nuevo inventario">
+    <input type="date" value={nuevaFechaInv} onChange={e=>setNuevaFechaInv(e.target.value)} style={{width:"100%"}}/>
+  </LI>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <Btn v="ghost" onClick={()=>setModalNuevoInv(false)}>Cancelar</Btn>
+    <Btn onClick={()=>{
+      if(!nuevaFechaInv){return;}
+      // Crear nuevo registro con inv inicial desde último cierre
+      setRegsSucs(p=>{
+        const ultCierre=[...p]
+          .filter(r=>r.sucursal===sucSel&&r.estado==="cerrado")
+          .sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+        const filas=items.map(i=>{
+          const filaAnt=ultCierre?.filas.find(f=>f.itemId===i.id);
+          const invInicial=filaAnt
+            ?(filaAnt.stockReal!=null&&filaAnt.stockReal!==""
+              ?parseFloat(filaAnt.stockReal)||0
+              :parseFloat(filaAnt.stockFinal)||0)
+            :0;
+          return{itemId:i.id,invInicial,ingreso:0,egreso:0,stockFinal:invInicial,stockReal:"",obs:""};
+        });
+        const nnum=nextNumInv(sucSel,p);
+        return[...p,{id:Date.now(),numInv:nnum,sucursal:sucSel,fecha:nuevaFechaInv,filas,ventas:[],estado:"abierto"}];
+      });
+      setFecha(nuevaFechaInv);
+      setModalNuevoInv(false);
+    }}>Confirmar apertura</Btn>
+  </div>
+</Mdl>}
+{/* Modal ítem */}
+{modal==="item"&&<Mdl title={editItem?"EDITAR ÍTEM":"NUEVO ÍTEM"} onClose={()=>setModal(null)}>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+    <div style={{gridColumn:"1/3"}}><LI label="Nombre"><input value={formItem.nombre} onChange={e=>setFormItem(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
+    <LI label="Categoría">
+      <select value={formItem.categoria} onChange={e=>setFormItem(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>
+        {cats2.map(c=><option key={c}>{c}</option>)}
+      </select>
+    </LI>
+    <LI label="Unidad"><input value={formItem.unidad} onChange={e=>setFormItem(p=>({...p,unidad:e.target.value}))} style={{width:"100%"}}/></LI>
+    <LI label="Stock Mínimo">
+      <input type="number" step="0.01" value={formItem.stockMin} onChange={e=>setFormItem(p=>({...p,stockMin:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/>
+    </LI>
+    <LI label="Proveedor">
+      <select value={formItem.proveedorId} onChange={e=>setFormItem(p=>({...p,proveedorId:parseInt(e.target.value)}))} style={{width:"100%"}}>
+        {provs.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+      </select>
+    </LI>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+    <Btn onClick={saveItem}>Guardar</Btn>
+  </div>
+</Mdl>}
+{/* Modal preview importación */}
+{modal==="importar"&&importPreview&&<Mdl title={"PREVIEW — "+importPreview.length+" ÍTEMS"} onClose={()=>setModal(null)} wide>
+  <div style={{background:BG,borderRadius:8,padding:12,marginBottom:16,fontSize:12,color:MUT}}>
+    Estos ítems reemplazarán la lista actual de {sucSel}.
+  </div>
+  <div style={{maxHeight:300,overflow:"auto",marginBottom:16}}>
+    <table>
+      <thead><tr><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Stock Mín.</th><th>Proveedor</th></tr></thead>
+      <tbody>{importPreview.map((i,idx)=>{
+        const prov=provs.find(p=>p.id===i.proveedorId);
+        return <tr key={idx}>
+          <td>{i.nombre}</td>
+          <td style={{color:MUT}}>{i.categoria}</td>
+          <td style={{color:MUT}}>{i.unidad}</td>
+          <td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmtN(i.stockMin||0)}</td>
+          <td style={{fontSize:12}}><Bdg c={prov?.tipo==="produccion"?"orange":"blue"}>{prov?.nombre||"—"}</Bdg></td>
+        </tr>;
+      })}</tbody>
+    </table>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+    <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+    <Btn onClick={confirmarImport}>Confirmar importación</Btn>
+  </div>
+</Mdl>}
+{confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+
+  </div>;
+}
+// ── Historial Inventario Sucursal ───────────────────────────────────────────
+function HistInvSuc({regsSucs,sucSel,sucData,items}){
+const[filFecha,setFilFecha]=useState("");
+const[filNum,setFilNum]=useState("");
+const regs=[...regsSucs.filter(r=>r.sucursal===sucSel&&r.estado==="cerrado")]
+.sort((a,b)=>b.fecha.localeCompare(a.fecha)||b.numInv-a.numInv);
+const filtrados=regs.filter(r=>{
+if(filFecha&&!r.fecha.includes(filFecha))return false;
+if(filNum){
+const numStr="INV-"+String(r.numInv||0).padStart(3,"0");
+if(!numStr.includes(filNum.toUpperCase()))return false;
+}
+return true;
+});
+if(regs.length===0)return <Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin inventarios cerrados para {sucSel}.</Card>;
+return <div>
+<div style={{display:"flex",gap:12,marginBottom:16}}>
+<input type="date" value={filFecha} onChange={e=>setFilFecha(e.target.value)}
+placeholder="Filtrar por fecha" style={{width:180}}/>
+<input value={filNum} onChange={e=>setFilNum(e.target.value)}
+placeholder="Buscar INV-001..." style={{width:160}}/>
+{(filFecha||filNum)&&<Btn s="sm" v="ghost" onClick={()=>{setFilFecha("");setFilNum("");}}>Limpiar</Btn>}
+<span style={{fontSize:12,color:MUT,alignSelf:"center"}}>{filtrados.length} registro{filtrados.length!==1?"s":""}</span>
+</div>
+
+{filtrados.length===0
+  ?<Card xtra={{textAlign:"center",padding:32,color:MUT}}>Sin resultados para ese filtro.</Card>
+  :filtrados.map(reg=>{
+    return <Card key={reg.id} xtra={{marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{fontFamily:"'DM Mono'",fontSize:13,color:MUT,background:BG,padding:"4px 10px",borderRadius:6,border:b1(FNT)}}>
+            {"INV-"+String(reg.numInv||0).padStart(3,"0")}
+          </div>
+          <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:ACC}}>{reg.fecha}</div>
+          <Bdg c={reg.estado==="cerrado"?"green":"muted"}>{reg.estado==="cerrado"?"Cerrado":"Abierto"}</Bdg>
+        </div>
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table>
+          <thead><tr><th>Ítem</th><th>Inv. Inicial</th><th>Ingreso</th><th>Egreso</th><th>Stock Final</th><th>Stock Real</th><th>Diferencia</th><th>Observaciones</th></tr></thead>
+          <tbody>{reg.filas.map(f=>{
+            const it=items.find(i=>i.id===f.itemId)||sucData.items.find(i=>i.id===f.itemId);
+            const sf=(parseFloat(f.invInicial)||0)+(parseFloat(f.ingreso)||0)-(parseFloat(f.egreso)||0);
+            const diff=f.stockReal!==""?(parseFloat(f.stockReal)||0)-sf:null;
+            return <tr key={f.itemId}>
+              <td style={{fontWeight:500}}>{it?.nombre||"Ítem #"+f.itemId}</td>
+              <td style={{fontFamily:"'DM Mono'",color:BLU}}>{fmtN(parseFloat(f.invInicial)||0)}</td>
+              <td style={{fontFamily:"'DM Mono'",color:GRN}}>{fmtN(parseFloat(f.ingreso)||0)}</td>
+              <td style={{fontFamily:"'DM Mono'",color:RED}}>{fmtN(parseFloat(f.egreso)||0)}</td>
+              <td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:700}}>{fmtN(sf)}</td>
+              <td style={{fontFamily:"'DM Mono'",color:PRP}}>{f.stockReal!==""?fmtN(parseFloat(f.stockReal)||0):"—"}</td>
+              <td style={{fontFamily:"'DM Mono'",fontSize:12,color:diff===null?MUT:diff===0?GRN:diff>0?BLU:RED}}>
+                {diff===null?"—":((diff>0?"+":"")+fmtN(diff))}
+              </td>
+              <td style={{fontSize:12,color:MUT}}>{f.obs||"—"}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </Card>;
+  })
+}
+
+  </div>;
+}
+// ── Costos & Ingresos ───────────────────────────────────────────────────────
+function Cos({inv,rp,rv,sucs,ventas,setVentas,regsSucs,setRegsSucs,invSucs,puede,userActivo}){
+// Modal de registro diario
+const[modal,setModal]=useState(false);
+const[dFecha,setDFecha]=useState(today());
+const sucsVisiblesCos=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
+?sucs.filter(s=>s===userActivo.sucursal)
+:sucs;
+const[dSuc,setDSuc]=useState(sucsVisiblesCos[0]||"");
+// cantidades del día: {rId: cant}
+const[dCants,setDCants]=useState({});
+function abrirModal(){
+setDFecha(today());
+setDSuc(sucs[0]||"");
+setDCants({});
+setModal(true);
+}
+function setCant(rId,val){
+setDCants(p=>({...p,[rId]:val}));
+}
+const dResumen=rv.map(r=>({r,cant:dCants[r.id]||0})).filter(x=>x.cant>0);
+const dTotalIngreso=dResumen.reduce((s,{r,cant})=>s+r.precio*cant,0);
+const dTotalCosto=dResumen.reduce((s,{r,cant})=>s+cc(r)*cant,0);
+function confirmarDia(){
+if(!dResumen.length){return;}
+const nuevas=dResumen.map(({r,cant})=>({id:Date.now()+Math.random(),fecha:dFecha,sucursal:dSuc,rId:r.id,cant}));
+setVentas(p=>[...nuevas,...p]);
+
+// Calcular egresos por ítem de sucursal según recetas vendidas
+const egresosPorItem={};
+dResumen.forEach(({r,cant})=>{
+  r.ings.forEach(ing=>{
+    if(!ing.sucItemNombre)return;
+    const nombre=ing.sucItemNombre;
+    egresosPorItem[nombre]=(egresosPorItem[nombre]||0)+ing.cantidad*cant;
+  });
+});
+if(Object.keys(egresosPorItem).length===0){setModal(false);return;}
+// Obtener ítems de la sucursal para mapear nombre → itemId
+const sucData=invSucs.find(s=>s.sucursal===dSuc);
+if(!sucData){setModal(false);return;}
+// Actualizar egreso en el registro del día de esa sucursal
+setRegsSucs(p=>{
+  const existe=p.find(r=>r.sucursal===dSuc&&r.fecha===dFecha);
+  const filaBase=sucData.items.map(i=>({itemId:i.id,invInicial:0,ingreso:0,egreso:0,stockFinal:0,stockReal:"",obs:""}));
+  function actualizarFilas(filas){
+    return filas.map(f=>{
+      const item=sucData.items.find(i=>i.id===f.itemId);
+      if(!item)return f;
+      const egresoAdicional=egresosPorItem[item.nombre]||0;
+      if(egresoAdicional===0)return f;
+      const nuevoEgreso=(parseFloat(f.egreso)||0)+egresoAdicional;
+      const ini=parseFloat(f.invInicial)||0;
+      const ing=parseFloat(f.ingreso)||0;
+      return{...f,egreso:parseFloat(nuevoEgreso.toFixed(4)),stockFinal:ini+ing-nuevoEgreso};
+    });
+  }
+  if(existe){
+    return p.map(r=>r.sucursal===dSuc&&r.fecha===dFecha?{...r,filas:actualizarFilas(r.filas)}:r);
+  }else{
+    // Crear registro del día con egresos pre-cargados
+    const filas=actualizarFilas(filaBase);
+    return[...p,{id:Date.now(),sucursal:dSuc,fecha:dFecha,filas,ventas:[],estado:"abierto"}];
+  }
+});
+setModal(false);
+
+}
+function cc(r){
+return r.ings.reduce((s,ing)=>{
+if(ing.tipo==="inv"){const item=inv.find(i=>i.id===ing.refId);return s+(item?item.costo*ing.cantidad:0);}
+else{const p=rp.find(x=>x.id===ing.refId);if(!p)return s;const cp=p.ings.reduce((cs,ri)=>{const item=inv.find(i=>i.id===ri.invId);return cs+(item?item.costo*ri.cantidad:0);},0);return s+(cp/p.rendimiento)*ing.cantidad;}
+},0);
+}
+const ventasVis=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
+?ventas.filter(v=>v.sucursal===userActivo.sucursal)
+:ventas;
+const tI=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?r.precio*x.cant:0);},0);
+const tC=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?cc(r)*x.cant:0);},0);
+const u=tI-tC;
+const ps=sucsVisiblesCos.map(suc=>{
+const vs=ventas.filter(x=>x.sucursal===suc);
+const i=vs.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?r.precio*x.cant:0);},0);
+const c=vs.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?cc(r)*x.cant:0);},0);
+return{suc,i,c,u:i-c};
+});
+// Agrupar registro por fecha+sucursal para mostrar en tabla
+const ventasFiltradas=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
+?ventas.filter(v=>v.sucursal===userActivo.sucursal)
+:ventas;
+const registros=[...ventasFiltradas].sort((a,b)=>b.fecha.localeCompare(a.fecha));
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>COSTOS & INGRESOS</h1>
+{(!puede||puede('registrar_venta'))&&<Btn onClick={abrirModal}>+ Registrar Ventas del Día</Btn>}
+</div>
+
+<div style={{display:"grid",gridTemplateColumns:userActivo?.rol==="staff_suc"?"1fr":"repeat(3,1fr)",gap:16,marginBottom:24}}>
+  <SC label="Ingresos" value={fmt(tI)} sub="Total ingresos" color={GRN} icon="📈"/>
+  {userActivo?.rol!=="staff_suc"&&<SC label="Costos" value={fmt(tC)} sub="Costo ingredientes" color={RED} icon="📉"/>}
+  {userActivo?.rol!=="staff_suc"&&<SC label="Utilidad" value={fmt(u)} sub={"Margen: "+(tI>0?(u/tI*100).toFixed(2):0)+"%"} color={u>0?ACC:RED} icon="💰"/>}
+</div>
+{userActivo?.rol!=="staff_suc"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
+  <Card>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,marginBottom:16}}>POR SUCURSAL</div>
+    {ps.map(({suc,i,c,u})=>(
+      <div key={suc} style={{marginBottom:14,paddingBottom:14,borderBottom:b1(BRD)}}>
+        <div style={{fontWeight:600,marginBottom:8}}>{suc}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div><div style={{fontSize:10,color:MUT,marginBottom:2}}>INGRESOS</div><div style={{fontFamily:"'DM Mono'",fontSize:13,color:GRN}}>{fmt(i)}</div></div>
+          <div><div style={{fontSize:10,color:MUT,marginBottom:2}}>COSTOS</div><div style={{fontFamily:"'DM Mono'",fontSize:13,color:RED}}>{fmt(c)}</div></div>
+          <div><div style={{fontSize:10,color:MUT,marginBottom:2}}>UTILIDAD</div><div style={{fontFamily:"'DM Mono'",fontSize:13,color:u>0?ACC:RED}}>{fmt(u)}</div></div>
+        </div>
+      </div>
+    ))}
+  </Card>
+  <Card>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,marginBottom:16}}>POR PRODUCTO</div>
+    {rv.map(r=>{
+      const vs=ventas.filter(x=>x.rId===r.id);
+      const tv=vs.reduce((s,x)=>s+x.cant,0);
+      const ir=vs.reduce((s,x)=>s+r.precio*x.cant,0);
+      const mr=ir>0?((ir-cc(r)*tv)/ir*100):0;
+      return <div key={r.id} style={{display:"flex",justifyContent:"space-between",marginBottom:12,paddingBottom:12,borderBottom:b1(FNT)}}>
+        <div><div style={{fontWeight:500,fontSize:13}}>{r.nombre}</div><div style={{fontSize:11,color:MUT}}>{fmtN(tv)} uds · Costo: {fmt(cc(r))}</div></div>
+        <div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono'",fontSize:13,color:GRN}}>{fmt(ir)}</div><div style={{fontSize:11,color:mr>50?GRN:mr>30?ACC:RED}}>{mr.toFixed(2)}%</div></div>
+      </div>;
+    })}
+  </Card>
+</div>}
+<Card xtra={{padding:0}}>
+  <div style={{padding:"16px 20px",borderBottom:b1(BRD)}}><span style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC}}>REGISTRO DE VENTAS</span></div>
+  <table>
+    <thead><tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cant.</th><th>Ingreso</th>{userActivo?.rol!=="staff_suc"&&<th>Costo</th>}{userActivo?.rol!=="staff_suc"&&<th>Utilidad</th>}</tr></thead>
+    <tbody>{registros.map(x=>{
+      const r=rv.find(r=>r.id===x.rId);
+      const ig=(r?.precio||0)*x.cant;
+      const co=(r?cc(r):0)*x.cant;
+      return <tr key={x.id}>
+        <td style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{x.fecha}</td>
+        <td style={{fontSize:13}}>{x.sucursal}</td>
+        <td>{r?.nombre||"?"}</td>
+        <td style={{fontFamily:"'DM Mono'"}}>{fmtN(x.cant)}</td>
+        <td style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(ig)}</td>
+        {userActivo?.rol!=="staff_suc"&&<td style={{fontFamily:"'DM Mono'",color:RED}}>{fmt(co)}</td>}
+        {userActivo?.rol!=="staff_suc"&&<td style={{fontFamily:"'DM Mono'",color:ig-co>0?ACC:RED}}>{fmt(ig-co)}</td>}
+      </tr>;
+    })}</tbody>
+  </table>
+</Card>
+{/* Modal registro diario */}
+{modal&&<Mdl title="REGISTRO DE VENTAS DEL DÍA" onClose={()=>setModal(false)} wide>
+  {/* Cabecera: fecha y sucursal */}
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+    <LI label="Fecha">
+      <input type="date" value={dFecha} onChange={e=>setDFecha(e.target.value)} style={{width:"100%"}}/>
+    </LI>
+    <LI label="Sucursal">
+      <select value={dSuc} onChange={e=>setDSuc(e.target.value)} style={{width:"100%"}}>
+        {sucsVisiblesCos.map(s=><option key={s}>{s}</option>)}
+      </select>
+    </LI>
+  </div>
+  {/* Grilla de productos */}
+  <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Cantidades vendidas</div>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+    {[...rv].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(r=>{
+      const cant=dCants[r.id]||0;
+      const ingRow=r.precio*cant;
+      return <div key={r.id} style={{background:BG,borderRadius:8,padding:12,border:b1(cant>0?ACC+"44":FNT)}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div>
+            <div style={{fontWeight:500,fontSize:13}}>{r.nombre}</div>
+            <div style={{fontSize:11,color:MUT}}>{r.categoria} · {fmt(r.precio)}</div>
+          </div>
+          {cant>0&&<div style={{textAlign:"right"}}>
+            <div style={{fontFamily:"'DM Mono'",fontSize:12,color:GRN}}>{fmt(ingRow)}</div>
+          </div>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setCant(r.id,Math.max(0,(cant||0)-1))}
+            style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:32,height:32,fontSize:18,flexShrink:0}}>-</button>
+          <input type="number" min="0" step="0.01" value={cant||""}
+            onChange={e=>setCant(r.id,parseFloat(e.target.value)||0)}
+            placeholder="0"
+            style={{flex:1,textAlign:"center",fontFamily:"'DM Mono'",fontSize:15,fontWeight:600}}/>
+          <button onClick={()=>setCant(r.id,(cant||0)+1)}
+            style={{background:ACC,color:"#000",border:"none",borderRadius:6,width:32,height:32,fontSize:18,fontWeight:700,flexShrink:0}}>+</button>
+        </div>
+      </div>;
+    })}
+  </div>
+  {/* Resumen del día */}
+  {dResumen.length>0&&<Card xtra={{marginBottom:16,borderColor:GRN+"44"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:15,color:GRN,marginBottom:10}}>RESUMEN DEL DÍA</div>
+    {dResumen.map(({r,cant})=>(
+      <div key={r.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
+        <span>{r.nombre} × {fmtN(cant)}</span>
+        <span style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(r.precio*cant)}</span>
+      </div>
+    ))}
+    <div style={{borderTop:b1(BRD),marginTop:10,paddingTop:10,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
+      <div><div style={{fontSize:10,color:MUT,marginBottom:2}}>INGRESOS</div><div style={{fontFamily:"'DM Mono'",fontWeight:700,color:GRN}}>{fmt(dTotalIngreso)}</div></div>
+      <div><div style={{fontSize:10,color:MUT,marginBottom:2}}>COSTOS</div><div style={{fontFamily:"'DM Mono'",fontWeight:700,color:RED}}>{fmt(dTotalCosto)}</div></div>
+      <div><div style={{fontSize:10,color:MUT,marginBottom:2}}>UTILIDAD</div><div style={{fontFamily:"'DM Mono'",fontWeight:700,color:dTotalIngreso-dTotalCosto>0?ACC:RED}}>{fmt(dTotalIngreso-dTotalCosto)}</div></div>
+    </div>
+  </Card>}
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+    <Btn v="ghost" onClick={()=>setModal(false)}>Cancelar</Btn>
+    <Btn onClick={confirmarDia} disabled={!dResumen.length}>Confirmar ventas del día</Btn>
+  </div>
+</Mdl>}
+
+  </div>;
+}
+// ── Historial ───────────────────────────────────────────────────────────────
+function Hist({hI,hC,reqs,userActivo}){
+const[tab,setTab]=useState("c");
+return <div>
+<div style={{marginBottom:24}}><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>HISTORIAL</h1></div>
+<div style={{display:"flex",gap:8,marginBottom:20}}>
+{[["c","Compras"],["i","Inv. Físicos"],["r","Requerimientos"]]
+.filter(([id])=>id!=="c"||(userActivo?.rol==="superadmin"||userActivo?.rol==="produccion"))
+.filter(([id])=>id!=="i"||(userActivo?.rol==="superadmin"||userActivo?.rol==="produccion"))
+.map(([id,l])=>{const a=tab===id;return <button key={id} onClick={()=>setTab(id)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT}}>{l}</button>;})}
+</div>
+{tab==="c"&&(hC.length===0
+?<Card xtra={{textAlign:"center",padding:40,color:MUT}}>No hay compras confirmadas aún</Card>
+:hC.map(c=><Card key={c.id} xtra={{marginBottom:16}}>
+<div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+<div><span style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC}}>ORDEN DE COMPRA</span><span style={{marginLeft:12,fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{c.fecha} · {c.semana}</span></div>
+<span style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:700}}>{fmt(c.totalCosto)}</span>
+</div>
+{c.resumenElaboracion?.length>0&&<div style={{background:BG,borderRadius:8,padding:12,marginBottom:12}}>
+<div style={{fontSize:11,color:ACC,fontWeight:600,marginBottom:6}}>PLAN DE ELABORACIÓN</div>
+{c.resumenElaboracion.map((e,i)=><div key={i} style={{fontSize:12,color:MUT}}>{e.producto}: <span style={{color:ACC,fontFamily:"'DM Mono'"}}>{e.aElaborar} {e.unidad}</span></div>)}
+</div>}
+<table>
+<thead><tr><th>Ítem</th><th>Cantidad</th><th>Unidad</th><th>Costo</th><th>Total</th></tr></thead>
+<tbody>{c.items.map((it,i)=><tr key={i}><td>{it.nombre}</td><td style={{fontFamily:"'DM Mono'"}}>{it.cantidad}</td><td style={{color:MUT}}>{it.unidad}</td><td style={{fontFamily:"'DM Mono'"}}>{fmt(it.costoUnit)}</td><td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmt(it.total)}</td></tr>)}</tbody>
+</table>
+</Card>)
+)}
+{tab==="i"&&(hI.length===0
+?<Card xtra={{padding:40,textAlign:"center",color:MUT}}>No hay inventarios físicos aún</Card>
+:<Card xtra={{padding:0}}>
+<table>
+<thead><tr><th>Fecha</th><th>Descripción</th><th>Ajustes</th></tr></thead>
+<tbody>{[...hI].reverse().map(h=><tr key={h.id}>
+<td style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{h.fecha}</td>
+<td>{h.descripcion}</td>
+<td style={{fontSize:12}}>{h.diffs?.map((d,i)=><div key={i} style={{color:MUT}}>{d.nombre}: {d.anterior} a <span style={{color:d.nuevo>d.anterior?GRN:RED}}>{d.nuevo}</span></div>)}</td>
+</tr>)}</tbody>
+</table>
+</Card>
+)}
+{tab==="r"&&<Card xtra={{padding:0}}>
+<table>
+<thead><tr><th>Sucursal</th><th>Fecha</th><th>Items</th><th>Estado</th></tr></thead>
+<tbody>{[...reqs].reverse().filter(r=>
+(!userActivo||(userActivo.rol!=="admin_suc"&&userActivo.rol!=="staff_suc"))||r.sucursal===userActivo.sucursal
+).map(r=>{
+const eC={borrador:"muted",enviado:"orange",entregado:"green"};
+return <tr key={r.id}><td style={{fontWeight:500}}>{r.sucursal}</td><td style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{r.fecha}</td><td style={{fontFamily:"'DM Mono'"}}>{r.items.reduce((s,i)=>s+i.cantidad,0)} uds.</td><td><Bdg c={eC[r.estado]||"muted"}>{r.estado}</Bdg></td></tr>;
+})}</tbody>
+</table>
+</Card>}
+  </div>;
+}
+// ── Configuración ───────────────────────────────────────────────────────────
+function Config({sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede}){
+const[seccion,setSeccion]=useState("sucs");
+const[editSuc,setEditSuc]=useState(null);
+const[nuevaSuc,setNuevaSuc]=useState("");
+const[editCat,setEditCat]=useState(null);
+const[nuevaCat,setNuevaCat]=useState("");
+const[editCatV,setEditCatV]=useState(null);
+const[nuevaCatV,setNuevaCatV]=useState("");
+const[editCat2,setEditCat2]=useState(null);
+const[nuevaCat2,setNuevaCat2]=useState("");
+const[editProv,setEditProv]=useState(null);
+const[formProv,setFormProv]=useState({nombre:"",tipo:"externo",contacto:"",notas:""});
+const[modalProv,setModalProv]=useState(false);
+const[editUser,setEditUser]=useState(null);
+const[modalUser,setModalUser]=useState(false);
+const[formUser,setFormUser]=useState({nombre:"",email:"",password:"",rol:"staff_suc",sucursal:sucs[0]||"",activo:true});
+const[confirmar,setConfirmar]=useState(null);
+function guardarSuc(){
+const nombre=editSuc.nombre.trim();
+if(!nombre)return;
+const anterior=sucs[editSuc.idx];
+setSucs(p=>p.map((s,i)=>i===editSuc.idx?nombre:s));
+// Renombrar en invSucs y regsSucs
+setInvSucs(p=>p.map(s=>s.sucursal===anterior?{...s,sucursal:nombre}:s));
+setRegsSucs(p=>p.map(r=>r.sucursal===anterior?{...r,sucursal:nombre}:r));
+setEditSuc(null);
+}
+function agregarSuc(){
+const nombre=nuevaSuc.trim();
+if(!nombre||sucs.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
+setSucs(p=>[...p,nombre]);
+// Crear entrada vacía en invSucs para la nueva sucursal
+setInvSucs(p=>[...p,{sucursal:nombre,items:[]}]);
+setNuevaSuc("");
+}
+function eliminarSuc(idx){
+setConfirmar({msg:"Eliminar sucursal "+sucs[idx]+"?",fn:()=>setSucs(p=>p.filter((_,i)=>i!==idx))});
+}
+function descargarPlantillaSuc(nombre){
+if(!xlsxReady){alert("SheetJS cargando...");return;}
+const datos=rp.map(r=>({sucursal:nombre,fecha:today(),item:r.nombre,unidad:r.unidad,requerimiento:0}));
+const ws=window.XLSX.utils.json_to_sheet(datos);
+const wb=window.XLSX.utils.book_new();
+window.XLSX.utils.book_append_sheet(wb,ws,"Requerimiento");
+window.XLSX.writeFile(wb,"requerimiento*"+nombre.replace(/ /g,"*")+".xlsx");
+}
+function guardarCat(){
+const nombre=editCat.nombre.trim();
+if(!nombre)return;
+setCats(p=>p.map((c,i)=>i===editCat.idx?nombre:c));
+setEditCat(null);
+}
+function agregarCat(){
+const nombre=nuevaCat.trim();
+if(!nombre||cats.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
+setCats(p=>[...p,nombre]);
+setNuevaCat("");
+}
+function eliminarCat(idx){
+setConfirmar({msg:"Eliminar categoría "+cats[idx]+"? Los ítems con esta categoría quedarán sin clasificar.",fn:()=>setCats(p=>p.filter((_,i)=>i!==idx))});
+}
+function guardarCatV(){
+const nombre=editCatV.nombre.trim();
+if(!nombre)return;
+setCatV(p=>p.map((c,i)=>i===editCatV.idx?nombre:c));
+setEditCatV(null);
+}
+function agregarCatV(){
+const nombre=nuevaCatV.trim();
+if(!nombre||catV.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
+setCatV(p=>[...p,nombre]);
+setNuevaCatV("");
+}
+function eliminarCatV(idx){
+setConfirmar({msg:"Eliminar categoría de venta "+catV[idx]+"? Las recetas con esta categoría quedarán sin clasificar.",fn:()=>setCatV(p=>p.filter((_,i)=>i!==idx))});
+}
+function guardarCat2(){const nombre=editCat2.nombre.trim();if(!nombre)return;setCats2(p=>p.map((c,i)=>i===editCat2.idx?nombre:c));setEditCat2(null);}
+function agregarCat2(){const nombre=nuevaCat2.trim();if(!nombre||cats2.includes(nombre)){alert("Nombre vacío o ya existe.");return;}setCats2(p=>[...p,nombre]);setNuevaCat2("");}
+function eliminarCat2(idx){setConfirmar({msg:"Eliminar categoría "+cats2[idx]+"?",fn:()=>setCats2(p=>p.filter((_,i)=>i!==idx))});}
+return <div>
+<div style={{marginBottom:24}}>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CONFIGURACIÓN</h1>
+<p style={{color:MUT,fontSize:13}}>Gestión de sucursales y categorías del sistema</p>
+</div>
+<div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
+{[["sucs","🏪 Sucursales"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
+const a=seccion===id;
+return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
+})}
+</div>
+
+{seccion==="sucs"&&<div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:16,marginBottom:24}}>
+    {sucs.map((s,idx)=><Card key={idx}>
+      {editSuc?.idx===idx
+        ?<div>
+          <div style={{fontFamily:"'Bebas Neue'",fontSize:13,color:MUT,letterSpacing:1,marginBottom:10}}>EDITANDO NOMBRE</div>
+          <input value={editSuc.nombre} onChange={e=>setEditSuc(p=>({...p,nombre:e.target.value}))} style={{width:"100%",marginBottom:12}} onKeyDown={e=>{if(e.key==="Enter")guardarSuc();if(e.key==="Escape")setEditSuc(null);}} autoFocus/>
+          <div style={{display:"flex",gap:8}}>
+            <Btn v="ghost" s="sm" onClick={()=>setEditSuc(null)}>Cancelar</Btn>
+            <Btn s="sm" onClick={guardarSuc}>Guardar</Btn>
+          </div>
+        </div>
+        :<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+            <div><div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{s}</div><Bdg c="blue">Activa</Bdg></div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>setEditSuc({idx,nombre:s})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+              <button onClick={()=>eliminarSuc(idx)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+            </div>
+          </div>
+          <button onClick={()=>descargarPlantillaSuc(s)} disabled={!xlsxReady}
+            style={{width:"100%",padding:"8px",borderRadius:6,border:b1(BRD),background:"transparent",color:xlsxReady?TXT:MUT,fontSize:12,cursor:"pointer",textAlign:"center"}}>
+            Descargar plantilla requerimiento
+          </button>
+        </div>
+      }
+    </Card>)}
+  </div>
+  <Card xtra={{borderColor:ACC+"33"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>NUEVA SUCURSAL</div>
+    <div style={{display:"flex",gap:10}}>
+      <input value={nuevaSuc} onChange={e=>setNuevaSuc(e.target.value)} placeholder="Nombre de la nueva sucursal..." style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")agregarSuc();}}/>
+      <Btn onClick={agregarSuc} disabled={!nuevaSuc.trim()}>+ Agregar</Btn>
+    </div>
+    <div style={{fontSize:11,color:MUT,marginTop:8}}>Al agregar una sucursal podrás descargar su plantilla de requerimiento desde esta misma pantalla.</div>
+  </Card>
+</div>}
+{seccion==="cats"&&<div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12,marginBottom:24}}>
+    {cats.map((c,idx)=><Card key={idx} xtra={{padding:14}}>
+      {editCat?.idx===idx
+        ?<div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input value={editCat.nombre} onChange={e=>setEditCat(p=>({...p,nombre:e.target.value}))} style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")guardarCat();if(e.key==="Escape")setEditCat(null);}} autoFocus/>
+          <Btn s="sm" v="ghost" onClick={()=>setEditCat(null)}>Cancelar</Btn>
+          <Btn s="sm" onClick={guardarCat}>OK</Btn>
+        </div>
+        :<div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:ACC}}></div>
+            <span style={{fontWeight:500,fontSize:14}}>{c}</span>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setEditCat({idx,nombre:c})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+            <button onClick={()=>eliminarCat(idx)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+          </div>
+        </div>
+      }
+    </Card>)}
+  </div>
+  <Card xtra={{borderColor:ACC+"33"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>NUEVA CATEGORÍA DE INVENTARIO</div>
+    <div style={{display:"flex",gap:10}}>
+      <input value={nuevaCat} onChange={e=>setNuevaCat(e.target.value)} placeholder="Nombre de la nueva categoría..." style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")agregarCat();}}/>
+      <Btn onClick={agregarCat} disabled={!nuevaCat.trim()}>+ Agregar</Btn>
+    </div>
+    <div style={{fontSize:11,color:MUT,marginTop:8}}>Las nuevas categorías estarán disponibles de inmediato en el inventario.</div>
+  </Card>
+</div>}
+{/* ── CATEGORÍAS DE VENTA ── */}
+{seccion==="catv"&&<div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12,marginBottom:24}}>
+    {catV.map((c,idx)=><Card key={idx} xtra={{padding:14}}>
+      {editCatV?.idx===idx
+        ?<div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input value={editCatV.nombre} onChange={e=>setEditCatV(p=>({...p,nombre:e.target.value}))} style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")guardarCatV();if(e.key==="Escape")setEditCatV(null);}} autoFocus/>
+          <Btn s="sm" v="ghost" onClick={()=>setEditCatV(null)}>Cancelar</Btn>
+          <Btn s="sm" onClick={guardarCatV}>OK</Btn>
+        </div>
+        :<div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:BLU}}></div>
+            <span style={{fontWeight:500,fontSize:14}}>{c}</span>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setEditCatV({idx,nombre:c})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+            <button onClick={()=>eliminarCatV(idx)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+          </div>
+        </div>
+      }
+    </Card>)}
+  </div>
+  <Card xtra={{borderColor:ACC+"33"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>NUEVA CATEGORÍA DE PRODUCTO DE VENTA</div>
+    <div style={{display:"flex",gap:10}}>
+      <input value={nuevaCatV} onChange={e=>setNuevaCatV(e.target.value)} placeholder="Ej: Ensaladas, Wraps, Combos..." style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")agregarCatV();}}/>
+      <Btn onClick={agregarCatV} disabled={!nuevaCatV.trim()}>+ Agregar</Btn>
+    </div>
+    <div style={{fontSize:11,color:MUT,marginTop:8}}>Las nuevas categorías estarán disponibles de inmediato al crear o editar recetas de venta.</div>
+  </Card>
+</div>}
+{seccion==="cat2"&&<div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12,marginBottom:24}}>
+    {cats2.map((c,idx)=><Card key={idx} xtra={{padding:14}}>
+      {editCat2?.idx===idx
+        ?<div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input value={editCat2.nombre} onChange={e=>setEditCat2(p=>({...p,nombre:e.target.value}))} style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")guardarCat2();if(e.key==="Escape")setEditCat2(null);}} autoFocus/>
+          <Btn s="sm" v="ghost" onClick={()=>setEditCat2(null)}>Cancelar</Btn>
+          <Btn s="sm" onClick={guardarCat2}>OK</Btn>
+        </div>
+        :<div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:PRP}}></div>
+            <span style={{fontWeight:500,fontSize:14}}>{c}</span>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setEditCat2({idx,nombre:c})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+            <button onClick={()=>eliminarCat2(idx)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+          </div>
+        </div>
+      }
+    </Card>)}
+  </div>
+  <Card xtra={{borderColor:ACC+"33"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>NUEVA CATEGORÍA INV. SUCURSAL</div>
+    <div style={{display:"flex",gap:10}}>
+      <input value={nuevaCat2} onChange={e=>setNuevaCat2(e.target.value)} placeholder="Ej: Carnes, Insumos..." style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")agregarCat2();}}/>
+      <Btn onClick={agregarCat2} disabled={!nuevaCat2.trim()}>+ Agregar</Btn>
+    </div>
+    <div style={{fontSize:11,color:MUT,marginTop:8}}>Categorías para ítems del inventario de cada sucursal.</div>
+  </Card>
+</div>}
+{seccion==="provs"&&<div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16,marginBottom:24}}>
+    {provs.map((p)=><Card key={p.id}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+        <div>
+          <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{p.nombre}</div>
+          <Bdg c={p.tipo==="produccion"?"orange":"blue"}>{p.tipo==="produccion"?"Centro de Producción":"Externo"}</Bdg>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{setEditProv(p);setFormProv({nombre:p.nombre,tipo:p.tipo,contacto:p.contacto||"",notas:p.notas||""});setModalProv(true);}}
+            style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+          {p.tipo!=="produccion"&&<button onClick={()=>setConfirmar({msg:"Eliminar proveedor "+p.nombre+"?",fn:()=>setProvs(prev=>prev.filter(x=>x.id!==p.id))})}
+            style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>}
+        </div>
+      </div>
+      {p.contacto&&<div style={{fontSize:12,color:MUT,marginTop:6}}>Contacto: {p.contacto}</div>}
+      {p.notas&&<div style={{fontSize:12,color:MUT,marginTop:4}}>{p.notas}</div>}
+    </Card>)}
+  </div>
+  <Card xtra={{borderColor:ACC+"33"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>NUEVO PROVEEDOR</div>
+    <Btn onClick={()=>{setEditProv(null);setFormProv({nombre:"",tipo:"externo",contacto:"",notas:""});setModalProv(true);}}>+ Agregar proveedor</Btn>
+  </Card>
+</div>}
+{modalProv&&<Mdl title={editProv?"EDITAR PROVEEDOR":"NUEVO PROVEEDOR"} onClose={()=>setModalProv(false)}>
+  <div style={{display:"grid",gap:14}}>
+    <LI label="Nombre"><input value={formProv.nombre} onChange={e=>setFormProv(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI>
+    <LI label="Tipo">
+      <select value={formProv.tipo} onChange={e=>setFormProv(p=>({...p,tipo:e.target.value}))} style={{width:"100%"}} disabled={editProv?.tipo==="produccion"}>
+        <option value="externo">Externo</option>
+        <option value="produccion">Centro de Producción</option>
+      </select>
+    </LI>
+    <LI label="Contacto (opcional)"><input value={formProv.contacto} onChange={e=>setFormProv(p=>({...p,contacto:e.target.value}))} style={{width:"100%"}}/></LI>
+    <LI label="Notas (opcional)"><input value={formProv.notas} onChange={e=>setFormProv(p=>({...p,notas:e.target.value}))} style={{width:"100%"}}/></LI>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <Btn v="ghost" onClick={()=>setModalProv(false)}>Cancelar</Btn>
+    <Btn onClick={()=>{
+      if(!formProv.nombre.trim())return;
+      if(editProv){
+        setProvs(p=>p.map(x=>x.id===editProv.id?{...editProv,...formProv}:x));
+      }else{
+        setProvs(p=>[...p,{id:Math.max(0,...p.map(x=>x.id))+1,...formProv}]);
+      }
+      setModalProv(false);
+    }}>Guardar</Btn>
+  </div>
+</Mdl>}
+{seccion==="users"&&<div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:16,marginBottom:24}}>
+    {users.map(u=><Card key={u.id}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+        <div>
+          <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{u.nombre}</div>
+          <div style={{fontSize:12,color:MUT,marginBottom:6}}>{u.email}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <Bdg c={u.rol==="superadmin"?"orange":u.rol==="produccion"?"blue":u.rol==="admin_suc"?"green":"muted"}>
+              {u.rol==="superadmin"?"Superadmin":u.rol==="admin_suc"?"Admin Suc.":u.rol==="staff_suc"?"Staff Suc.":"Producción"}
+            </Bdg>
+            {u.sucursal&&<Bdg c="muted">{u.sucursal}</Bdg>}
+            {!u.activo&&<Bdg c="red">Inactivo</Bdg>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{setEditUser(u);setFormUser({nombre:u.nombre,email:u.email,password:u.password,rol:u.rol,sucursal:u.sucursal||sucs[0]||"",activo:u.activo});setModalUser(true);}}
+            style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+          {u.rol!=="superadmin"&&<button onClick={()=>setConfirmar({msg:"Eliminar usuario "+u.nombre+"?",fn:()=>setUsers(p=>p.filter(x=>x.id!==u.id))})}
+            style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>}
+        </div>
+      </div>
+    </Card>)}
+  </div>
+  <Card xtra={{borderColor:ACC+"33"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>NUEVO USUARIO</div>
+    <Btn onClick={()=>{setEditUser(null);setFormUser({nombre:"",email:"",password:"",rol:"staff_suc",sucursal:sucs[0]||"",activo:true});setModalUser(true);}}>+ Agregar usuario</Btn>
+  </Card>
+</div>}
+{modalUser&&<Mdl title={editUser?"EDITAR USUARIO":"NUEVO USUARIO"} onClose={()=>setModalUser(false)}>
+  <div style={{display:"grid",gap:14}}>
+    <LI label="Nombre"><input value={formUser.nombre} onChange={e=>setFormUser(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI>
+    <LI label="Email"><input type="email" value={formUser.email} onChange={e=>setFormUser(p=>({...p,email:e.target.value}))} style={{width:"100%"}}/></LI>
+    <LI label="Contraseña"><input type="password" value={formUser.password} onChange={e=>setFormUser(p=>({...p,password:e.target.value}))} style={{width:"100%"}}/></LI>
+    <LI label="Rol">
+      <select value={formUser.rol} onChange={e=>setFormUser(p=>({...p,rol:e.target.value}))} style={{width:"100%"}}>
+        <option value="superadmin">Superadmin</option>
+        <option value="admin_suc">Admin Sucursal</option>
+        <option value="staff_suc">Staff Sucursal</option>
+        <option value="produccion">Producción</option>
+      </select>
+    </LI>
+    {(formUser.rol==="admin_suc"||formUser.rol==="staff_suc")&&<LI label="Sucursal">
+      <select value={formUser.sucursal} onChange={e=>setFormUser(p=>({...p,sucursal:e.target.value}))} style={{width:"100%"}}>
+        {sucs.map(s=><option key={s}>{s}</option>)}
+      </select>
+    </LI>}
+    <LI label="Estado">
+      <select value={formUser.activo?"activo":"inactivo"} onChange={e=>setFormUser(p=>({...p,activo:e.target.value==="activo"}))} style={{width:"100%"}}>
+        <option value="activo">Activo</option>
+        <option value="inactivo">Inactivo</option>
+      </select>
+    </LI>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <Btn v="ghost" onClick={()=>setModalUser(false)}>Cancelar</Btn>
+    <Btn onClick={()=>{
+      if(!formUser.nombre.trim()||!formUser.email.trim()||!formUser.password.trim())return;
+      const suc=(formUser.rol==="admin_suc"||formUser.rol==="staff_suc")?formUser.sucursal:null;
+      if(editUser){
+        setUsers(p=>p.map(u=>u.id===editUser.id?{...editUser,...formUser,sucursal:suc}:u));
+      }else{
+        setUsers(p=>[...p,{id:Math.max(0,...p.map(u=>u.id))+1,...formUser,sucursal:suc}]);
+      }
+      setModalUser(false);
+    }}>Guardar</Btn>
+  </div>
+</Mdl>}
+{confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+
+  </div>;
+}
