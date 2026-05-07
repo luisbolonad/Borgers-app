@@ -1702,7 +1702,11 @@ const ant=[...p]
       const invInicial=getInvInicial(i.id);
       return{itemId:i.id,invInicial,ingreso:0,egreso:0,stockFinal:invInicial,stockReal:"",obs:""};
     });
-    return[...p,{id:Date.now(),numInv:nextNumInv(suc,p),sucursal:suc,fecha:fec,filas,ventas:[],estado:"abierto"}];
+    const nuevoReg={numInv:nextNumInv(suc,p),sucursal:suc,fecha:fec,filas,ventas:[],estado:"abierto"};
+    supaPost("registros_sucursales",nuevoReg).then(([created])=>{
+      if(created?.id) setRegsSucs(pp=>pp.map(r=>r.sucursal===suc&&r.fecha===fec&&r.id>1000000000000?{...r,id:created.id}:r));
+    }).catch(console.error);
+    return[...p,{id:Date.now(),...nuevoReg}];
   }else{
     const idsExistentes=new Set(existe.filas.map(f=>f.itemId));
     const faltantes=itsToUse.filter(i=>!idsExistentes.has(i.id));
@@ -2026,7 +2030,7 @@ return <div>
     <Btn v="ghost" onClick={()=>setModalNuevoInv(false)}>Cancelar</Btn>
     <Btn onClick={()=>{
       if(!nuevaFechaInv){return;}
-      // Crear nuevo registro con inv inicial desde último cierre
+      let nuevoData=null;
       setRegsSucs(p=>{
         const ultCierre=[...p]
           .filter(r=>r.sucursal===sucSel&&r.estado==="cerrado")
@@ -2041,8 +2045,14 @@ return <div>
           return{itemId:i.id,invInicial,ingreso:0,egreso:0,stockFinal:invInicial,stockReal:"",obs:""};
         });
         const nnum=nextNumInv(sucSel,p);
-        return[...p,{id:Date.now(),numInv:nnum,sucursal:sucSel,fecha:nuevaFechaInv,filas,ventas:[],estado:"abierto"}];
+        nuevoData={numInv:nnum,sucursal:sucSel,fecha:nuevaFechaInv,filas,ventas:[],estado:"abierto"};
+        return[...p,{id:Date.now(),...nuevoData}];
       });
+      if(nuevoData){
+        supaPost("registros_sucursales",nuevoData).then(([created])=>{
+          if(created?.id) setRegsSucs(pp=>pp.map(r=>r.sucursal===sucSel&&r.fecha===nuevaFechaInv&&r.id>1000000000000?{...r,id:created.id}:r));
+        }).catch(console.error);
+      }
       setFecha(nuevaFechaInv);
       setModalNuevoInv(false);
     }}>Confirmar apertura</Btn>
