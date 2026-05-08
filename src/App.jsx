@@ -640,10 +640,9 @@ alert(prev.length+" ítems importados. El inventario fue reemplazado.");
 }
 function descargarPlantilla(){
 if(!xlsxReady){alert("SheetJS cargando...");return;}
-const datos=[
-{nombre:"Carne de res 80/20",categoria:"Carnes",unidad:"kg",stock:45,stockMin:20,costo:8500,proveedor:"Carnes Premium SA"},
-{nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stock:120,stockMin:60,costo:350,proveedor:"Panadería Central"},
-];
+const datos=inv.length>0
+?inv.map(i=>({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stock:i.stock,stockMin:i.stockMin,costo:i.costo,proveedor:i.proveedor}))
+:[{nombre:"Carne de res 80/20",categoria:"Carnes",unidad:"kg",stock:45,stockMin:20,costo:8500,proveedor:"Carnes Premium SA"}];
 const ws=window.XLSX.utils.json_to_sheet(datos);
 const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Inventario");
