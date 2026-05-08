@@ -488,8 +488,8 @@ return <>
 <div style={{marginLeft:menuAbierto?220:56,flex:1,padding:28,minWidth:0,transition:"margin-left 0.2s ease"}}>
 {tab==="inicio"&&<Inicio userActivo={userActivo} setTab={setTab} tabs={T}/>
 }{tab==="dash"&&<Dash {...sh} puede={puede}/>}
-{tab==="inv"&&<Inv {...sh}/>}
-{tab==="prod"&&<Prod {...sh}/>}
+{tab==="inv"&&<Inv {...sh} puede={puede}/>}
+{tab==="prod"&&<Prod {...sh} puede={puede}/>}
 {tab==="rec"&&<Rec {...sh} puede={puede}/>}
 {tab==="req"&&<Req {...sh} puede={puede} userActivo={userActivo}/>}
 {tab==="comp"&&<Comp {...sh}/>}
@@ -568,7 +568,7 @@ return <div>
   </div>;
 }
 // ── Inventario ──────────────────────────────────────────────────────────────
-function Inv({inv,setInv,setHI,xlsxReady,cats}){
+function Inv({inv,setInv,setHI,xlsxReady,cats,puede}){
 const[modal,setModal]=useState(null);
 const[edit,setEdit]=useState(null);
 const[mF,setMF]=useState(false);
@@ -667,11 +667,11 @@ return <div>
 <p style={{color:MUT,fontSize:13}}>{inv.length+" ítems · "+fmt(inv.reduce((s,i)=>s+i.stock*i.costo,0))}</p>
 </div>
 <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
-<Btn v="ghost" s="sm" onClick={descargarPlantilla} disabled={!xlsxReady}>📥 Plantilla Excel</Btn>
+{puede("config_total")&&<><Btn v="ghost" s="sm" onClick={descargarPlantilla} disabled={!xlsxReady}>📥 Plantilla Excel</Btn>
 <Btn v="ghost" s="sm" onClick={()=>refXlsx.current.click()} disabled={!xlsxReady}>📤 Subir Excel</Btn>
-<input ref={refXlsx} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={onXlsx}/>
+<input ref={refXlsx} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={onXlsx}/></>}
 <Btn v="success" s="sm" onClick={startF}>🔢 Inv. Físico</Btn>
-<Btn s="sm" onClick={()=>{setEdit(null);setForm(f0);setModal("f");}}>+ Agregar</Btn>
+{puede("config_total")&&<Btn s="sm" onClick={()=>{setEdit(null);setForm(f0);setModal("f");}}>+ Agregar</Btn>}
 </div>
 </div>
 <div style={{display:"flex",gap:12,marginBottom:20}}>
@@ -694,10 +694,10 @@ return <tr key={i.id}>
 <td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmt(i.stock*i.costo)}</td>
 <td style={{color:MUT,fontSize:12}}>{i.proveedor}</td>
 <td><Bdg c={bajo?"red":"green"}>{bajo?"Bajo":"OK"}</Bdg></td>
-<td><div style={{display:"flex",gap:6}}>
+{puede("config_total")&&<td><div style={{display:"flex",gap:6}}>
 <button onClick={()=>{setEdit(i);setForm({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stock:i.stock,stockMin:i.stockMin,costo:i.costo,proveedor:i.proveedor});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
 <button onClick={()=>setConfirmar({msg:"¿Eliminar "+i.nombre+"?",fn:()=>{setInv(p=>p.filter(x=>x.id!==i.id));supaDelete("inventario","?id=eq."+i.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
-</div></td>
+</div></td>}
 </tr>;
 })}</tbody>
 </table>
@@ -742,7 +742,7 @@ return <tr key={i.id}>
   </div>;
 }
 // ── Stock Producción ────────────────────────────────────────────────────────
-function Prod({rp,sp,setSp,inv,reqs}){
+function Prod({rp,sp,setSp,inv,reqs,puede}){
 const[mF,setMF]=useState(false);
 const[cF,setCF]=useState({});
 const pendReqs=reqs.filter(r=>r.estado==="enviado");
@@ -766,34 +766,23 @@ return <div>
 <div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>STOCK DE PRODUCCIÓN</h1><p style={{color:MUT,fontSize:13}}>Productos semi-elaborados en el centro de producción</p></div>
 <Btn v="success" onClick={()=>{const cf={};rp.forEach(r=>{cf[r.id]=gs(r.id);});setCF(cf);setMF(true);}}>Actualizar Stock Físico</Btn>
 </div>
-<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:16}}>
-{rp.map(r=>{
-const sa=gs(r.id),req=gr(r.id),el=Math.max(0,req-sa),cpu=cc(r)/r.rendimiento;
-return <Card key={r.id} xtra={{borderColor:el>0?ACC+"44":BRD}}>
-<div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
-<div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><div style={{fontSize:12,color:MUT}}>Rinde {r.rendimiento} {r.unidad}/tanda</div></div>
-<div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono'",fontSize:28,fontWeight:700,color:sa>0?GRN:RED}}>{fmtN(sa)}</div><div style={{fontSize:11,color:MUT}}>{r.unidad} en stock</div></div>
-</div>
-<div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
-{r.ings.map((ing,i)=>{const item=inv.find(x=>x.id===ing.invId);return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:MUT}}>{item?.nombre||"?"}</span><span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span></div>;})}
-</div>
-<div style={{background:BG,borderRadius:8,padding:12}}>
-<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,textAlign:"center"}}>
-<div><div style={{fontSize:10,color:MUT}}>Req. Total</div><div style={{fontFamily:"'DM Mono'",fontSize:18}}>{fmtN(req)}</div></div>
-<div><div style={{fontSize:10,color:MUT}}>En stock</div><div style={{fontFamily:"'DM Mono'",fontSize:18,color:GRN}}>{fmtN(sa)}</div></div>
-<div><div style={{fontSize:10,color:MUT}}>Elaborar</div><div style={{fontFamily:"'DM Mono'",fontSize:18,color:el>0?ACC:GRN,fontWeight:700}}>{fmtN(el)}</div></div>
-</div>
-{el>0&&<div style={{marginTop:8,paddingTop:8,borderTop:b1(FNT),display:"flex",justifyContent:"space-between",fontSize:12}}><span style={{color:MUT}}>Costo elaboración</span><span style={{fontFamily:"'DM Mono'",color:ACC}}>{fmt(el*cpu)}</span></div>}
-</div>
-<div style={{marginTop:12,display:"flex",alignItems:"center",gap:8}}>
-<span style={{fontSize:12,color:MUT,flex:1}}>Ajuste:</span>
-<button onClick={()=>ss(r.id,sa-1)} style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:30,height:30,fontSize:16}}>-</button>
-<span style={{fontFamily:"'DM Mono'",fontSize:14,minWidth:30,textAlign:"center"}}>{fmtN(sa)}</span>
-<button onClick={()=>ss(r.id,sa+1)} style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:30,height:30,fontSize:16}}>+</button>
-</div>
-</Card>;
-})}
-</div>
+{rp.length===0
+?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin productos de producción configurados.</Card>
+:<Card xtra={{padding:0}}>
+<table>
+<thead><tr><th>Producto</th><th>Unidad</th><th>Stock</th><th>Req. Total</th><th>Por Elaborar</th></tr></thead>
+<tbody>{rp.map(r=>{
+const sa=gs(r.id),req=gr(r.id),el=Math.max(0,req-sa);
+return <tr key={r.id}>
+<td style={{fontWeight:500}}>{r.nombre}</td>
+<td style={{color:MUT,fontSize:12}}>{r.unidad}</td>
+<td style={{fontFamily:"'DM Mono'",color:sa>0?GRN:RED,fontWeight:600}}>{fmtN(sa)}</td>
+<td style={{fontFamily:"'DM Mono'"}}>{fmtN(req)}</td>
+<td style={{fontFamily:"'DM Mono'",color:el>0?ACC:GRN,fontWeight:el>0?700:400}}>{fmtN(el)}</td>
+</tr>;
+})}</tbody>
+</table>
+</Card>}
   </div>;
 }
 // ── Recetas ─────────────────────────────────────────────────────────────────
