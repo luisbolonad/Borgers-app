@@ -1571,7 +1571,7 @@ window.XLSX.writeFile(wb,"lista_compras_"+today()+".xlsx");
   </div>;
 }
 // ── Inventario Sucursales ───────────────────────────────────────────────────
-function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,ventas:ventasProp,xlsxReady,provs,puede,userActivo}){
+function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,setRv,ventas:ventasProp,xlsxReady,provs,puede,userActivo}){
 // Filtrar sucursales según usuario
 const sucsVisibles=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
 ?sucs.filter(s=>s===userActivo.sucursal)
@@ -1589,6 +1589,22 @@ const[diaCerrado,setDiaCerrado]=useState(false);
 const[modalNuevoInv,setModalNuevoInv]=useState(false);
 const[nuevaFechaInv,setNuevaFechaInv]=useState("");
 const refXlsx=useRef();
+const stockMinTimer=useRef({});
+// Función auxiliar: normaliza nombre sucursal para columna Excel
+const normSuc=s=>"stockMin_"+s;
+// Inline stockMin por sucursal
+function setStockMinItem(itemId,suc,valor){
+const newVal=parseFloat(valor)||0;
+setInvSucs(p=>{
+const next=p.map(s=>s.sucursal!==suc?s:{...s,items:s.items.map(i=>i.id!==itemId?i:{...i,stockMin:newVal})});
+clearTimeout(stockMinTimer.current[suc]);
+stockMinTimer.current[suc]=setTimeout(()=>{
+const sData=next.find(s=>s.sucursal===suc);
+if(sData)syncInvSuc(suc,sData.items);
+},800);
+return next;
+});
+}
 // Fecha activa de la sucursal seleccionada
 const fecha=fechas[sucSel]||today();
 function setFecha(f){setFechas(p=>({...p,[sucSel]:f}));}
@@ -1758,36 +1774,37 @@ return next;
 function syncInvSuc(suc,nuevoItems){
   supaUpsert("inventario_sucursales",{sucursal:suc,items:nuevoItems}).catch(console.error);
 }
-// CRUD ítems
+// CRUD ítems (global — aplica a todas las sucursales)
 function saveItem(){
 if(!formItem.nombre.trim())return;
-let nuevaLista=null;
-let nuevosItems=null;
-setInvSucs(p=>p.map(s=>{
-if(s.sucursal!==sucSel)return s;
+const oldNombre=editItem?.nombre;
+const newNombre=formItem.nombre.trim();
+let updated;
 if(editItem){
-nuevosItems=s.items.map(i=>i.id===editItem.id?{...editItem,...formItem}:i);
-return{...s,items:nuevosItems};
+// Editar: actualiza campos globales en TODAS las sucursales, respeta stockMin de cada una
+updated=invSucs.map(s=>({...s,items:s.items.map(i=>i.id===editItem.id?{...i,nombre:newNombre,categoria:formItem.categoria,unidad:formItem.unidad,proveedorId:formItem.proveedorId}:i)}));
 }else{
-const nid=Math.max(0,...s.items.map(i=>i.id))+1;
-const nuevoItem={id:nid,...formItem};
-nuevaLista=[...s.items,nuevoItem];
-nuevosItems=nuevaLista;
-return{...s,items:nuevaLista};
+// Nuevo ítem: agrega a TODAS las sucursales con stockMin=0
+const newId=Math.max(0,...invSucs.flatMap(s=>s.items.map(i=>i.id||0)))+1;
+updated=invSucs.map(s=>({...s,items:[...s.items,{id:newId,nombre:newNombre,categoria:formItem.categoria,unidad:formItem.unidad,proveedorId:formItem.proveedorId,stockMin:0}]}));
 }
-}));
-if(nuevosItems) syncInvSuc(sucSel,nuevosItems);
-if(!editItem&&nuevaLista){
-setTimeout(()=>asegurarReg(fecha,sucSel,nuevaLista),50);
+setInvSucs(updated);
+updated.forEach(s=>syncInvSuc(s.sucursal,s.items));
+// Propagar cambio de nombre a recetas de venta
+if(editItem&&oldNombre!==newNombre){
+const updatedRv=rv.map(r=>({...r,ings:r.ings.map(ing=>ing.sucItemNombre===oldNombre?{...ing,sucItemNombre:newNombre}:ing)}));
+setRv(updatedRv);
+updatedRv.filter(r=>r.ings.some(ing=>ing.sucItemNombre===newNombre))
+.forEach(r=>supaPatch("recetas_venta","?id=eq."+r.id,{ings:r.ings}).catch(console.error));
 }
-setModal(null);setEditItem(null);setFormItem({nombre:"",categoria:cats2[0]||"",unidad:"",stockMin:0,proveedorId:provs[0]?.id||1});
+setModal(null);setEditItem(null);setFormItem({nombre:"",categoria:cats2[0]||"",unidad:"",proveedorId:provs[0]?.id||1});
 }
 function eliminarItem(id){
-setConfirmar({msg:"¿Eliminar este ítem del inventario de "+sucSel+"?",fn:()=>{
-const sData=invSucs.find(s=>s.sucursal===sucSel);
-const nuevosItems=(sData?.items||[]).filter(i=>i.id!==id);
-setInvSucs(p=>p.map(s=>s.sucursal!==sucSel?s:{...s,items:nuevosItems}));
-syncInvSuc(sucSel,nuevosItems);
+const item=invSucs[0]?.items.find(i=>i.id===id);
+setConfirmar({msg:"¿Eliminar ítem \""+(item?.nombre||id)+"\" de TODAS las sucursales?",fn:()=>{
+const updated=invSucs.map(s=>({...s,items:s.items.filter(i=>i.id!==id)}));
+setInvSucs(updated);
+updated.forEach(s=>syncInvSuc(s.sucursal,s.items));
 }});
 }
 // Excel import
@@ -1797,17 +1814,33 @@ if(!xlsxReady){alert("SheetJS cargando...");return;}
 try{
 const rows=await readXLSX(file);
 const get=(row,names)=>{for(const n of names){const k=Object.keys(row).find(k=>k.toLowerCase().trim()===n);if(k!==undefined&&row[k]!=="")return row[k];}return "";};
+// Detectar columnas stockMin por sucursal: "stockMin_NombreSucursal"
+const colKeys=rows.length>0?Object.keys(rows[0]):[];
+const sucColMap={}; // {sucursal: columnaExcel}
+sucs.forEach(suc=>{
+const target=normSuc(suc).toLowerCase();
+const found=colKeys.find(k=>k.toLowerCase().trim()===target.toLowerCase());
+if(found)sucColMap[suc]=found;
+});
+const existingItems=invSucs[0]?.items||[];
 const mapped=rows.map((row,idx)=>{
 const nombreProv=String(get(row,["proveedor","supplier","prov"])||"").trim();
-// Buscar proveedorId por nombre (match parcial)
 const provMatch=provs.find(p=>p.nombre.toLowerCase()===nombreProv.toLowerCase()||p.nombre.toLowerCase().includes(nombreProv.toLowerCase()));
+const nombre=String(get(row,["nombre","item","name"])||"").trim();
+const existente=existingItems.find(i=>i.nombre.toLowerCase()===nombre.toLowerCase());
+const stockMins={};
+sucs.forEach(suc=>{
+const col=sucColMap[suc];
+if(col&&row[col]!==undefined&&row[col]!=="")stockMins[suc]=parseFloat(row[col])||0;
+else stockMins[suc]=existente?invSucs.find(s=>s.sucursal===suc)?.items.find(i=>i.nombre.toLowerCase()===nombre.toLowerCase())?.stockMin||0:0;
+});
 return{
-id:idx+1,
-nombre:String(get(row,["nombre","item","name"])||"").trim(),
+id:existente?.id||(idx+100),
+nombre,
 categoria:String(get(row,["categoria","categoría","category"])||cats2[0]||"").trim(),
 unidad:String(get(row,["unidad","unit","ud"])||"").trim(),
-stockMin:parseFloat(get(row,["stock_minimo","stockmin","stock minimo","stock mínimo","minimo","mínimo","min"]))||0,
 proveedorId:provMatch?.id||provs[0]?.id||1,
+stockMins,
 };
 }).filter(i=>i.nombre);
 if(!mapped.length){alert("No se encontraron ítems válidos.");return;}
@@ -1815,26 +1848,45 @@ setImportPreview(mapped);setModal("importar");
 }catch(err){alert("Error: "+err.message);}
 }
 function confirmarImport(){
-setInvSucs(p=>p.map(s=>s.sucursal!==sucSel?s:{...s,items:importPreview}));
-syncInvSuc(sucSel,importPreview);
+// Asignar IDs únicos a ítems nuevos (sin id existente)
+let maxId=Math.max(0,...invSucs.flatMap(s=>s.items.map(i=>i.id||0)));
+const withIds=importPreview.map(i=>{
+if(i.id&&i.id<100)return i;
+maxId++;return{...i,id:maxId};
+});
+// Aplicar a TODAS las sucursales con stockMin independiente
+const updated=invSucs.map(s=>({
+...s,
+items:withIds.map(i=>({id:i.id,nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,proveedorId:i.proveedorId,stockMin:i.stockMins[s.sucursal]??0}))
+}));
+setInvSucs(updated);
+updated.forEach(s=>syncInvSuc(s.sucursal,s.items));
 setImportPreview(null);setModal(null);
-alert(importPreview.length+" ítems importados para "+sucSel+".");
+alert(withIds.length+" ítems importados en todas las sucursales.");
 }
 function descargarPlantilla(){
 if(!xlsxReady){alert("SheetJS cargando...");return;}
-// Incluir todos los campos requeridos con ejemplos
-const datos=[
-{nombre:"Bolita de carne 120g",categoria:"Carnes",unidad:"und",stock_minimo:300,proveedor:"Centro de Producción"},
-{nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",stock_minimo:120,proveedor:"La Masa"},
-{nombre:"Salsa Borgers 1L",categoria:"Salsas",unidad:"litro",stock_minimo:3,proveedor:"Centro de Producción"},
-{nombre:"Coca-Cola 330ml",categoria:"Bebidas",unidad:"lata",stock_minimo:24,proveedor:"Coca-Cola"},
+// Usar ítems existentes (primera sucursal como referencia) o ejemplos si no hay
+const refItems=invSucs[0]?.items||[];
+const base=refItems.length>0?refItems:[
+{nombre:"Bolita de carne 120g",categoria:"Carnes",unidad:"und",proveedorId:1},
+{nombre:"Pan de hamburguesa",categoria:"Panadería",unidad:"und",proveedorId:4},
 ];
+const datos=base.map(i=>{
+const prov=provs.find(p=>p.id===i.proveedorId);
+const row={nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,proveedor:prov?.nombre||""};
+sucs.forEach(suc=>{
+const sm=invSucs.find(s=>s.sucursal===suc)?.items.find(x=>x.id===i.id)?.stockMin||0;
+row[normSuc(suc)]=sm;
+});
+return row;
+});
 const ws=window.XLSX.utils.json_to_sheet(datos);
-// Ajustar ancho de columnas
-ws["!cols"]=[{wch:25},{wch:15},{wch:10},{wch:14},{wch:25}];
+const colWidths=[{wch:25},{wch:15},{wch:10},{wch:25},...sucs.map(()=>({wch:18}))];
+ws["!cols"]=colWidths;
 const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Items");
-window.XLSX.writeFile(wb,"plantilla_items_"+sucSel.replace(/ /g,"_")+".xlsx");
+window.XLSX.writeFile(wb,"plantilla_items.xlsx");
 }
 // Al cambiar sucursal o fecha, asegurar registro
 useEffect(()=>{
@@ -1996,24 +2048,40 @@ return <div>
 </div>}
 {/* ── ÍTEMS ── */}
 {vista==="items"&&<div>
-  {items.length===0
+  {(invSucs[0]?.items||[]).length===0
     ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin ítems. Agrega manualmente o importa desde Excel.</Card>
     :<Card xtra={{padding:0}}>
+      <div style={{overflowX:"auto"}}>
       <table>
-        <thead><tr><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Stock Mín.</th><th>Proveedor</th><th></th></tr></thead>
-        <tbody>{items.map(i=>{const prov=provs.find(p=>p.id===i.proveedorId);return <tr key={i.id}>
-          <td style={{fontWeight:500}}>{i.nombre}</td>
-          <td style={{color:MUT}}>{i.categoria}</td>
-          <td style={{color:MUT}}>{i.unidad}</td>
-          <td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmtN(i.stockMin||0)}</td>
-          <td style={{fontSize:12}}><Bdg c={prov?.tipo==="produccion"?"orange":"blue"}>{prov?.nombre||"—"}</Bdg></td>
-          <td><div style={{display:"flex",gap:6}}>
-            <button onClick={()=>{setEditItem(i);setFormItem({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stockMin:i.stockMin||0,proveedorId:i.proveedorId||provs[0]?.id||1});setModal("item");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
-            <button onClick={()=>eliminarItem(i.id)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
-          </div></td>
-        </tr>;})}
+        <thead><tr>
+          <th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Proveedor</th>
+          {sucs.map(s=><th key={s} style={{color:ACC,whiteSpace:"nowrap"}}>StockMín<br/><span style={{fontSize:10,fontWeight:400,color:MUT}}>{s}</span></th>)}
+          {puede("config_total")&&<th></th>}
+        </tr></thead>
+        <tbody>{[...(invSucs[0]?.items||[])].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(i=>{
+          const prov=provs.find(p=>p.id===i.proveedorId);
+          return <tr key={i.id}>
+            <td style={{fontWeight:500,minWidth:160}}>{i.nombre}</td>
+            <td style={{color:MUT}}>{i.categoria}</td>
+            <td style={{color:MUT}}>{i.unidad}</td>
+            <td style={{fontSize:12}}><Bdg c={prov?.tipo==="produccion"?"orange":"blue"}>{prov?.nombre||"—"}</Bdg></td>
+            {sucs.map(suc=>{
+              const sm=invSucs.find(s=>s.sucursal===suc)?.items.find(x=>x.id===i.id)?.stockMin||0;
+              return <td key={suc}>
+                <input type="number" step="0.01" value={sm}
+                  onChange={e=>setStockMinItem(i.id,suc,e.target.value)}
+                  style={{width:70,textAlign:"center",fontFamily:"'DM Mono'",fontSize:12}}/>
+              </td>;
+            })}
+            {puede("config_total")&&<td><div style={{display:"flex",gap:6}}>
+              <button onClick={()=>{setEditItem(i);setFormItem({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,proveedorId:i.proveedorId||provs[0]?.id||1});setModal("item");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+              <button onClick={()=>eliminarItem(i.id)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+            </div></td>}
+          </tr>;
+        })}
         </tbody>
       </table>
+      </div>
     </Card>}
 </div>}
 {/* ── HISTORIAL ── */}
@@ -2059,20 +2127,18 @@ return <div>
   </div>
 </Mdl>}
 {/* Modal ítem */}
-{modal==="item"&&<Mdl title={editItem?"EDITAR ÍTEM":"NUEVO ÍTEM"} onClose={()=>setModal(null)}>
+{modal==="item"&&<Mdl title={editItem?"EDITAR ÍTEM (global)":"NUEVO ÍTEM (global)"} onClose={()=>setModal(null)}>
+  <div style={{fontSize:12,color:MUT,marginBottom:14}}>{editItem?"Los cambios aplican a todas las sucursales. El StockMín se edita en la tabla.":"Se agregará a todas las sucursales con StockMín=0. Edita el StockMín en la tabla."}</div>
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
     <div style={{gridColumn:"1/3"}}><LI label="Nombre"><input value={formItem.nombre} onChange={e=>setFormItem(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
     <LI label="Categoría">
-      <select value={formItem.categoria} onChange={e=>setFormItem(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>
+      <select value={formItem.categoria||cats2[0]||""} onChange={e=>setFormItem(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>
         {cats2.map(c=><option key={c}>{c}</option>)}
       </select>
     </LI>
     <LI label="Unidad"><input value={formItem.unidad} onChange={e=>setFormItem(p=>({...p,unidad:e.target.value}))} style={{width:"100%"}}/></LI>
-    <LI label="Stock Mínimo">
-      <input type="number" step="0.01" value={formItem.stockMin} onChange={e=>setFormItem(p=>({...p,stockMin:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/>
-    </LI>
-    <LI label="Proveedor">
-      <select value={formItem.proveedorId} onChange={e=>setFormItem(p=>({...p,proveedorId:parseInt(e.target.value)}))} style={{width:"100%"}}>
+    <LI label="Proveedor" xtra={{gridColumn:"1/3"}}>
+      <select value={formItem.proveedorId||provs[0]?.id||1} onChange={e=>setFormItem(p=>({...p,proveedorId:parseInt(e.target.value)}))} style={{width:"100%"}}>
         {provs.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
       </select>
     </LI>
@@ -2083,21 +2149,24 @@ return <div>
   </div>
 </Mdl>}
 {/* Modal preview importación */}
-{modal==="importar"&&importPreview&&<Mdl title={"PREVIEW — "+importPreview.length+" ÍTEMS"} onClose={()=>setModal(null)} wide>
+{modal==="importar"&&importPreview&&<Mdl title={"PREVIEW — "+importPreview.length+" ÍTEMS (todas las sucursales)"} onClose={()=>setModal(null)} wide>
   <div style={{background:BG,borderRadius:8,padding:12,marginBottom:16,fontSize:12,color:MUT}}>
-    Estos ítems reemplazarán la lista actual de {sucSel}.
+    Estos ítems reemplazarán la lista global. El StockMín se aplicará a cada sucursal según las columnas del archivo.
   </div>
   <div style={{maxHeight:300,overflow:"auto",marginBottom:16}}>
     <table>
-      <thead><tr><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Stock Mín.</th><th>Proveedor</th></tr></thead>
+      <thead><tr>
+        <th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Proveedor</th>
+        {sucs.map(s=><th key={s} style={{color:ACC}}>{s}</th>)}
+      </tr></thead>
       <tbody>{importPreview.map((i,idx)=>{
         const prov=provs.find(p=>p.id===i.proveedorId);
         return <tr key={idx}>
           <td>{i.nombre}</td>
           <td style={{color:MUT}}>{i.categoria}</td>
           <td style={{color:MUT}}>{i.unidad}</td>
-          <td style={{fontFamily:"'DM Mono'",color:ACC}}>{fmtN(i.stockMin||0)}</td>
           <td style={{fontSize:12}}><Bdg c={prov?.tipo==="produccion"?"orange":"blue"}>{prov?.nombre||"—"}</Bdg></td>
+          {sucs.map(s=><td key={s} style={{fontFamily:"'DM Mono'",color:ACC,fontSize:12}}>{fmtN(i.stockMins?.[s]||0)}</td>)}
         </tr>;
       })}</tbody>
     </table>
@@ -2483,10 +2552,12 @@ setEditSuc(null);
 async function agregarSuc(){
 const nombre=nuevaSuc.trim();
 if(!nombre||sucs.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
+// Heredar ítems globales con stockMin=0
+const nuevoItems=(invSucs[0]?.items||[]).map(i=>({...i,stockMin:0}));
 setSucs(p=>[...p,nombre]);
-setInvSucs(p=>[...p,{sucursal:nombre,items:[]}]);
+setInvSucs(p=>[...p,{sucursal:nombre,items:nuevoItems}]);
 await supaPost("sucursales",{nombre}).catch(console.error);
-await supaUpsert("inventario_sucursales",{sucursal:nombre,items:[]}).catch(console.error);
+await supaUpsert("inventario_sucursales",{sucursal:nombre,items:nuevoItems}).catch(console.error);
 setNuevaSuc("");
 }
 function eliminarSuc(idx){
