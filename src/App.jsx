@@ -1772,7 +1772,7 @@ return next;
 });
 }
 function syncInvSuc(suc,nuevoItems){
-  supaUpsert("inventario_sucursales",{sucursal:suc,items:nuevoItems}).catch(console.error);
+  supaPatch("inventario_sucursales","?sucursal=eq."+encodeURIComponent(suc),{items:nuevoItems}).catch(console.error);
 }
 // CRUD ítems (global — aplica a todas las sucursales)
 function saveItem(){
@@ -1900,7 +1900,7 @@ return <div>
 <p style={{color:MUT,fontSize:13}}>Control diario de stock por sucursal</p>
 </div>
 <div style={{display:"flex",gap:8}}>
-{vista==="items"&&<>
+{vista==="items"&&puede("config_total")&&<>
 <Btn v="ghost" s="sm" onClick={descargarPlantilla} disabled={!xlsxReady}>📥 Plantilla</Btn>
 <Btn v="ghost" s="sm" onClick={()=>refXlsx.current.click()} disabled={!xlsxReady}>📤 Subir Excel</Btn>
 <input ref={refXlsx} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={onXlsx}/>
@@ -1915,7 +1915,7 @@ return <div>
 </div>
 {/* Sub-tabs */}
 <div style={{display:"flex",gap:8,marginBottom:20}}>
-  {[["hoy","📋 Registro del Día"],["items","📦 Ítems"],["historial","🕐 Historial"]].map(([id,l])=>{
+  {[["hoy","📋 Registro del Día"],["items","📦 Ítems"],["historial","🕐 Historial"]].filter(([id])=>id!=="items"||puede("config_total")).map(([id,l])=>{
     const a=vista===id;
     return <button key={id} onClick={()=>setVista(id)} style={{padding:"7px 16px",borderRadius:8,fontSize:12,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
   })}
