@@ -841,7 +841,19 @@ return <div>
       </div>}
     </div>
     <div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
-      {r.ings.map((ing,i)=>{const n=ing.tipo==="inv"?inv.find(x=>x.id===ing.refId)?.nombre:rp.find(x=>x.id===ing.refId)?.nombre;return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:ing.tipo==="prod"?ACC:MUT}}>{ing.tipo==="prod"?"[P] ":""}{n||"?"}</span><span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span></div>;})}
+      {r.ings.map((ing,i)=>{
+        const n=ing.tipo==="inv"?inv.find(x=>x.id===ing.refId)?.nombre:rp.find(x=>x.id===ing.refId)?.nombre;
+        const cIng=ing.tipo==="inv"
+          ?(inv.find(x=>x.id===ing.refId)?.costo||0)*ing.cantidad
+          :(()=>{const prod=rp.find(x=>x.id===ing.refId);if(!prod)return 0;const cp=prod.ings.reduce((s,ri)=>{const it=inv.find(i=>i.id===ri.invId);return s+(it?it.costo*ri.cantidad:0);},0);return(cp/prod.rendimiento)*ing.cantidad;})();
+        return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
+          <span style={{color:ing.tipo==="prod"?ACC:MUT}}>{ing.tipo==="prod"?"[P] ":""}{n||"?"}</span>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span>
+            {(!puede||puede("config_total"))&&<span style={{fontFamily:"'DM Mono'",color:MUT,fontSize:11,minWidth:46,textAlign:"right"}}>{fmt(cIng)}</span>}
+          </div>
+        </div>;
+      })}
       <div style={{fontSize:10,color:FNT,marginTop:4}}>[P] = producción interna</div>
     </div>
     {(!puede||puede("editar_recetas"))&&<div style={{borderTop:b1(BRD),paddingTop:10}}>
@@ -861,7 +873,17 @@ return <div>
       </div>}
     </div>
     <div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
-      {r.ings.map((ing,i)=>{const item=inv.find(x=>x.id===ing.invId);return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:MUT}}>{item?.nombre||"?"}</span><span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span></div>;})}
+      {r.ings.map((ing,i)=>{
+        const item=inv.find(x=>x.id===ing.invId);
+        const cIng=(item?.costo||0)*ing.cantidad;
+        return <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
+          <span style={{color:MUT}}>{item?.nombre||"?"}</span>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <span style={{fontFamily:"'DM Mono'"}}>{ing.cantidad} {ing.unidad}</span>
+            {(!puede||puede("config_total"))&&<span style={{fontFamily:"'DM Mono'",color:MUT,fontSize:11,minWidth:46,textAlign:"right"}}>{fmt(cIng)}</span>}
+          </div>
+        </div>;
+      })}
     </div>
     <div style={{borderTop:b1(BRD),paddingTop:10}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:MUT}}>Costo tanda</span><span style={{fontFamily:"'DM Mono'",fontSize:12}}>{fmt(c)}</span></div>
