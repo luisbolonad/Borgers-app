@@ -376,6 +376,8 @@ const[cats2,setCats2]=useState(iCATS2);
 const[invSucs,setInvSucs]=useState(iINVS);
 const[regsSucs,setRegsSucs]=useState(iREGS);
 const[provs,setProvs]=useState(iPROVS);
+const[marcas,setMarcas]=useState([]);
+const[sucsMarcas,setSucsMarcas]=useState({});
 const[ventas,setVentas]=useState([]);
 const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(null);
@@ -386,7 +388,7 @@ try{
 const[
 dbUsers,dbSucs,dbCatsInv,dbCatsVenta,dbCatsInvSuc,
 dbProvs,dbInv,dbRp,dbRv,dbReqs,
-dbInvSucs,dbRegs,dbVentas
+dbInvSucs,dbRegs,dbVentas,dbMarcas
 ]=await Promise.all([
 supaGet("users","?select=*&order=created_at"),
 supaGet("sucursales","?select=*&order=nombre"),
@@ -401,10 +403,11 @@ supaGet("requerimientos","?select=*&order=created_at.desc"),
 supaGet("inventario_sucursales","?select=*"),
 supaGet("registros_sucursales","?select=*&order=fecha.desc"),
 supaGet("ventas","?select=*&order=fecha.desc"),
+supaGet("marcas","?select=*&order=nombre"),
 ]);
 
     if(dbUsers.length>0) setUsers(dbUsers.map(u=>({...u,id:u.id})));
-    if(dbSucs.length>0) setSucs(dbSucs.map(s=>s.nombre));
+    if(dbSucs.length>0){setSucs(dbSucs.map(s=>s.nombre));const sm={};dbSucs.forEach(s=>{sm[s.nombre]=s.marcas||[];});setSucsMarcas(sm);}
     if(dbCatsInv.length>0) setCats(dbCatsInv.map(c=>c.nombre));
     if(dbCatsVenta.length>0) setCatV(dbCatsVenta.map(c=>c.nombre));
     if(dbCatsInvSuc.length>0) setCats2(dbCatsInvSuc.map(c=>c.nombre));
@@ -414,11 +417,12 @@ supaGet("ventas","?select=*&order=fecha.desc"),
       setRp(dbRp.map(r=>({...r,ings:r.ings||[]})));
       setSp(dbRp.map(r=>({recetaId:r.id,stock:r.stock||0})));
     }
-    if(dbRv.length>0) setRv(dbRv.map(r=>({...r,ings:r.ings||[]})));
+    if(dbRv.length>0) setRv(dbRv.map(r=>({...r,ings:r.ings||[],marcas:r.marcas||[]})));
     if(dbReqs.length>0) setReqs(dbReqs.map(r=>({...r,items:r.items||[],despacho:r.despacho||[]})));
     if(dbInvSucs.length>0) setInvSucs(dbInvSucs.map(s=>({sucursal:s.sucursal,items:s.items||[]})));
     if(dbRegs.length>0) setRegsSucs(dbRegs.map(r=>({...r,numInv:r.numInv||1,filas:r.filas||[],ventas:r.ventas||[]})));
     if(dbVentas.length>0) setVentas(dbVentas.map(v=>({...v,rId:v.rId,cant:v.cant})));
+    if(dbMarcas.length>0) setMarcas(dbMarcas);
   }catch(err){
     console.error("Error cargando datos:",err);
   }finally{
@@ -428,7 +432,7 @@ supaGet("ventas","?select=*&order=fecha.desc"),
 cargarDatos();
 
 },[]);
-const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo};
+const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo,marcas,setMarcas,sucsMarcas,setSucsMarcas};
 const[menuAbierto,setMenuAbierto]=useState(true);
 // puede debe definirse antes de allTabs — usa userActivo que puede ser null
 const puede=(accion)=>puedePor(userActivo,accion);
@@ -785,12 +789,12 @@ return <tr key={r.id}>
   </div>;
 }
 // ── Recetas ─────────────────────────────────────────────────────────────────
-function Rec({rp,setRp,rv,setRv,inv,setSp,catV,invSucs,puede}){
+function Rec({rp,setRp,rv,setRv,inv,setSp,catV,invSucs,puede,marcas}){
 const[st,setSt]=useState("v");
 const[modal,setModal]=useState(null);
 const[editR,setEditR]=useState(null);
 const[confirmar,setConfirmar]=useState(null);
-const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:""};
+const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:"",marcas:[]};
 const fP={nombre:"",unidad:"und",rendimiento:1,ings:[]};
 const[fv,setFv]=useState(fV);
 const[fp,setFp]=useState(fP);
@@ -836,7 +840,7 @@ return <div>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
       <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="blue">{r.categoria}</Bdg>{r.codigo&&<span style={{fontSize:11,fontFamily:"'DM Mono'",color:MUT,marginLeft:6}}>#{r.codigo}</span>}</div>
       {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
-        <button onClick={()=>{setEditR(r);setFv({nombre:r.nombre,categoria:r.categoria,precio:r.precio,ings:r.ings,codigo:r.codigo||""});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+        <button onClick={()=>{setEditR(r);setFv({nombre:r.nombre,categoria:r.categoria,precio:r.precio,ings:r.ings,codigo:r.codigo||"",marcas:r.marcas||[]});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
         <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>{setRv(p=>p.filter(x=>x.id!==r.id));supaDelete("recetas_venta","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
       </div>}
     </div>
@@ -897,6 +901,17 @@ return <div>
     <LI label="Categoría"><select value={fv.categoria} onChange={e=>setFv(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>{CV.map(c=><option key={c}>{c}</option>)}</select></LI>
     <LI label="Precio ($)"><input type="number" step="0.01" value={fv.precio} onChange={e=>setFv(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
     {(!puede||puede("config_total"))&&<div style={{gridColumn:"1/3"}}><LI label="Código único (alfanumérico)"><input value={fv.codigo||""} onChange={e=>setFv(p=>({...p,codigo:e.target.value.toUpperCase()}))} placeholder="Ej: BRG-01" style={{width:"100%",fontFamily:"'DM Mono'"}}/></LI></div>}
+    <div style={{gridColumn:"1/3"}}><LI label="Marcas">
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingTop:4}}>
+        {[...(marcas||[])].sort((a,b)=>a.nombre==="General"?-1:b.nombre==="General"?1:a.nombre.localeCompare(b.nombre,"es")).map(m=>{
+          const sel=(fv.marcas||[]).includes(m.nombre);
+          return <label key={m.id} style={{display:"flex",alignItems:"center",gap:5,fontSize:13,cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={sel} onChange={()=>setFv(p=>({...p,marcas:sel?p.marcas.filter(x=>x!==m.nombre):[...(p.marcas||[]),m.nombre]}))}/>
+            {m.nombre}
+          </label>;
+        })}
+      </div>
+    </LI></div>
   </div>
   <div style={{marginBottom:12}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -1595,7 +1610,7 @@ window.XLSX.writeFile(wb,"lista_compras"+sufijo+"_"+today()+".xlsx");
   </div>;
 }
 // ── Inventario Sucursales ───────────────────────────────────────────────────
-function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,setRv,ventas:ventasProp,xlsxReady,provs,puede,userActivo}){
+function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,setRv,ventas:ventasProp,xlsxReady,provs,puede,userActivo,marcas}){
 // Filtrar sucursales según usuario
 const sucsVisibles=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
 ?sucs.filter(s=>s===userActivo.sucursal)
@@ -1606,7 +1621,7 @@ const[vista,setVista]=useState("hoy");
 const[fechas,setFechas]=useState({});
 const[modal,setModal]=useState(null);
 const[editItem,setEditItem]=useState(null);
-const[formItem,setFormItem]=useState({nombre:"",categoria:cats2[0]||"",unidad:"",stockMin:0,proveedorId:provs[0]?.id||1});
+const[formItem,setFormItem]=useState({nombre:"",categoria:cats2[0]||"",unidad:"",stockMin:0,proveedorId:provs[0]?.id||1,marcas:[]});
 const[confirmar,setConfirmar]=useState(null);
 const[importPreview,setImportPreview]=useState(null);
 const[diaCerrado,setDiaCerrado]=useState(false);
@@ -1806,11 +1821,11 @@ const newNombre=formItem.nombre.trim();
 let updated;
 if(editItem){
 // Editar: actualiza campos globales en TODAS las sucursales, respeta stockMin de cada una
-updated=invSucs.map(s=>({...s,items:s.items.map(i=>i.id===editItem.id?{...i,nombre:newNombre,categoria:formItem.categoria,unidad:formItem.unidad,proveedorId:formItem.proveedorId}:i)}));
+updated=invSucs.map(s=>({...s,items:s.items.map(i=>i.id===editItem.id?{...i,nombre:newNombre,categoria:formItem.categoria,unidad:formItem.unidad,proveedorId:formItem.proveedorId,marcas:formItem.marcas||[]}:i)}));
 }else{
 // Nuevo ítem: agrega a TODAS las sucursales con stockMin=0
 const newId=Math.max(0,...invSucs.flatMap(s=>s.items.map(i=>i.id||0)))+1;
-updated=invSucs.map(s=>({...s,items:[...s.items,{id:newId,nombre:newNombre,categoria:formItem.categoria,unidad:formItem.unidad,proveedorId:formItem.proveedorId,stockMin:0}]}));
+updated=invSucs.map(s=>({...s,items:[...s.items,{id:newId,nombre:newNombre,categoria:formItem.categoria,unidad:formItem.unidad,proveedorId:formItem.proveedorId,stockMin:0,marcas:formItem.marcas||[]}]}));
 }
 setInvSucs(updated);
 updated.forEach(s=>syncInvSuc(s.sucursal,s.items));
@@ -1821,7 +1836,7 @@ setRv(updatedRv);
 updatedRv.filter(r=>r.ings.some(ing=>ing.sucItemNombre===newNombre))
 .forEach(r=>supaPatch("recetas_venta","?id=eq."+r.id,{ings:r.ings}).catch(console.error));
 }
-setModal(null);setEditItem(null);setFormItem({nombre:"",categoria:cats2[0]||"",unidad:"",proveedorId:provs[0]?.id||1});
+setModal(null);setEditItem(null);setFormItem({nombre:"",categoria:cats2[0]||"",unidad:"",proveedorId:provs[0]?.id||1,marcas:[]});
 }
 function eliminarItem(id){
 const item=invSucs[0]?.items.find(i=>i.id===id);
@@ -2098,7 +2113,7 @@ return <div>
               </td>;
             })}
             {puede("config_total")&&<td><div style={{display:"flex",gap:6}}>
-              <button onClick={()=>{setEditItem(i);setFormItem({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,proveedorId:i.proveedorId||provs[0]?.id||1});setModal("item");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+              <button onClick={()=>{setEditItem(i);setFormItem({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,proveedorId:i.proveedorId||provs[0]?.id||1,marcas:i.marcas||[]});setModal("item");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
               <button onClick={()=>eliminarItem(i.id)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
             </div></td>}
           </tr>;
@@ -2166,6 +2181,17 @@ return <div>
         {provs.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
       </select>
     </LI>
+    <div style={{gridColumn:"1/3"}}><LI label="Marcas">
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingTop:4}}>
+        {[...marcas].sort((a,b)=>a.nombre==="General"?-1:b.nombre==="General"?1:a.nombre.localeCompare(b.nombre,"es")).map(m=>{
+          const sel=(formItem.marcas||[]).includes(m.nombre);
+          return <label key={m.id} style={{display:"flex",alignItems:"center",gap:5,fontSize:13,cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={sel} onChange={()=>setFormItem(p=>({...p,marcas:sel?p.marcas.filter(x=>x!==m.nombre):[...(p.marcas||[]),m.nombre]}))}/>
+            {m.nombre}
+          </label>;
+        })}
+      </div>
+    </LI></div>
   </div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
     <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
@@ -2571,7 +2597,7 @@ return <tr key={r.id}><td style={{fontWeight:500}}>{r.sucursal}</td><td style={{
   </div>;
 }
 // ── Configuración ───────────────────────────────────────────────────────────
-function Config({sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede}){
+function Config({sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede,marcas,setMarcas,sucsMarcas,setSucsMarcas}){
 const[seccion,setSeccion]=useState("sucs");
 const[editSuc,setEditSuc]=useState(null);
 const[nuevaSuc,setNuevaSuc]=useState("");
@@ -2588,6 +2614,8 @@ const[editUser,setEditUser]=useState(null);
 const[modalUser,setModalUser]=useState(false);
 const[formUser,setFormUser]=useState({nombre:"",email:"",password:"",rol:"staff_suc",sucursal:sucs[0]||"",activo:true});
 const[confirmar,setConfirmar]=useState(null);
+const[nuevaMarca,setNuevaMarca]=useState("");
+const[editMarca,setEditMarca]=useState(null);
 async function guardarSuc(){
 const nombre=editSuc.nombre.trim();
 if(!nombre)return;
@@ -2605,7 +2633,8 @@ if(!nombre||sucs.includes(nombre)){alert("Nombre vacío o ya existe.");return;}
 const nuevoItems=(invSucs[0]?.items||[]).map(i=>({...i,stockMin:0}));
 setSucs(p=>[...p,nombre]);
 setInvSucs(p=>[...p,{sucursal:nombre,items:nuevoItems}]);
-await supaPost("sucursales",{nombre}).catch(console.error);
+await supaPost("sucursales",{nombre,marcas:[]}).catch(console.error);
+setSucsMarcas(p=>({...p,[nombre]:[]}));
 await supaUpsert("inventario_sucursales",{sucursal:nombre,items:nuevoItems}).catch(console.error);
 setNuevaSuc("");
 }
@@ -2633,13 +2662,17 @@ function eliminarCatV(idx){const nom=catV[idx];setConfirmar({msg:"Eliminar categ
 function guardarCat2(){const nombre=editCat2.nombre.trim();if(!nombre)return;const ant=cats2[editCat2.idx];setCats2(p=>p.map((c,i)=>i===editCat2.idx?nombre:c));supaPatch("categorias_inv_suc","?nombre=eq."+encodeURIComponent(ant),{nombre}).catch(console.error);setEditCat2(null);}
 function agregarCat2(){const nombre=nuevaCat2.trim();if(!nombre||cats2.includes(nombre)){alert("Nombre vacío o ya existe.");return;}setCats2(p=>[...p,nombre]);supaPost("categorias_inv_suc",{nombre}).catch(console.error);setNuevaCat2("");}
 function eliminarCat2(idx){const nom=cats2[idx];setConfirmar({msg:"Eliminar categoría "+nom+"?",fn:()=>{setCats2(p=>p.filter((_,i)=>i!==idx));supaDelete("categorias_inv_suc","?nombre=eq."+encodeURIComponent(nom)).catch(console.error);}});}
+function agregarMarca(){const nombre=nuevaMarca.trim().toUpperCase();if(!nombre||marcas.some(m=>m.nombre===nombre)){alert("Nombre vacío o ya existe.");return;}supaPost("marcas",{nombre}).then(([created])=>{setMarcas(p=>[...p,created||{id:Date.now(),nombre}]);}).catch(console.error);setNuevaMarca("");}
+function guardarMarca(){const nombre=editMarca.nombre.trim().toUpperCase();if(!nombre)return;const ant=marcas.find(m=>m.id===editMarca.id)?.nombre;supaPatch("marcas","?id=eq."+editMarca.id,{nombre}).catch(console.error);setMarcas(p=>p.map(m=>m.id===editMarca.id?{...m,nombre}:m));setEditMarca(null);}
+function eliminarMarca(m){if(m.nombre==="General"){alert("La marca 'General' no se puede eliminar.");return;}setConfirmar({msg:"¿Eliminar marca "+m.nombre+"?",fn:()=>{setMarcas(p=>p.filter(x=>x.id!==m.id));supaDelete("marcas","?id=eq."+m.id).catch(console.error);}});}
+async function toggleSucMarca(suc,marcaNombre){const actual=sucsMarcas[suc]||[];const nueva=actual.includes(marcaNombre)?actual.filter(x=>x!==marcaNombre):[...actual,marcaNombre];setSucsMarcas(p=>({...p,[suc]:nueva}));await supaPatch("sucursales","?nombre=eq."+encodeURIComponent(suc),{marcas:nueva}).catch(console.error);}
 return <div>
 <div style={{marginBottom:24}}>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CONFIGURACIÓN</h1>
 <p style={{color:MUT,fontSize:13}}>Gestión de sucursales y categorías del sistema</p>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
-{[["sucs","🏪 Sucursales"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
+{[["sucs","🏪 Sucursales"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
 const a=seccion===id;
 return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
 })}
@@ -2663,6 +2696,18 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
             <div style={{display:"flex",gap:6}}>
               <button onClick={()=>setEditSuc({idx,nombre:s})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
               <button onClick={()=>eliminarSuc(idx)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+            </div>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:MUT,marginBottom:6}}>MARCAS</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {marcas.map(m=>{
+                const sel=(sucsMarcas[s]||[]).includes(m.nombre);
+                return <label key={m.id} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,cursor:"pointer",userSelect:"none"}}>
+                  <input type="checkbox" checked={sel} onChange={()=>toggleSucMarca(s,m.nombre)}/>
+                  {m.nombre}
+                </label>;
+              })}
             </div>
           </div>
           <button onClick={()=>descargarPlantillaSuc(s)} disabled={!xlsxReady}
@@ -2774,6 +2819,37 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
       <Btn onClick={agregarCat2} disabled={!nuevaCat2.trim()}>+ Agregar</Btn>
     </div>
     <div style={{fontSize:11,color:MUT,marginTop:8}}>Categorías para ítems del inventario de cada sucursal.</div>
+  </Card>
+</div>}
+{seccion==="marcas"&&<div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12,marginBottom:24}}>
+    {marcas.map(m=><Card key={m.id} xtra={{padding:14}}>
+      {editMarca?.id===m.id
+        ?<div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input value={editMarca.nombre} onChange={e=>setEditMarca(p=>({...p,nombre:e.target.value}))} style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")guardarMarca();if(e.key==="Escape")setEditMarca(null);}} autoFocus/>
+          <Btn s="sm" v="ghost" onClick={()=>setEditMarca(null)}>Cancelar</Btn>
+          <Btn s="sm" onClick={guardarMarca}>OK</Btn>
+        </div>
+        :<div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:ACC}}></div>
+            <span style={{fontWeight:500,fontSize:14}}>{m.nombre}</span>
+            {m.nombre==="General"&&<Bdg c="green">Fija</Bdg>}
+          </div>
+          {m.nombre!=="General"&&<div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setEditMarca({id:m.id,nombre:m.nombre})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+            <button onClick={()=>eliminarMarca(m)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+          </div>}
+        </div>}
+    </Card>)}
+  </div>
+  <Card xtra={{borderColor:ACC+"33"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>NUEVA MARCA</div>
+    <div style={{display:"flex",gap:10}}>
+      <input value={nuevaMarca} onChange={e=>setNuevaMarca(e.target.value.toUpperCase())} placeholder="Ej: BORGERS, LA ORDEN DEL CONDE..." style={{flex:1,fontFamily:"'DM Mono'"}} onKeyDown={e=>{if(e.key==="Enter")agregarMarca();}}/>
+      <Btn onClick={agregarMarca} disabled={!nuevaMarca.trim()}>+ Agregar</Btn>
+    </div>
+    <div style={{fontSize:11,color:MUT,marginTop:8}}>Las marcas se usan para clasificar ítems de sucursal, productos de venta y asignar a cada sucursal qué marcas maneja. "General" es fija y no se puede eliminar.</div>
   </Card>
 </div>}
 {seccion==="provs"&&<div>
