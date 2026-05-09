@@ -1425,6 +1425,7 @@ return <div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:1000,
 }
 // ── Lista de Compras ────────────────────────────────────────────────────────
 function Comp({inv,sp,rp,reqs,hC,setHC}){
+const[filProv,setFilProv]=useState("Todos");
 // Todos los reqs pendientes o en proceso de todas las sucursales
 const pendReqs=reqs.filter(r=>r.estado==="enviado");
 // PASO 1: sumar requerimientos totales por prodId
@@ -1458,7 +1459,10 @@ const mot=porProd>0&&item.stock<item.stockMin?"Ambos":porProd>0?"Producción":it
 if(!mot||aComprar<=0.001)return null;
 return{item,aComprar,porProd:porProd.toFixed(2),porStock:item.stockMin,sa:item.stock,mot};
 }).filter(r=>r&&r.aComprar>0.001);
-const tc=lista.reduce((s,r)=>s+r.aComprar*r.item.costo,0);
+const provsList=["Todos",...[...new Set(lista.map(r=>r.item.proveedor||"Sin proveedor"))].sort((a,b)=>a.localeCompare(b,"es"))];
+const listaFiltrada=filProv==="Todos"?lista:lista.filter(r=>(r.item.proveedor||"Sin proveedor")===filProv);
+const tc=listaFiltrada.reduce((s,r)=>s+r.aComprar*r.item.costo,0);
+const tcTotal=lista.reduce((s,r)=>s+r.aComprar*r.item.costo,0);
 const re=plan.filter(e=>e.el>0);
 function confirmar(){
 setHC(p=>[{
@@ -1473,8 +1477,11 @@ alert("Lista de compras guardada en historial.");
 return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
 <div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>LISTA DE COMPRAS SEMANAL</h1><p style={{color:MUT,fontSize:13}}>Requerimientos de todas las sucursales + stock mínimo</p></div>
-<div style={{display:"flex",gap:10}}>
-{lista.length>0&&<Btn v="ghost" s="sm" onClick={()=>{
+<div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
+{lista.length>0&&<select value={filProv} onChange={e=>setFilProv(e.target.value)} style={{fontSize:13}}>
+  {provsList.map(p=><option key={p}>{p}</option>)}
+</select>}
+{listaFiltrada.length>0&&<Btn v="ghost" s="sm" onClick={()=>{
 const style=document.createElement("style");
 style.id="print-override";
 style.innerHTML="@media print{body *{visibility:hidden!important;}#lista-compras-print,#lista-compras-print *{visibility:visible!important;}#lista-compras-print{position:fixed!important;top:0!important;left:0!important;width:100%!important;background:#fff!important;color:#000!important;padding:20px!important;}table{border-collapse:collapse!important;width:100%!important;}th,td{border:1px solid #ccc!important;padding:6px 10px!important;color:#000!important;background:#fff!important;}th{background:#f0f0f0!important;}}";
@@ -1482,9 +1489,10 @@ document.head.appendChild(style);
 window.print();
 setTimeout(()=>{const s=document.getElementById("print-override");if(s)s.remove();},1000);
 }}>🖨 Imprimir</Btn>}
-{lista.length>0&&<Btn v="ghost" s="sm" onClick={()=>{
+{listaFiltrada.length>0&&<Btn v="ghost" s="sm" onClick={()=>{
 if(!window.XLSX){alert("SheetJS cargando, intenta en un momento.");return;}
-const datos=lista.map(r=>({
+const datos=listaFiltrada.map(r=>({
+"Proveedor":r.item.proveedor||"Sin proveedor",
 "Item":r.item.nombre,
 "Categoria":r.item.categoria,
 "Unidad":r.item.unidad,
@@ -1495,11 +1503,13 @@ const datos=lista.map(r=>({
 "Total":parseFloat((r.aComprar*r.item.costo).toFixed(2)),
 "Motivo":r.mot,
 }));
-const ws=window.XLSX.utils.json_to_sheet(datos);
-ws["!cols"]=[{wch:28},{wch:15},{wch:10},{wch:12},{wch:12},{wch:10},{wch:12},{wch:12},{wch:14}];
+const datos_sorted=[...datos].sort((a,b)=>a["Proveedor"].localeCompare(b["Proveedor"],"es"));
+const ws=window.XLSX.utils.json_to_sheet(datos_sorted);
+ws["!cols"]=[{wch:22},{wch:28},{wch:15},{wch:10},{wch:12},{wch:12},{wch:10},{wch:12},{wch:12},{wch:14}];
 const wb=window.XLSX.utils.book_new();
+const sufijo=filProv==="Todos"?"":("_"+filProv.replace(/\s+/g,"_"));
 window.XLSX.utils.book_append_sheet(wb,ws,"Lista Compras");
-window.XLSX.writeFile(wb,"lista_compras_"+today()+".xlsx");
+window.XLSX.writeFile(wb,"lista_compras"+sufijo+"_"+today()+".xlsx");
 }}>📥 Excel</Btn>}
 {lista.length>0&&<Btn onClick={confirmar}>Confirmar Compra</Btn>}
 </div>
@@ -1517,8 +1527,8 @@ window.XLSX.writeFile(wb,"lista_compras_"+today()+".xlsx");
   </div>
 </Card>}
 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:24}}>
-  <SC label="Ítems a Comprar" value={lista.length} sub="Ingredientes" icon="🛒"/>
-  <SC label="Costo Estimado" value={fmt(tc)} sub="Total orden" color={GRN} icon="💵"/>
+  <SC label="Ítems a Comprar" value={listaFiltrada.length} sub={filProv==="Todos"?"Todos los proveedores":filProv} icon="🛒"/>
+  <SC label="Costo Estimado" value={fmt(tc)} sub={filProv==="Todos"?"Total orden":"Total filtrado · "+fmt(tcTotal)+" total"} color={GRN} icon="💵"/>
   <SC label="Prod. a Elaborar" value={re.length} sub="Tipos de productos" color={ACC} icon="🏭"/>
 </div>
 {re.length>0&&<Card xtra={{marginBottom:20,borderColor:ACC+"33"}}>
@@ -1536,11 +1546,14 @@ window.XLSX.writeFile(wb,"lista_compras_"+today()+".xlsx");
 </Card>}
 {lista.length===0
   ?<Card xtra={{textAlign:"center",padding:48}}><div style={{fontSize:32,marginBottom:12}}>OK</div><div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:GRN}}>SIN COMPRAS NECESARIAS</div><div style={{color:MUT,fontSize:13,marginTop:8}}>El inventario cubre todos los requerimientos y stocks mínimos</div></Card>
+  :listaFiltrada.length===0
+  ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin ítems para el proveedor seleccionado.</Card>
   :<div id="lista-compras-print"><Card xtra={{padding:0}}>
     <table>
-      <thead><tr><th>Ítem</th><th>Cat.</th><th>Stock Actual</th><th>Nec. Producción</th><th>Stock Mínimo</th><th>A Comprar</th><th>Unidad</th><th>Costo</th><th>Total</th><th>Motivo</th></tr></thead>
+      <thead><tr><th>Proveedor</th><th>Ítem</th><th>Cat.</th><th>Stock Actual</th><th>Nec. Producción</th><th>Stock Mínimo</th><th>A Comprar</th><th>Unidad</th><th>Costo</th><th>Total</th><th>Motivo</th></tr></thead>
       <tbody>
-        {lista.map((r,i)=><tr key={i}>
+        {[...listaFiltrada].sort((a,b)=>(a.item.proveedor||"").localeCompare(b.item.proveedor||"","es")).map((r,i)=><tr key={i}>
+          <td style={{color:MUT,fontSize:12}}>{r.item.proveedor||"—"}</td>
           <td style={{fontWeight:500}}>{r.item.nombre}</td>
           <td style={{color:MUT,fontSize:12}}>{r.item.categoria}</td>
           <td style={{fontFamily:"'DM Mono'",color:MUT}}>{r.sa}</td>
@@ -1552,7 +1565,7 @@ window.XLSX.writeFile(wb,"lista_compras_"+today()+".xlsx");
           <td style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(r.aComprar*r.item.costo)}</td>
           <td><Bdg c={r.mot==="Ambos"?"purple":r.mot==="Producción"?"blue":"orange"}>{r.mot}</Bdg></td>
         </tr>)}
-        <tr><td colSpan={8} style={{textAlign:"right",fontWeight:600,paddingRight:20}}>TOTAL ESTIMADO</td><td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:700,fontSize:15}}>{fmt(tc)}</td><td></td></tr>
+        <tr><td colSpan={9} style={{textAlign:"right",fontWeight:600,paddingRight:20}}>TOTAL ESTIMADO</td><td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:700,fontSize:15}}>{fmt(tc)}</td><td></td></tr>
       </tbody>
     </table>
   </Card></div>}
