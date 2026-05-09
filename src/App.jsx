@@ -790,7 +790,7 @@ const[st,setSt]=useState("v");
 const[modal,setModal]=useState(null);
 const[editR,setEditR]=useState(null);
 const[confirmar,setConfirmar]=useState(null);
-const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[]};
+const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:""};
 const fP={nombre:"",unidad:"und",rendimiento:1,ings:[]};
 const[fv,setFv]=useState(fV);
 const[fp,setFp]=useState(fP);
@@ -834,9 +834,9 @@ return <div>
 {st==="v"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
   {rv.map(r=>{const c=ccv(r.ings),m=r.precio>0?((r.precio-c)/r.precio*100):0;return <Card key={r.id}>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-      <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="blue">{r.categoria}</Bdg></div>
+      <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="blue">{r.categoria}</Bdg>{r.codigo&&<span style={{fontSize:11,fontFamily:"'DM Mono'",color:MUT,marginLeft:6}}>#{r.codigo}</span>}</div>
       {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
-        <button onClick={()=>{setEditR(r);setFv({nombre:r.nombre,categoria:r.categoria,precio:r.precio,ings:r.ings});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+        <button onClick={()=>{setEditR(r);setFv({nombre:r.nombre,categoria:r.categoria,precio:r.precio,ings:r.ings,codigo:r.codigo||""});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
         <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>{setRv(p=>p.filter(x=>x.id!==r.id));supaDelete("recetas_venta","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
       </div>}
     </div>
@@ -874,6 +874,7 @@ return <div>
     <div style={{gridColumn:"1/3"}}><LI label="Nombre"><input value={fv.nombre} onChange={e=>setFv(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
     <LI label="Categoría"><select value={fv.categoria} onChange={e=>setFv(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>{CV.map(c=><option key={c}>{c}</option>)}</select></LI>
     <LI label="Precio ($)"><input type="number" step="0.01" value={fv.precio} onChange={e=>setFv(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+    {(!puede||puede("config_total"))&&<div style={{gridColumn:"1/3"}}><LI label="Código único (alfanumérico)"><input value={fv.codigo||""} onChange={e=>setFv(p=>({...p,codigo:e.target.value.toUpperCase()}))} placeholder="Ej: BRG-01" style={{width:"100%",fontFamily:"'DM Mono'"}}/></LI></div>}
   </div>
   <div style={{marginBottom:12}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -2243,11 +2244,13 @@ const sucsVisiblesCos=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol
 ?sucs.filter(s=>s===userActivo.sucursal)
 :sucs;
 const[dSuc,setDSuc]=useState(sucsVisiblesCos[0]||"");
+const[dBuscar,setDBuscar]=useState("");
 // cantidades del día: {rId: cant}
 const[dCants,setDCants]=useState({});
 function abrirModal(){
 setDFecha(today());
 setDSuc(sucsVisiblesCos[0]||"");
+setDBuscar("");
 setDCants({});
 setModal(true);
 }
@@ -2393,7 +2396,7 @@ return <div>
 {/* Modal registro diario */}
 {modal&&<Mdl title="REGISTRO DE VENTAS DEL DÍA" onClose={()=>setModal(false)} wide>
   {/* Cabecera: fecha y sucursal */}
-  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
     <LI label="Fecha">
       <input type="date" value={dFecha} onChange={e=>setDFecha(e.target.value)} style={{width:"100%"}}/>
     </LI>
@@ -2403,34 +2406,57 @@ return <div>
       </select>
     </LI>
   </div>
-  {/* Grilla de productos */}
-  <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Cantidades vendidas</div>
-  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
-    {[...rv].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(r=>{
-      const cant=dCants[r.id]||0;
-      const ingRow=r.precio*cant;
-      return <div key={r.id} style={{background:BG,borderRadius:8,padding:12,border:b1(cant>0?ACC+"44":FNT)}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <div>
-            <div style={{fontWeight:500,fontSize:13}}>{r.nombre}</div>
-            <div style={{fontSize:11,color:MUT}}>{r.categoria} · {fmt(r.precio)}</div>
-          </div>
-          {cant>0&&<div style={{textAlign:"right"}}>
-            <div style={{fontFamily:"'DM Mono'",fontSize:12,color:GRN}}>{fmt(ingRow)}</div>
-          </div>}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={()=>setCant(r.id,Math.max(0,(cant||0)-1))}
-            style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:32,height:32,fontSize:18,flexShrink:0}}>-</button>
-          <input type="number" min="0" step="0.01" value={cant||""}
-            onChange={e=>setCant(r.id,parseFloat(e.target.value)||0)}
-            placeholder="0"
-            style={{flex:1,textAlign:"center",fontFamily:"'DM Mono'",fontSize:15,fontWeight:600}}/>
-          <button onClick={()=>setCant(r.id,(cant||0)+1)}
-            style={{background:ACC,color:"#000",border:"none",borderRadius:6,width:32,height:32,fontSize:18,fontWeight:700,flexShrink:0}}>+</button>
-        </div>
-      </div>;
-    })}
+  {/* Buscador */}
+  <input
+    placeholder="Buscar por nombre o código..."
+    value={dBuscar}
+    onChange={e=>setDBuscar(e.target.value)}
+    style={{width:"100%",marginBottom:16,boxSizing:"border-box"}}
+    autoFocus
+  />
+  {/* Lista de productos */}
+  <div style={{maxHeight:400,overflowY:"auto",marginBottom:16}}>
+  <table>
+    <thead><tr>
+      <th style={{width:80}}>Código</th>
+      <th>Producto</th>
+      <th style={{width:90}}>Precio</th>
+      <th style={{width:130}}>Cantidad</th>
+      <th style={{width:90,textAlign:"right"}}>Subtotal</th>
+    </tr></thead>
+    <tbody>{[...rv]
+      .filter(r=>{
+        const q=dBuscar.toLowerCase().trim();
+        if(!q)return true;
+        return r.nombre.toLowerCase().includes(q)||(r.codigo||"").toLowerCase().includes(q);
+      })
+      .sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
+      .map(r=>{
+        const cant=dCants[r.id]||0;
+        return <tr key={r.id} style={{background:cant>0?ACC+"0D":"transparent"}}>
+          <td style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{r.codigo||"—"}</td>
+          <td>
+            <div style={{fontWeight:cant>0?600:400,fontSize:13}}>{r.nombre}</div>
+            <div style={{fontSize:11,color:MUT}}>{r.categoria}</div>
+          </td>
+          <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{fmt(r.precio)}</td>
+          <td>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <button onClick={()=>setCant(r.id,Math.max(0,(cant||0)-1))}
+                style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:28,height:28,fontSize:16,flexShrink:0,cursor:"pointer"}}>-</button>
+              <input type="number" min="0" step="0.01" value={cant||""}
+                onChange={e=>setCant(r.id,parseFloat(e.target.value)||0)}
+                placeholder="0"
+                style={{width:55,textAlign:"center",fontFamily:"'DM Mono'",fontSize:14,fontWeight:600}}/>
+              <button onClick={()=>setCant(r.id,(cant||0)+1)}
+                style={{background:ACC,color:"#000",border:"none",borderRadius:6,width:28,height:28,fontSize:16,fontWeight:700,flexShrink:0,cursor:"pointer"}}>+</button>
+            </div>
+          </td>
+          <td style={{fontFamily:"'DM Mono'",fontSize:13,color:cant>0?GRN:MUT,textAlign:"right"}}>{cant>0?fmt(r.precio*cant):"—"}</td>
+        </tr>;
+      })}
+    </tbody>
+  </table>
   </div>
   {/* Resumen del día */}
   {dResumen.length>0&&<Card xtra={{marginBottom:16,borderColor:GRN+"44"}}>
