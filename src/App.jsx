@@ -1610,7 +1610,7 @@ window.XLSX.writeFile(wb,"lista_compras"+sufijo+"_"+today()+".xlsx");
   </div>;
 }
 // ── Inventario Sucursales ───────────────────────────────────────────────────
-function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,setRv,ventas:ventasProp,xlsxReady,provs,puede,userActivo,marcas}){
+function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,setRv,ventas:ventasProp,xlsxReady,provs,puede,userActivo,marcas,sucsMarcas}){
 // Filtrar sucursales según usuario
 const sucsVisibles=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
 ?sucs.filter(s=>s===userActivo.sucursal)
@@ -1654,7 +1654,8 @@ if(sucSel&&!invSucs.find(s=>s.sucursal===sucSel)){
 setInvSucs(p=>[...p,{sucursal:sucSel,items:[]}]);
 }
 },[sucSel]);
-const items=[...sucData.items].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+function matchMarcas(itemMarcas,sucMarcasArr){if(!sucMarcasArr||sucMarcasArr.length===0)return true;if(!itemMarcas||itemMarcas.length===0)return true;if(itemMarcas.includes("General"))return true;return itemMarcas.some(m=>sucMarcasArr.includes(m));}
+const items=[...sucData.items].filter(i=>matchMarcas(i.marcas,sucsMarcas?.[sucSel]||[])).sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
 // Registro de hoy para esta sucursal
 const regHoy=regsSucs.find(r=>r.sucursal===sucSel&&r.fecha===fecha);
 // Sincronizar estado de cierre con el registro real de cada sucursal
@@ -1873,6 +1874,7 @@ const col=sucColMap[suc];
 if(col&&row[col]!==undefined&&row[col]!=="")stockMins[suc]=parseFloat(row[col])||0;
 else stockMins[suc]=existente?invSucs.find(s=>s.sucursal===suc)?.items.find(i=>i.nombre.toLowerCase()===nombre.toLowerCase())?.stockMin||0:0;
 });
+const marcasItem=marcas.filter(m=>{const v=String(row["marca_"+m.nombre]||"").toLowerCase().trim();return v==="si"||v==="sí"||v==="1"||v==="true";}).map(m=>m.nombre);
 return{
 id:existente?.id||(idx+100),
 nombre,
@@ -1880,6 +1882,7 @@ categoria:String(get(row,["categoria","categoría","category"])||cats2[0]||"").t
 unidad:String(get(row,["unidad","unit","ud"])||"").trim(),
 proveedorId:provMatch?.id||provs[0]?.id||1,
 stockMins,
+marcas:marcasItem,
 };
 }).filter(i=>i.nombre);
 if(!mapped.length){alert("No se encontraron ítems válidos.");return;}
@@ -1896,7 +1899,7 @@ maxId++;return{...i,id:maxId};
 // Aplicar a TODAS las sucursales con stockMin independiente
 const updated=invSucs.map(s=>({
 ...s,
-items:withIds.map(i=>({id:i.id,nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,proveedorId:i.proveedorId,stockMin:i.stockMins[s.sucursal]??0}))
+items:withIds.map(i=>({id:i.id,nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,proveedorId:i.proveedorId,stockMin:i.stockMins[s.sucursal]??0,marcas:i.marcas||[]}))
 }));
 setInvSucs(updated);
 updated.forEach(s=>syncInvSuc(s.sucursal,s.items));
@@ -1918,10 +1921,11 @@ sucs.forEach(suc=>{
 const sm=invSucs.find(s=>s.sucursal===suc)?.items.find(x=>x.id===i.id)?.stockMin||0;
 row[normSuc(suc)]=sm;
 });
+marcas.forEach(m=>{row["marca_"+m.nombre]=(i.marcas||[]).includes(m.nombre)?"si":"no";});
 return row;
 });
 const ws=window.XLSX.utils.json_to_sheet(datos);
-const colWidths=[{wch:25},{wch:15},{wch:10},{wch:25},...sucs.map(()=>({wch:18}))];
+const colWidths=[{wch:25},{wch:15},{wch:10},{wch:25},...sucs.map(()=>({wch:18})),...marcas.map(()=>({wch:18}))];
 ws["!cols"]=colWidths;
 const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Items");
@@ -2297,7 +2301,7 @@ placeholder="Buscar INV-001..." style={{width:160}}/>
   </div>;
 }
 // ── Costos & Ingresos ───────────────────────────────────────────────────────
-function Cos({inv,rp,rv,sucs,ventas,setVentas,regsSucs,setRegsSucs,invSucs,puede,userActivo}){
+function Cos({inv,rp,rv,sucs,ventas,setVentas,regsSucs,setRegsSucs,invSucs,puede,userActivo,sucsMarcas}){
 // Modal de registro diario
 const[modal,setModal]=useState(false);
 const[dFecha,setDFecha]=useState(today());
@@ -2372,6 +2376,7 @@ setRegsSucs(p=>{
 setModal(false);
 
 }
+function matchMarcasCos(itemMarcas,sucMarcasArr){if(!sucMarcasArr||sucMarcasArr.length===0)return true;if(!itemMarcas||itemMarcas.length===0)return true;if(itemMarcas.includes("General"))return true;return itemMarcas.some(m=>sucMarcasArr.includes(m));}
 function cc(r){
 return r.ings.reduce((s,ing)=>{
 if(ing.tipo==="inv"){const item=inv.find(i=>i.id===ing.refId);return s+(item?item.costo*ing.cantidad:0);}
@@ -2487,6 +2492,8 @@ return <div>
     </tr></thead>
     <tbody>{[...rv]
       .filter(r=>{
+        const sm=sucsMarcas?.[dSuc]||[];
+        if(!matchMarcasCos(r.marcas,sm))return false;
         const q=dBuscar.toLowerCase().trim();
         if(!q)return true;
         return r.nombre.toLowerCase().includes(q)||(r.codigo||"").toLowerCase().includes(q);
