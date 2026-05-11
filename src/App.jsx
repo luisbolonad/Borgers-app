@@ -1617,6 +1617,7 @@ const sucsVisibles=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol===
 :sucs;
 const[sucSel,setSucSel]=useState(sucsVisibles[0]||"");
 const[vista,setVista]=useState("hoy");
+const[filCat,setFilCat]=useState("Todas");
 // Fecha independiente por sucursal: {nombreSucursal: "YYYY-MM-DD"}
 const[fechas,setFechas]=useState({});
 const[modal,setModal]=useState(null);
@@ -1965,13 +1966,20 @@ return <div>
 </div>
 {/* ── REGISTRO DEL DÍA ── */}
 {vista==="hoy"&&<div>
-  <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:20}}>
+  <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:16}}>
     <LI label="Fecha del registro">
       <input type="date" value={fecha} onChange={e=>{setFecha(e.target.value);}} style={{width:180}}/>
     </LI>
     {items.length===0&&<div style={{color:MUT,fontSize:13,marginTop:16}}>Esta sucursal no tiene ítems configurados. Ve a la pestaña "Ítems" para agregar.</div>}
   </div>
-  {items.length>0&&<Card xtra={{padding:0}}>
+  {items.length>0&&<>
+  <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+    {["Todas",...[...new Set(items.map(i=>i.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"))].map(c=>{
+      const a=filCat===c;
+      return <button key={c} onClick={()=>setFilCat(c)} style={{padding:"5px 14px",borderRadius:6,fontSize:12,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{c}</button>;
+    })}
+  </div>
+  <Card xtra={{padding:0}}>
     <div style={{overflowX:"auto"}}>
       <table>
         <thead>
@@ -1986,18 +1994,21 @@ return <div>
           </tr>
         </thead>
         <tbody>
-          {items.map(item=>{
+          {items.filter(i=>filCat==="Todas"||i.categoria===filCat).map(item=>{
             const fila=regHoy?.filas.find(f=>f.itemId===item.id)||{invInicial:0,ingreso:0,egreso:0,stockFinal:0,stockReal:"",obs:""};
             const sf=(parseFloat(fila.invInicial)||0)+(parseFloat(fila.ingreso)||0)-(parseFloat(fila.egreso)||0);
             const diff=fila.stockReal!==""?(parseFloat(fila.stockReal)||0)-sf:null;
+            const esStaff=userActivo?.rol==="staff_suc";
             return <tr key={item.id}>
               <td style={{fontWeight:500,minWidth:140}}>{item.nombre}</td>
               <td style={{color:MUT,fontSize:12}}>{item.categoria}</td>
               <td style={{color:MUT,fontSize:12}}>{item.unidad}</td>
               <td>
-                <input type="number" step="0.01" value={fila.invInicial}
-                  onChange={e=>setFila(item.id,"invInicial",parseFloat(e.target.value)||0)}
-                  style={{width:80,textAlign:"center",borderColor:BLU+"66"}}/>
+                {esStaff
+                  ?<div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:BLU,padding:"8px 12px",background:BLU+"0A",borderRadius:6,border:b1(BLU+"22")}}>{fmtN(parseFloat(fila.invInicial)||0)}</div>
+                  :<input type="number" step="0.01" value={fila.invInicial}
+                    onChange={e=>setFila(item.id,"invInicial",parseFloat(e.target.value)||0)}
+                    style={{width:80,textAlign:"center",borderColor:BLU+"66"}}/>}
               </td>
               <td>
                 <input type="number" step="0.01" value={fila.ingreso}
@@ -2087,7 +2098,8 @@ return <div>
         </>;
       })()}
     </div>
-  </Card>}
+  </Card>
+  </>}
 </div>}
 {/* ── ÍTEMS ── */}
 {vista==="items"&&<div>
