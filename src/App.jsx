@@ -150,8 +150,7 @@ const globalCss="@import url('https://fonts.googleapis.com/css2?family=Bebas+Neu
 +"input,select{background:"+BG+";color:"+TXT+";border:1px solid "+BRD+";border-radius:6px;padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:13px;outline:none}"
 +"input:focus,select:focus{border-color:"+ACC+"}"
 +"input:disabled,select:disabled{opacity:0.75;-webkit-text-fill-color:"+TXT+";cursor:default}"
-+"input[type='date']:disabled::-webkit-datetime-edit{-webkit-text-fill-color:"+TXT+"}"
-+"input[type='time']:disabled::-webkit-datetime-edit{-webkit-text-fill-color:"+TXT+"}"
++"input:disabled::-webkit-datetime-edit,input:disabled::-webkit-datetime-edit-fields-wrapper,input:disabled::-webkit-datetime-edit-text,input:disabled::-webkit-datetime-edit-month-field,input:disabled::-webkit-datetime-edit-day-field,input:disabled::-webkit-datetime-edit-year-field,input:disabled::-webkit-datetime-edit-hour-field,input:disabled::-webkit-datetime-edit-minute-field,input:disabled::-webkit-datetime-edit-second-field,input:disabled::-webkit-datetime-edit-ampm-field{-webkit-text-fill-color:"+TXT+"!important}"
 +"input::placeholder{opacity:0.35}"
 +"button{cursor:pointer;font-family:'DM Sans',sans-serif;border:none}"
 +"table{border-collapse:collapse;width:100%}"
@@ -1742,7 +1741,7 @@ if(vista==="form"){
         {!bloqueado&&<Btn v="ghost" onClick={()=>guardar(false)}>💾 Guardar borrador</Btn>}
         {!bloqueado&&<Btn v="success" onClick={()=>setConfirmar({msg:"¿Confirmar y cerrar esta caja? El staff no podrá editarla después.",fn:()=>guardar(true)})}>✓ Cerrar Caja</Btn>}
         {cerrado&&esAdmin&&!modoVer&&<Btn onClick={()=>guardar(false)}>Guardar cambios</Btn>}
-        {modoVer&&esAdmin&&<Btn v="ghost" onClick={()=>setModoVer(false)}>✏️ Editar</Btn>}
+        {modoVer&&(!cerrado||esAdmin)&&<Btn v="ghost" onClick={()=>setModoVer(false)}>✏️ Editar</Btn>}
       </div>
     </div>
     {/* Header */}
@@ -1864,8 +1863,8 @@ return <div>
             <td><Bdg c={cerrado?"green":"orange"}>{cerrado?"Cerrado":"Borrador"}</Bdg></td>
             <td>
               <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>abrirVer(c)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver</button>
-                {esAdmin&&<button onClick={()=>abrirEditar(c)} style={{background:ACC+"18",color:ACC,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Editar</button>}
+                {esAdmin&&<button onClick={()=>abrirVer(c)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver</button>}
+                {(!cerrado||esAdmin)&&<button onClick={()=>abrirEditar(c)} style={{background:cerrado?ACC+"18":GRN+"18",color:cerrado?ACC:GRN,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Editar</button>}
                 {esAdmin&&<button onClick={()=>setConfirmar({msg:"¿Eliminar este cuadre de caja?",fn:async()=>{await supaDelete("cierres_caja","?id=eq."+c.id).catch(console.error);setCierresCaja(p=>p.filter(x=>x.id!==c.id));}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>X</button>}
               </div>
             </td>
