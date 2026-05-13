@@ -1630,7 +1630,7 @@ function calcSaldo(bill,coin){
 const F0_BILL={"20":0,"10":0,"5":0,"1":0};
 const F0_COIN={"100":0,"50":0,"25":0,"10":0,"5":0,"1":0};
 function formCaja0(userActivo,nextNum){
-  return{fecha:today(),caja_num:nextNum,responsable:userActivo?.nombre||"",hora_inicio:"",hora_termino:"",ini_billetes:{...F0_BILL},ini_monedas:{...F0_COIN},fin_billetes:{...F0_BILL},fin_monedas:{...F0_COIN},ventas_medianet:0,nota_credito:0,pedidos_ya:0,uber:0,rappi:0,pagina_web:0,transferencias:0,propina:0,observaciones:"",pago_delivery:0,gastos_autorizados:0,reposicion_caja:0,faltante:0,sobrante:0};
+  return{fecha:today(),caja_num:nextNum,responsable:userActivo?.nombre||"",hora_inicio:"",hora_termino:"",ini_billetes:{...F0_BILL},ini_monedas:{...F0_COIN},fin_billetes:{...F0_BILL},fin_monedas:{...F0_COIN},ventas_medianet:0,nota_credito:0,pedidos_ya:0,uber:0,rappi:0,pagina_web:0,transferencias:0,propina:0,observaciones:"",pago_delivery:0,gastos_autorizados:0,reposicion_caja:0,total_contificado:0,venta_efectivo_entregado:0};
 }
 // Subcomponentes fuera de CierreCaja para evitar desmonte/remonte en cada render
 function CajaDenomRow({qty,dVal,onChange,readOnly}){
@@ -1672,10 +1672,10 @@ function CajaValField({label,value,color}){
     <span style={{fontFamily:"'DM Mono'",fontWeight:600,color:color||TXT}}>${fmtN(value)}</span>
   </div>;
 }
-function CajaNumInput({label,value,onChange,color}){
+function CajaNumInput({label,value,onChange,color,readOnly}){
   return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+BRD+"33"}}>
     <span style={{fontSize:13,color:MUT,flex:1}}>{label}</span>
-    <input type="number" step="0.01" min="0" placeholder="0" value={value||""} onChange={e=>onChange(parseFloat(e.target.value)||0)} style={{width:110,textAlign:"right",fontFamily:"'DM Mono'",borderColor:color?color+"55":BRD}}/>
+    <input type="number" step="0.01" min="0" placeholder="0" value={value||""} onChange={e=>!readOnly&&onChange(parseFloat(e.target.value)||0)} disabled={readOnly} style={{width:110,textAlign:"right",fontFamily:"'DM Mono'",borderColor:color?color+"55":BRD}}/>
   </div>;
 }
 function CierreCaja({cierresCaja,setCierresCaja,sucs,userActivo,puede}){
@@ -1694,9 +1694,11 @@ function FB(sec,denom,val){setForm(p=>({...p,[sec]:{...p[sec],[denom]:parseFloat
 const saldoIni=calcSaldo(form.ini_billetes,form.ini_monedas);
 const saldoFin=calcSaldo(form.fin_billetes,form.fin_monedas);
 const totalEq=["ventas_medianet","nota_credito","pedidos_ya","uber","rappi","pagina_web","transferencias"].reduce((s,k)=>s+(parseFloat(form[k])||0),0)+saldoFin;
-const saldoEfectivo=(saldoIni)-(parseFloat(form.pago_delivery)||0)-(parseFloat(form.gastos_autorizados)||0);
-const totalEfectivo=(parseFloat(form.reposicion_caja)||0)+saldoFin;
-const totalCierre=saldoEfectivo+(parseFloat(form.sobrante)||0)-(parseFloat(form.faltante)||0);
+const ventaEfectivo=saldoIni-(parseFloat(form.pago_delivery)||0)-(parseFloat(form.gastos_autorizados)||0)+(parseFloat(form.reposicion_caja)||0)-saldoFin;
+const totalContificado=parseFloat(form.total_contificado)||0;
+const calcFaltante=Math.max(0,totalContificado-ventaEfectivo);
+const calcSobrante=Math.max(0,ventaEfectivo-totalContificado);
+const saldoFinalAlCierre=saldoFin-(parseFloat(form.venta_efectivo_entregado)||0);
 function abrirNuevo(){
   const nn=nextNum();
   setForm(formCaja0(userActivo,nn));
@@ -1704,7 +1706,7 @@ function abrirNuevo(){
   setVista("form");
 }
 function abrirEditar(c){
-  setForm({fecha:(c.fecha||"").slice(0,10)||today(),caja_num:c.caja_num,responsable:c.responsable||"",hora_inicio:c.hora_inicio||"",hora_termino:c.hora_termino||"",ini_billetes:{...F0_BILL,...(c.ini_billetes||{})},ini_monedas:{...F0_COIN,...(c.ini_monedas||{})},fin_billetes:{...F0_BILL,...(c.fin_billetes||{})},fin_monedas:{...F0_COIN,...(c.fin_monedas||{})},ventas_medianet:c.ventas_medianet||0,nota_credito:c.nota_credito||0,pedidos_ya:c.pedidos_ya||0,uber:c.uber||0,rappi:c.rappi||0,pagina_web:c.pagina_web||0,transferencias:c.transferencias||0,propina:c.propina||0,observaciones:c.observaciones||"",pago_delivery:c.pago_delivery||0,gastos_autorizados:c.gastos_autorizados||0,reposicion_caja:c.reposicion_caja||0,faltante:c.faltante||0,sobrante:c.sobrante||0});
+  setForm({fecha:(c.fecha||"").slice(0,10)||today(),caja_num:c.caja_num,responsable:c.responsable||"",hora_inicio:c.hora_inicio||"",hora_termino:c.hora_termino||"",ini_billetes:{...F0_BILL,...(c.ini_billetes||{})},ini_monedas:{...F0_COIN,...(c.ini_monedas||{})},fin_billetes:{...F0_BILL,...(c.fin_billetes||{})},fin_monedas:{...F0_COIN,...(c.fin_monedas||{})},ventas_medianet:c.ventas_medianet||0,nota_credito:c.nota_credito||0,pedidos_ya:c.pedidos_ya||0,uber:c.uber||0,rappi:c.rappi||0,pagina_web:c.pagina_web||0,transferencias:c.transferencias||0,propina:c.propina||0,observaciones:c.observaciones||"",pago_delivery:c.pago_delivery||0,gastos_autorizados:c.gastos_autorizados||0,reposicion_caja:c.reposicion_caja||0,total_contificado:c.total_contificado||0,venta_efectivo_entregado:c.venta_efectivo_entregado||0});
   setEditId(c.id);
   setModoVer(false);
   setVista("form");
@@ -1721,8 +1723,9 @@ async function guardar(cerrar){
   if(!form.fecha){alert("La fecha es obligatoria.");return;}
   if(!horaValida(form.hora_inicio)){alert("Hora inicio inválida.\nFormato: 09:30 am  o  01:45 pm");return;}
   if(!horaValida(form.hora_termino)){alert("Hora término inválida.\nFormato: 09:30 am  o  01:45 pm");return;}
+  if((calcFaltante>0||calcSobrante>0)&&!form.observaciones.trim()){alert("Existe una diferencia (faltante/sobrante). Debe ingresar una observación con la explicación.");return;}
   const esCerradoActual=editId&&cierresCaja.find(c=>c.id===editId)?.estado==="cerrado";
-  const data={...form,sucursal:sucSel,estado:cerrar||esCerradoActual?"cerrado":"borrador"};
+  const data={...form,faltante:calcFaltante,sobrante:calcSobrante,sucursal:sucSel,estado:cerrar||esCerradoActual?"cerrado":"borrador"};
   if(editId){
     await supaPatch("cierres_caja","?id=eq."+editId,data).catch(console.error);
     setCierresCaja(p=>p.map(c=>c.id===editId?{...c,...data}:c));
@@ -1772,68 +1775,80 @@ if(vista==="form"){
       </div>
       <CajaDenomTable billData={form.ini_billetes} coinData={form.ini_monedas} billSec="ini_billetes" coinSec="ini_monedas" onChangeDenom={FB} readOnly={bloqueado}/>
     </Card>
-    {/* Sección 2 */}
+    {/* Sección 2 — GASTOS */}
+    <Card xtra={{marginBottom:16}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>2. GASTOS</div>
+      <CajaNumInput label="Pago delivery" value={form.pago_delivery} onChange={v=>F("pago_delivery",v)} color={RED} readOnly={bloqueado}/>
+      <CajaNumInput label="Gastos autorizados" value={form.gastos_autorizados} onChange={v=>F("gastos_autorizados",v)} color={RED} readOnly={bloqueado}/>
+      <CajaNumInput label="Reposición de caja" value={form.reposicion_caja} onChange={v=>F("reposicion_caja",v)} readOnly={bloqueado}/>
+    </Card>
+    {/* Sección 3 — SALDO FINAL EN CAJA */}
     <Card xtra={{marginBottom:16}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1}}>2. SALDO FINAL COBRADO EFECTIVO</div>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1}}>3. SALDO FINAL EN CAJA</div>
         <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:GRN}}>${fmtN(saldoFin)}</div>
       </div>
       <CajaDenomTable billData={form.fin_billetes} coinData={form.fin_monedas} billSec="fin_billetes" coinSec="fin_monedas" onChangeDenom={FB} readOnly={bloqueado}/>
     </Card>
-    {/* Sección 3 */}
-    <Card xtra={{marginBottom:16}}>
-      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>3. SALDO EFECTIVO</div>
-      <CajaValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
-      <CajaNumInput label="Pago delivery" value={form.pago_delivery} onChange={v=>F("pago_delivery",v)} color={RED}/>
-      <CajaNumInput label="Gastos autorizados" value={form.gastos_autorizados} onChange={v=>F("gastos_autorizados",v)} color={RED}/>
-      <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
-        <span style={{fontWeight:600}}>TOTAL</span>
-        <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:saldoEfectivo>=0?GRN:RED}}>${fmtN(saldoEfectivo)}</span>
-      </div>
-      <div style={{marginTop:12,borderTop:"1px solid "+BRD,paddingTop:12}}>
-        <CajaNumInput label="Reposición de caja" value={form.reposicion_caja} onChange={v=>F("reposicion_caja",v)}/>
-        <CajaValField label="Efectivo cobrado local" value={saldoFin}/>
-        <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
-          <span style={{fontWeight:600}}>TOTAL EFECTIVO</span>
-          <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalEfectivo)}</span>
-        </div>
-      </div>
-    </Card>
-    {/* Sección 4 */}
+    {/* Sección 4 — EQUIVALENTES */}
     <Card xtra={{marginBottom:16}}>
       <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>4. EQUIVALENTES</div>
-      <CajaValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
-      <CajaNumInput label="Total ventas Medianet/Contifico" value={form.ventas_medianet} onChange={v=>F("ventas_medianet",v)}/>
-      <CajaValField label="Total efectivo Contifico" value={saldoFin}/>
-      <CajaNumInput label="Nota de crédito Contifico" value={form.nota_credito} onChange={v=>F("nota_credito",v)}/>
-      <CajaNumInput label="Pedidos Ya" value={form.pedidos_ya} onChange={v=>F("pedidos_ya",v)}/>
-      <CajaNumInput label="Uber" value={form.uber} onChange={v=>F("uber",v)}/>
-      <CajaNumInput label="Rappi" value={form.rappi} onChange={v=>F("rappi",v)}/>
-      <CajaNumInput label="Página web (Tiendita)" value={form.pagina_web} onChange={v=>F("pagina_web",v)}/>
-      <CajaNumInput label="Transferencias" value={form.transferencias} onChange={v=>F("transferencias",v)}/>
-      <CajaNumInput label="Propina" value={form.propina} onChange={v=>F("propina",v)}/>
+      <CajaNumInput label="Total ventas Medianet/Contifico" value={form.ventas_medianet} onChange={v=>F("ventas_medianet",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Nota de crédito Contifico" value={form.nota_credito} onChange={v=>F("nota_credito",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Pedidos Ya" value={form.pedidos_ya} onChange={v=>F("pedidos_ya",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Uber" value={form.uber} onChange={v=>F("uber",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Rappi" value={form.rappi} onChange={v=>F("rappi",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Página web (Tiendita)" value={form.pagina_web} onChange={v=>F("pagina_web",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Transferencias" value={form.transferencias} onChange={v=>F("transferencias",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Propina" value={form.propina} onChange={v=>F("propina",v)} readOnly={bloqueado}/>
       <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
-        <span style={{fontWeight:600}}>TOTAL</span>
+        <span style={{fontWeight:600}}>TOTAL EQUIVALENTES</span>
         <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalEq)}</span>
       </div>
-      <LI label="Observaciones" xtra={{marginTop:12}}>
-        <textarea value={form.observaciones} onChange={e=>F("observaciones",e.target.value)} disabled={bloqueado} rows={2} style={{width:"100%",fontSize:13,resize:"vertical"}} placeholder="Observaciones generales..."/>
-      </LI>
     </Card>
-    {/* Diferencias */}
-    <Card xtra={{marginBottom:16,borderColor:form.faltante>0?RED+"44":form.sobrante>0?GRN+"44":BRD}}>
-      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>5. DIFERENCIAS</div>
-      <CajaNumInput label="Faltante" value={form.faltante} onChange={v=>F("faltante",v)} color={RED}/>
-      <CajaNumInput label="Sobrante" value={form.sobrante} onChange={v=>F("sobrante",v)} color={GRN}/>
+    {/* Sección 5 — DIFERENCIAS */}
+    <Card xtra={{marginBottom:16,borderColor:calcFaltante>0?RED+"44":calcSobrante>0?GRN+"44":BRD}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:14}}>5. DIFERENCIAS</div>
+      {/* Cálculo venta en efectivo */}
+      <div style={{background:FNT,borderRadius:8,padding:"12px 14px",marginBottom:14}}>
+        <div style={{fontSize:11,color:MUT,fontWeight:600,letterSpacing:1,marginBottom:8}}>CÁLCULO VENTA EN EFECTIVO</div>
+        <CajaValField label="Saldo inicial" value={saldoIni} color={BLU}/>
+        <CajaValField label="− Pago delivery" value={parseFloat(form.pago_delivery)||0} color={RED}/>
+        <CajaValField label="− Gastos autorizados" value={parseFloat(form.gastos_autorizados)||0} color={RED}/>
+        <CajaValField label="+ Reposición de caja" value={parseFloat(form.reposicion_caja)||0} color={GRN}/>
+        <CajaValField label="− Saldo final en caja" value={saldoFin} color={RED}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,marginTop:4,borderTop:"1px solid "+BRD}}>
+          <span style={{fontWeight:700,fontSize:13}}>VENTA EN EFECTIVO</span>
+          <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:18,color:ventaEfectivo>=0?ACC:RED}}>${fmtN(ventaEfectivo)}</span>
+        </div>
+      </div>
+      {/* Contificado y diferencias */}
+      <CajaNumInput label="Total efectivo contificado (POS)" value={form.total_contificado} onChange={v=>F("total_contificado",v)} readOnly={bloqueado}/>
+      <div style={{marginTop:8}}>
+        <CajaValField label="Faltante" value={calcFaltante} color={calcFaltante>0?RED:MUT}/>
+        <CajaValField label="Sobrante" value={calcSobrante} color={calcSobrante>0?GRN:MUT}/>
+      </div>
+      {/* Observaciones — obligatorio si hay diferencia */}
+      <div style={{marginTop:12}}>
+        <div style={{fontSize:12,color:(calcFaltante>0||calcSobrante>0)?RED:MUT,fontWeight:600,marginBottom:4}}>
+          {(calcFaltante>0||calcSobrante>0)?"OBSERVACIONES *  (obligatorio — existe diferencia)":"OBSERVACIONES"}
+        </div>
+        <textarea value={form.observaciones} onChange={e=>F("observaciones",e.target.value)} disabled={bloqueado} rows={2}
+          style={{width:"100%",fontSize:13,resize:"vertical",background:BG,color:TXT,border:"1px solid "+((calcFaltante>0||calcSobrante>0)&&!form.observaciones.trim()?RED+"66":BRD),borderRadius:6,padding:"8px 12px"}}
+          placeholder={(calcFaltante>0||calcSobrante>0)?"Explique la razón de la diferencia...":"Observaciones generales..."}/>
+      </div>
     </Card>
-    {/* Cierre */}
+    {/* Entrega y cierre */}
     <Card xtra={{borderColor:ACC+"44",marginBottom:24}}>
-      <div style={{fontSize:13,color:MUT,lineHeight:1.8}}>
-        Se finaliza el presente de caja con un total de{" "}
-        <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalCierre)}</span>{" "}
-        dólares. Mi nombre es{" "}
-        <span style={{fontWeight:600,color:TXT}}>{form.responsable||"___________"}</span>{" "}
-        y doy por cerrada la caja.
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:14}}>ENTREGA Y CIERRE</div>
+      <CajaNumInput label="Valor de venta efectivo entregado" value={form.venta_efectivo_entregado} onChange={v=>F("venta_efectivo_entregado",v)} readOnly={bloqueado}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:10,marginTop:6,borderTop:"1px solid "+BRD}}>
+        <span style={{fontWeight:700,fontSize:13}}>SALDO FINAL EN CAJA AL CIERRE</span>
+        <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:22,color:saldoFinalAlCierre>=0?ACC:RED}}>${fmtN(saldoFinalAlCierre)}</span>
+      </div>
+      <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid "+BRD+"44",fontSize:13,color:MUT,lineHeight:1.8}}>
+        Se finaliza el presente cuadre de caja. Responsable:{" "}
+        <span style={{fontWeight:600,color:TXT}}>{form.responsable||"___________"}</span>.
       </div>
     </Card>
     {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
@@ -1854,10 +1869,8 @@ return <div>
       <table>
         <thead><tr><th>Fecha</th><th>Caja #</th><th>Responsable</th><th>Hora Inicio</th><th>Hora Término</th><th>Total Cierre</th><th>Estado</th><th></th></tr></thead>
         <tbody>{cierresSuc.map(c=>{
-          const si=calcSaldo({...F0_BILL,...(c.ini_billetes||{})},{...F0_COIN,...(c.ini_monedas||{})});
           const sf=calcSaldo({...F0_BILL,...(c.fin_billetes||{})},{...F0_COIN,...(c.fin_monedas||{})});
-          const se=si-(c.pago_delivery||0)-(c.gastos_autorizados||0);
-          const tc=se+(c.sobrante||0)-(c.faltante||0);
+          const tc=sf-(c.venta_efectivo_entregado||0);
           const cerrado=c.estado==="cerrado";
           return <tr key={c.id}>
             <td>{c.fecha}</td>
