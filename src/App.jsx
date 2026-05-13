@@ -92,6 +92,7 @@ ver_req:        ["superadmin","admin_suc","produccion"],
 ver_comp:       ["superadmin","produccion"],
 ver_invsuc:     ["superadmin","admin_suc","staff_suc"],
 ver_cos:        ["superadmin","admin_suc","staff_suc"],
+ver_caja:       ["superadmin","admin_suc","staff_suc"],
 ver_hist:       ["superadmin","admin_suc","produccion"],
 ver_config:     ["superadmin"],
 // Acciones
@@ -378,6 +379,7 @@ const[regsSucs,setRegsSucs]=useState(iREGS);
 const[provs,setProvs]=useState(iPROVS);
 const[marcas,setMarcas]=useState([]);
 const[sucsMarcas,setSucsMarcas]=useState({});
+const[cierresCaja,setCierresCaja]=useState([]);
 const[ventas,setVentas]=useState([]);
 const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(null);
@@ -388,7 +390,7 @@ try{
 const[
 dbUsers,dbSucs,dbCatsInv,dbCatsVenta,dbCatsInvSuc,
 dbProvs,dbInv,dbRp,dbRv,dbReqs,
-dbInvSucs,dbRegs,dbVentas,dbMarcas
+dbInvSucs,dbRegs,dbVentas,dbMarcas,dbCierres
 ]=await Promise.all([
 supaGet("users","?select=*&order=created_at"),
 supaGet("sucursales","?select=*&order=nombre"),
@@ -404,6 +406,7 @@ supaGet("inventario_sucursales","?select=*"),
 supaGet("registros_sucursales","?select=*&order=fecha.desc"),
 supaGet("ventas","?select=*&order=fecha.desc"),
 supaGet("marcas","?select=*&order=nombre"),
+supaGet("cierres_caja","?select=*&order=created_at.desc"),
 ]);
 
     if(dbUsers.length>0) setUsers(dbUsers.map(u=>({...u,id:u.id})));
@@ -423,6 +426,7 @@ supaGet("marcas","?select=*&order=nombre"),
     if(dbRegs.length>0) setRegsSucs(dbRegs.map(r=>({...r,numInv:r.numInv||1,filas:r.filas||[],ventas:r.ventas||[]})));
     if(dbVentas.length>0) setVentas(dbVentas.map(v=>({...v,rId:v.rId,cant:v.cant})));
     if(dbMarcas.length>0) setMarcas(dbMarcas);
+    if(dbCierres.length>0) setCierresCaja(dbCierres);
   }catch(err){
     console.error("Error cargando datos:",err);
   }finally{
@@ -432,7 +436,7 @@ supaGet("marcas","?select=*&order=nombre"),
 cargarDatos();
 
 },[]);
-const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo,marcas,setMarcas,sucsMarcas,setSucsMarcas};
+const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo,marcas,setMarcas,sucsMarcas,setSucsMarcas,cierresCaja,setCierresCaja};
 const[menuAbierto,setMenuAbierto]=useState(true);
 // puede debe definirse antes de allTabs — usa userActivo que puede ser null
 const puede=(accion)=>puedePor(userActivo,accion);
@@ -446,6 +450,7 @@ const allTabs=[
 {id:"comp",l:"Lista Compras",i:"🛒",perm:"ver_comp"},
 {id:"invsuc",l:"Inv. Sucursales",i:"🏬",perm:"ver_invsuc"},
 {id:"cos",l:"Costos & Ingresos",i:"💰",perm:"ver_cos"},
+{id:"caja",l:"Cuadre de Caja",i:"💵",perm:"ver_caja"},
 {id:"hist",l:"Historial",i:"🕐",perm:"ver_hist"},
 {id:"config",l:"Configuración",i:"⚙️",perm:"ver_config"},
 ];
@@ -499,6 +504,7 @@ return <>
 {tab==="comp"&&<Comp {...sh}/>}
 {tab==="invsuc"&&<InvSuc {...sh} puede={puede}/>}
 {tab==="cos"&&<Cos {...sh} puede={puede} userActivo={userActivo}/>}
+{tab==="caja"&&<CierreCaja cierresCaja={cierresCaja} setCierresCaja={setCierresCaja} sucs={sucs} userActivo={userActivo} puede={puede}/>}
 {tab==="hist"&&<Hist {...sh} userActivo={userActivo}/>}
 {tab==="config"&&<Config {...sh} puede={puede}/>}
 </div>
@@ -1608,6 +1614,257 @@ window.XLSX.writeFile(wb,"lista_compras"+sufijo+"_"+today()+".xlsx");
   </Card></div>}
 
   </div>;
+}
+// ── Cuadre de Caja ──────────────────────────────────────────────────────────
+const BILL_D=[20,10,5,1];
+const COIN_K=[100,50,25,10,5,1];
+const COIN_V=[1,0.5,0.25,0.1,0.05,0.01];
+function calcSaldo(bill,coin){
+  const b=BILL_D.reduce((s,d)=>s+d*(parseFloat(bill[d])||0),0);
+  const m=COIN_K.reduce((s,k,i)=>s+COIN_V[i]*(parseFloat(coin[k])||0),0);
+  return b+m;
+}
+const F0_BILL={"20":0,"10":0,"5":0,"1":0};
+const F0_COIN={"100":0,"50":0,"25":0,"10":0,"5":0,"1":0};
+function formCaja0(userActivo,nextNum){
+  return{fecha:today(),caja_num:nextNum,responsable:userActivo?.nombre||"",hora_inicio:"",hora_termino:"",ini_billetes:{...F0_BILL},ini_monedas:{...F0_COIN},fin_billetes:{...F0_BILL},fin_monedas:{...F0_COIN},ventas_medianet:0,nota_credito:0,pedidos_ya:0,uber:0,rappi:0,pagina_web:0,transferencias:0,propina:0,observaciones:"",pago_delivery:0,gastos_autorizados:0,reposicion_caja:0,faltante:0,sobrante:0};
+}
+function CierreCaja({cierresCaja,setCierresCaja,sucs,userActivo,puede}){
+const esAdmin=puede("config_total")||userActivo?.rol==="admin_suc";
+const sucsV=userActivo?.rol==="superadmin"?sucs:sucs.filter(s=>s===userActivo?.sucursal);
+const[sucSel,setSucSel]=useState(sucsV[0]||"");
+const[vista,setVista]=useState("lista");
+const[editId,setEditId]=useState(null);
+const nextNum=()=>{const ns=cierresCaja.filter(c=>c.sucursal===sucSel);return ns.length>0?Math.max(...ns.map(c=>c.caja_num||0))+1:1;};
+const[form,setForm]=useState(()=>formCaja0(userActivo,1));
+const[confirmar,setConfirmar]=useState(null);
+function F(k,v){setForm(p=>({...p,[k]:v}));}
+function FB(sec,denom,val){setForm(p=>({...p,[sec]:{...p[sec],[denom]:parseFloat(val)||0}}));}
+// Calculated
+const saldoIni=calcSaldo(form.ini_billetes,form.ini_monedas);
+const saldoFin=calcSaldo(form.fin_billetes,form.fin_monedas);
+const totalEq=["ventas_medianet","nota_credito","pedidos_ya","uber","rappi","pagina_web","transferencias"].reduce((s,k)=>s+(parseFloat(form[k])||0),0)+saldoFin;
+const saldoEfectivo=(saldoIni)-(parseFloat(form.pago_delivery)||0)-(parseFloat(form.gastos_autorizados)||0);
+const totalEfectivo=(parseFloat(form.reposicion_caja)||0)+saldoFin;
+const totalCierre=saldoEfectivo+(parseFloat(form.sobrante)||0)-(parseFloat(form.faltante)||0);
+function abrirNuevo(){
+  const nn=nextNum();
+  setForm(formCaja0(userActivo,nn));
+  setEditId(null);
+  setVista("form");
+}
+function abrirEditar(c){
+  setForm({fecha:c.fecha,caja_num:c.caja_num,responsable:c.responsable,hora_inicio:c.hora_inicio||"",hora_termino:c.hora_termino||"",ini_billetes:{...F0_BILL,...(c.ini_billetes||{})},ini_monedas:{...F0_COIN,...(c.ini_monedas||{})},fin_billetes:{...F0_BILL,...(c.fin_billetes||{})},fin_monedas:{...F0_COIN,...(c.fin_monedas||{})},ventas_medianet:c.ventas_medianet||0,nota_credito:c.nota_credito||0,pedidos_ya:c.pedidos_ya||0,uber:c.uber||0,rappi:c.rappi||0,pagina_web:c.pagina_web||0,transferencias:c.transferencias||0,propina:c.propina||0,observaciones:c.observaciones||"",pago_delivery:c.pago_delivery||0,gastos_autorizados:c.gastos_autorizados||0,reposicion_caja:c.reposicion_caja||0,faltante:c.faltante||0,sobrante:c.sobrante||0});
+  setEditId(c.id);
+  setVista("form");
+}
+async function guardar(cerrar){
+  if(!form.responsable.trim()){alert("El nombre del responsable es obligatorio.");return;}
+  if(!form.caja_num){alert("El número de caja es obligatorio.");return;}
+  const data={...form,sucursal:sucSel,estado:cerrar?"cerrado":"borrador"};
+  if(editId){
+    await supaPatch("cierres_caja","?id=eq."+editId,data).catch(console.error);
+    setCierresCaja(p=>p.map(c=>c.id===editId?{...c,...data}:c));
+  }else{
+    const[created]=await supaPost("cierres_caja",data).catch(()=>[data]);
+    setCierresCaja(p=>[{...data,id:created?.id||Date.now()},...p]);
+  }
+  setVista("lista");
+}
+const cierresSuc=[...cierresCaja.filter(c=>c.sucursal===sucSel)].sort((a,b)=>b.caja_num-a.caja_num);
+// Denomination row helper
+function DenomRow({label,keyVal,section,readOnly}){
+  const qty=form[section][keyVal]||0;
+  const dVal=section.includes("bill")?parseInt(keyVal):COIN_V[COIN_K.indexOf(parseInt(keyVal))];
+  const total=dVal*(parseFloat(qty)||0);
+  return <tr>
+    <td style={{fontFamily:"'DM Mono'",color:MUT,textAlign:"right",paddingRight:12}}>${dVal%1===0?dVal:dVal.toFixed(2)}</td>
+    <td>{readOnly
+      ?<div style={{fontFamily:"'DM Mono'",textAlign:"center",padding:"4px 8px",color:MUT}}>{qty}</div>
+      :<input type="number" min="0" value={qty} onChange={e=>FB(section,keyVal,e.target.value)} style={{width:70,textAlign:"center"}}/>}
+    </td>
+    <td style={{fontFamily:"'DM Mono'",color:ACC,textAlign:"right"}}>${fmtN(total)}</td>
+  </tr>;
+}
+function DenomTable({billSec,coinSec,readOnly}){
+  const bTotal=calcSaldo(form[billSec],F0_COIN);
+  const cTotal=calcSaldo(F0_BILL,form[coinSec]);
+  return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+    <div>
+      <div style={{fontSize:11,color:MUT,fontWeight:600,marginBottom:8,letterSpacing:1}}>BILLETES</div>
+      <table style={{width:"100%"}}><thead><tr><th style={{fontSize:11}}>Denom.</th><th style={{fontSize:11}}>Cantidad</th><th style={{fontSize:11}}>Total</th></tr></thead>
+      <tbody>
+        {BILL_D.map(d=><DenomRow key={d} keyVal={String(d)} section={billSec} readOnly={readOnly}/>)}
+        <tr style={{borderTop:"1px solid "+BRD}}><td colSpan={2} style={{fontWeight:600,fontSize:12,paddingTop:6}}>TOTAL</td><td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:700,textAlign:"right"}}>${fmtN(bTotal)}</td></tr>
+      </tbody></table>
+    </div>
+    <div>
+      <div style={{fontSize:11,color:MUT,fontWeight:600,marginBottom:8,letterSpacing:1}}>MONEDAS</div>
+      <table style={{width:"100%"}}><thead><tr><th style={{fontSize:11}}>Denom.</th><th style={{fontSize:11}}>Cantidad</th><th style={{fontSize:11}}>Total</th></tr></thead>
+      <tbody>
+        {COIN_K.map((k,i)=><DenomRow key={k} keyVal={String(k)} section={coinSec} readOnly={readOnly}/>)}
+        <tr style={{borderTop:"1px solid "+BRD}}><td colSpan={2} style={{fontWeight:600,fontSize:12,paddingTop:6}}>TOTAL</td><td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:700,textAlign:"right"}}>${fmtN(cTotal)}</td></tr>
+      </tbody></table>
+    </div>
+  </div>;
+}
+function ValField({label,value,color}){
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid "+BRD+"44"}}>
+    <span style={{fontSize:13,color:MUT}}>{label}</span>
+    <span style={{fontFamily:"'DM Mono'",fontWeight:600,color:color||TXT}}>${fmtN(value)}</span>
+  </div>;
+}
+function NumInput({label,field,color}){
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+BRD+"33"}}>
+    <span style={{fontSize:13,color:MUT,flex:1}}>{label}</span>
+    <input type="number" step="0.01" min="0" value={form[field]||0} onChange={e=>F(field,parseFloat(e.target.value)||0)} style={{width:110,textAlign:"right",fontFamily:"'DM Mono'",borderColor:color?color+"55":BRD}}/>
+  </div>;
+}
+if(vista==="form"){
+  const cerrado=editId&&cierresCaja.find(c=>c.id===editId)?.estado==="cerrado";
+  const bloqueado=cerrado&&!esAdmin;
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+      <div>
+        <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CUADRE DE CAJA</h1>
+        <p style={{color:MUT,fontSize:13}}>{sucSel}{cerrado&&<Bdg c="green" xtra={{marginLeft:8}}>CERRADO</Bdg>}</p>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn v="ghost" onClick={()=>setVista("lista")}>← Volver</Btn>
+        {!bloqueado&&<Btn v="ghost" onClick={()=>guardar(false)}>💾 Guardar borrador</Btn>}
+        {!bloqueado&&<Btn v="success" onClick={()=>setConfirmar({msg:"¿Confirmar y cerrar esta caja? El staff no podrá editarla después.",fn:()=>guardar(true)})}>✓ Cerrar Caja</Btn>}
+        {bloqueado&&esAdmin&&<Btn onClick={()=>guardar(false)}>Guardar cambios</Btn>}
+      </div>
+    </div>
+    {/* Header */}
+    <Card xtra={{marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14}}>
+        <LI label="Fecha"><input type="date" value={form.fecha} onChange={e=>F("fecha",e.target.value)} disabled={bloqueado} style={{width:"100%"}}/></LI>
+        <LI label="Caja #">
+          {esAdmin
+            ?<input type="number" value={form.caja_num} onChange={e=>F("caja_num",parseInt(e.target.value)||1)} style={{width:"100%"}}/>
+            :<div style={{fontFamily:"'DM Mono'",padding:"8px 12px",background:FNT,borderRadius:6,fontSize:14,fontWeight:600}}>{form.caja_num}</div>}
+        </LI>
+        <LI label="Responsable *"><input value={form.responsable} onChange={e=>F("responsable",e.target.value)} disabled={bloqueado} placeholder="Nombre completo..." style={{width:"100%",borderColor:!form.responsable.trim()?RED+"66":BRD}}/></LI>
+        <LI label="Hora inicio"><input type="time" value={form.hora_inicio} onChange={e=>F("hora_inicio",e.target.value)} disabled={bloqueado} style={{width:"100%"}}/></LI>
+        <LI label="Hora término"><input type="time" value={form.hora_termino} onChange={e=>F("hora_termino",e.target.value)} disabled={bloqueado} style={{width:"100%"}}/></LI>
+      </div>
+    </Card>
+    {/* Sección 1 */}
+    <Card xtra={{marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1}}>1. SALDO INICIAL</div>
+        <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:ACC}}>${fmtN(saldoIni)}</div>
+      </div>
+      <DenomTable billSec="ini_billetes" coinSec="ini_monedas" readOnly={bloqueado}/>
+    </Card>
+    {/* Sección 2 */}
+    <Card xtra={{marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1}}>2. SALDO FINAL COBRADO EFECTIVO</div>
+        <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:GRN}}>${fmtN(saldoFin)}</div>
+      </div>
+      <DenomTable billSec="fin_billetes" coinSec="fin_monedas" readOnly={bloqueado}/>
+    </Card>
+    {/* Sección 3 */}
+    <Card xtra={{marginBottom:16}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>3. SALDO EFECTIVO INICIAL</div>
+      <ValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
+      <NumInput label="Pago delivery" field="pago_delivery" color={RED}/>
+      <NumInput label="Gastos autorizados" field="gastos_autorizados" color={RED}/>
+      <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
+        <span style={{fontWeight:600}}>TOTAL</span>
+        <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:saldoEfectivo>=0?GRN:RED}}>${fmtN(saldoEfectivo)}</span>
+      </div>
+      <div style={{marginTop:12,borderTop:"1px solid "+BRD,paddingTop:12}}>
+        <NumInput label="Reposición de caja" field="reposicion_caja"/>
+        <ValField label="Efectivo cobrado local" value={saldoFin}/>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
+          <span style={{fontWeight:600}}>TOTAL EFECTIVO</span>
+          <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalEfectivo)}</span>
+        </div>
+      </div>
+    </Card>
+    {/* Sección 4 */}
+    <Card xtra={{marginBottom:16}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>4. EQUIVALENTES</div>
+      <ValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
+      <NumInput label="Total ventas Medianet/Contifico" field="ventas_medianet"/>
+      <ValField label="Total efectivo Contifico" value={saldoFin}/>
+      <NumInput label="Nota de crédito Contifico" field="nota_credito"/>
+      <NumInput label="Pedidos Ya" field="pedidos_ya"/>
+      <NumInput label="Uber" field="uber"/>
+      <NumInput label="Rappi" field="rappi"/>
+      <NumInput label="Página web (Tiendita)" field="pagina_web"/>
+      <NumInput label="Transferencias" field="transferencias"/>
+      <NumInput label="Propina" field="propina"/>
+      <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
+        <span style={{fontWeight:600}}>TOTAL</span>
+        <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalEq)}</span>
+      </div>
+      <LI label="Observaciones" xtra={{marginTop:12}}>
+        <textarea value={form.observaciones} onChange={e=>F("observaciones",e.target.value)} disabled={bloqueado} rows={2} style={{width:"100%",fontSize:13,resize:"vertical"}} placeholder="Observaciones generales..."/>
+      </LI>
+    </Card>
+    {/* Diferencias */}
+    <Card xtra={{marginBottom:16,borderColor:form.faltante>0?RED+"44":form.sobrante>0?GRN+"44":BRD}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>5. DIFERENCIAS</div>
+      <NumInput label="Faltante" field="faltante" color={RED}/>
+      <NumInput label="Sobrante" field="sobrante" color={GRN}/>
+    </Card>
+    {/* Cierre */}
+    <Card xtra={{borderColor:ACC+"44",marginBottom:24}}>
+      <div style={{fontSize:13,color:MUT,lineHeight:1.8}}>
+        Se finaliza el presente de caja con un total de{" "}
+        <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalCierre)}</span>{" "}
+        dólares. Mi nombre es{" "}
+        <span style={{fontWeight:600,color:TXT}}>{form.responsable||"___________"}</span>{" "}
+        y doy por cerrada la caja.
+      </div>
+    </Card>
+    {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+  </div>;
+}
+// Vista lista / historial
+return <div>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+    <div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CUADRE DE CAJA</h1><p style={{color:MUT,fontSize:13}}>Registro y cierre de caja por sucursal</p></div>
+    <Btn onClick={abrirNuevo}>+ Nuevo Cuadre</Btn>
+  </div>
+  {sucsV.length>1&&<div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+    {sucsV.map(s=>{const a=sucSel===s;return <button key={s} onClick={()=>setSucSel(s)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT}}>{s}</button>;})}
+  </div>}
+  {cierresSuc.length===0
+    ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin cuadres de caja registrados para {sucSel}.</Card>
+    :<Card xtra={{padding:0}}>
+      <table>
+        <thead><tr><th>Fecha</th><th>Caja #</th><th>Responsable</th><th>Hora Inicio</th><th>Hora Término</th><th>Total Cierre</th><th>Estado</th><th></th></tr></thead>
+        <tbody>{cierresSuc.map(c=>{
+          const si=calcSaldo({...F0_BILL,...(c.ini_billetes||{})},{...F0_COIN,...(c.ini_monedas||{})});
+          const sf=calcSaldo({...F0_BILL,...(c.fin_billetes||{})},{...F0_COIN,...(c.fin_monedas||{})});
+          const se=si-(c.pago_delivery||0)-(c.gastos_autorizados||0);
+          const tc=se+(c.sobrante||0)-(c.faltante||0);
+          const cerrado=c.estado==="cerrado";
+          return <tr key={c.id}>
+            <td>{c.fecha}</td>
+            <td style={{fontFamily:"'DM Mono'",fontWeight:600}}>{c.caja_num}</td>
+            <td style={{fontWeight:500}}>{c.responsable}</td>
+            <td style={{color:MUT,fontSize:12}}>{c.hora_inicio||"—"}</td>
+            <td style={{color:MUT,fontSize:12}}>{c.hora_termino||"—"}</td>
+            <td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:600}}>${fmtN(tc)}</td>
+            <td><Bdg c={cerrado?"green":"orange"}>{cerrado?"Cerrado":"Borrador"}</Bdg></td>
+            <td>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>abrirEditar(c)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>{cerrado&&!esAdmin?"Ver":"Editar"}</button>
+                {esAdmin&&<button onClick={()=>setConfirmar({msg:"¿Eliminar este cuadre de caja?",fn:async()=>{await supaDelete("cierres_caja","?id=eq."+c.id).catch(console.error);setCierresCaja(p=>p.filter(x=>x.id!==c.id));}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>X</button>}
+              </div>
+            </td>
+          </tr>;
+        })}</tbody>
+      </table>
+    </Card>}
+  {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+</div>;
 }
 // ── Inventario Sucursales ───────────────────────────────────────────────────
 function InvSuc({sucs,cats2,invSucs,setInvSucs,regsSucs,setRegsSucs,rv,setRv,ventas:ventasProp,xlsxReady,provs,puede,userActivo,marcas,sucsMarcas}){
