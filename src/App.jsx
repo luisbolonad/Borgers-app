@@ -1682,6 +1682,7 @@ const sucsV=userActivo?.rol==="superadmin"?sucs:sucs.filter(s=>s===userActivo?.s
 const[sucSel,setSucSel]=useState(sucsV[0]||"");
 const[vista,setVista]=useState("lista");
 const[editId,setEditId]=useState(null);
+const[modoVer,setModoVer]=useState(false);
 const nextNum=()=>{const ns=cierresCaja.filter(c=>c.sucursal===sucSel);return ns.length>0?Math.max(...ns.map(c=>c.caja_num||0))+1:1;};
 const[form,setForm]=useState(()=>formCaja0(userActivo,1));
 const[confirmar,setConfirmar]=useState(null);
@@ -1701,9 +1702,14 @@ function abrirNuevo(){
   setVista("form");
 }
 function abrirEditar(c){
-  setForm({fecha:c.fecha,caja_num:c.caja_num,responsable:c.responsable,hora_inicio:c.hora_inicio||"",hora_termino:c.hora_termino||"",ini_billetes:{...F0_BILL,...(c.ini_billetes||{})},ini_monedas:{...F0_COIN,...(c.ini_monedas||{})},fin_billetes:{...F0_BILL,...(c.fin_billetes||{})},fin_monedas:{...F0_COIN,...(c.fin_monedas||{})},ventas_medianet:c.ventas_medianet||0,nota_credito:c.nota_credito||0,pedidos_ya:c.pedidos_ya||0,uber:c.uber||0,rappi:c.rappi||0,pagina_web:c.pagina_web||0,transferencias:c.transferencias||0,propina:c.propina||0,observaciones:c.observaciones||"",pago_delivery:c.pago_delivery||0,gastos_autorizados:c.gastos_autorizados||0,reposicion_caja:c.reposicion_caja||0,faltante:c.faltante||0,sobrante:c.sobrante||0});
+  setForm({fecha:(c.fecha||"").slice(0,10)||today(),caja_num:c.caja_num,responsable:c.responsable||"",hora_inicio:c.hora_inicio||"",hora_termino:c.hora_termino||"",ini_billetes:{...F0_BILL,...(c.ini_billetes||{})},ini_monedas:{...F0_COIN,...(c.ini_monedas||{})},fin_billetes:{...F0_BILL,...(c.fin_billetes||{})},fin_monedas:{...F0_COIN,...(c.fin_monedas||{})},ventas_medianet:c.ventas_medianet||0,nota_credito:c.nota_credito||0,pedidos_ya:c.pedidos_ya||0,uber:c.uber||0,rappi:c.rappi||0,pagina_web:c.pagina_web||0,transferencias:c.transferencias||0,propina:c.propina||0,observaciones:c.observaciones||"",pago_delivery:c.pago_delivery||0,gastos_autorizados:c.gastos_autorizados||0,reposicion_caja:c.reposicion_caja||0,faltante:c.faltante||0,sobrante:c.sobrante||0});
   setEditId(c.id);
+  setModoVer(false);
   setVista("form");
+}
+function abrirVer(c){
+  abrirEditar(c);
+  setModoVer(true);
 }
 async function guardar(cerrar){
   if(!form.responsable.trim()){alert("El nombre del responsable es obligatorio.");return;}
@@ -1721,7 +1727,7 @@ async function guardar(cerrar){
 const cierresSuc=[...cierresCaja.filter(c=>c.sucursal===sucSel)].sort((a,b)=>b.caja_num-a.caja_num);
 if(vista==="form"){
   const cerrado=editId&&cierresCaja.find(c=>c.id===editId)?.estado==="cerrado";
-  const bloqueado=cerrado&&!esAdmin;
+  const bloqueado=(cerrado&&!esAdmin)||modoVer;
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
       <div>
@@ -1729,10 +1735,11 @@ if(vista==="form"){
         <p style={{color:MUT,fontSize:13}}>{sucSel}{cerrado&&<Bdg c="green" xtra={{marginLeft:8}}>CERRADO</Bdg>}</p>
       </div>
       <div style={{display:"flex",gap:8}}>
-        <Btn v="ghost" onClick={()=>setVista("lista")}>← Volver</Btn>
+        <Btn v="ghost" onClick={()=>{setVista("lista");setModoVer(false);}}>← Volver</Btn>
         {!bloqueado&&<Btn v="ghost" onClick={()=>guardar(false)}>💾 Guardar borrador</Btn>}
         {!bloqueado&&<Btn v="success" onClick={()=>setConfirmar({msg:"¿Confirmar y cerrar esta caja? El staff no podrá editarla después.",fn:()=>guardar(true)})}>✓ Cerrar Caja</Btn>}
-        {bloqueado&&esAdmin&&<Btn onClick={()=>guardar(false)}>Guardar cambios</Btn>}
+        {cerrado&&esAdmin&&!modoVer&&<Btn onClick={()=>guardar(false)}>Guardar cambios</Btn>}
+        {modoVer&&esAdmin&&<Btn v="ghost" onClick={()=>setModoVer(false)}>✏️ Editar</Btn>}
       </div>
     </div>
     {/* Header */}
@@ -1854,7 +1861,8 @@ return <div>
             <td><Bdg c={cerrado?"green":"orange"}>{cerrado?"Cerrado":"Borrador"}</Bdg></td>
             <td>
               <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>abrirEditar(c)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>{cerrado&&!esAdmin?"Ver":"Editar"}</button>
+                <button onClick={()=>abrirVer(c)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver</button>
+                {esAdmin&&<button onClick={()=>abrirEditar(c)} style={{background:ACC+"18",color:ACC,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Editar</button>}
                 {esAdmin&&<button onClick={()=>setConfirmar({msg:"¿Eliminar este cuadre de caja?",fn:async()=>{await supaDelete("cierres_caja","?id=eq."+c.id).catch(console.error);setCierresCaja(p=>p.filter(x=>x.id!==c.id));}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>X</button>}
               </div>
             </td>
