@@ -1754,8 +1754,8 @@ if(vista==="form"){
             :<div style={{fontFamily:"'DM Mono'",padding:"8px 12px",background:FNT,borderRadius:6,fontSize:14,fontWeight:600}}>{form.caja_num}</div>}
         </LI>
         <LI label="Responsable *"><input value={form.responsable} onChange={e=>F("responsable",e.target.value)} disabled={bloqueado} placeholder="Nombre completo..." style={{width:"100%",borderColor:!form.responsable.trim()?RED+"66":BRD}}/></LI>
-        <LI label="Hora inicio"><input type="time" value={form.hora_inicio} onChange={e=>F("hora_inicio",e.target.value)} disabled={bloqueado} style={{width:"100%"}}/></LI>
-        <LI label="Hora término"><input type="time" value={form.hora_termino} onChange={e=>F("hora_termino",e.target.value)} disabled={bloqueado} style={{width:"100%"}}/></LI>
+        <LI label="Hora inicio"><input type="text" value={form.hora_inicio} onChange={e=>F("hora_inicio",e.target.value)} disabled={bloqueado} placeholder="12:00" style={{width:"100%"}}/></LI>
+        <LI label="Hora término"><input type="text" value={form.hora_termino} onChange={e=>F("hora_termino",e.target.value)} disabled={bloqueado} placeholder="20:00" style={{width:"100%"}}/></LI>
       </div>
     </Card>
     {/* Sección 1 */}
@@ -1863,7 +1863,7 @@ return <div>
             <td><Bdg c={cerrado?"green":"orange"}>{cerrado?"Cerrado":"Borrador"}</Bdg></td>
             <td>
               <div style={{display:"flex",gap:6}}>
-                {esAdmin&&<button onClick={()=>abrirVer(c)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver</button>}
+                {(cerrado||esAdmin)&&<button onClick={()=>abrirVer(c)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver</button>}
                 {(!cerrado||esAdmin)&&<button onClick={()=>abrirEditar(c)} style={{background:cerrado?ACC+"18":GRN+"18",color:cerrado?ACC:GRN,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Editar</button>}
                 {esAdmin&&<button onClick={()=>setConfirmar({msg:"¿Eliminar este cuadre de caja?",fn:async()=>{await supaDelete("cierres_caja","?id=eq."+c.id).catch(console.error);setCierresCaja(p=>p.filter(x=>x.id!==c.id));}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>X</button>}
               </div>
