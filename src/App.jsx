@@ -149,6 +149,7 @@ const globalCss="@import url('https://fonts.googleapis.com/css2?family=Bebas+Neu
 +"::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:"+SRF+"}::-webkit-scrollbar-thumb{background:"+FNT+";border-radius:2px}"
 +"input,select{background:"+BG+";color:"+TXT+";border:1px solid "+BRD+";border-radius:6px;padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:13px;outline:none}"
 +"input:focus,select:focus{border-color:"+ACC+"}"
++"input::placeholder{opacity:0.35}"
 +"button{cursor:pointer;font-family:'DM Sans',sans-serif;border:none}"
 +"table{border-collapse:collapse;width:100%}"
 +"th{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:"+MUT+";padding:8px 12px;text-align:left;border-bottom:1px solid "+BRD+"}"
@@ -735,9 +736,9 @@ return <tr key={i.id}>
       <div style={{gridColumn:"1/3"}}><LI label="Nombre"><input value={form.nombre} onChange={e=>setForm(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
       <LI label="Categoría"><select value={form.categoria} onChange={e=>setForm(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>{cats.map(c=><option key={c}>{c}</option>)}</select></LI>
       <LI label="Unidad"><input value={form.unidad} onChange={e=>setForm(p=>({...p,unidad:e.target.value}))} style={{width:"100%"}}/></LI>
-      <LI label="Stock"><input type="number" step="0.01" value={form.stock} onChange={e=>setForm(p=>({...p,stock:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
-      <LI label="Stock mínimo"><input type="number" step="0.01" value={form.stockMin} onChange={e=>setForm(p=>({...p,stockMin:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
-      <LI label="Costo ($)"><input type="number" step="0.01" value={form.costo} onChange={e=>setForm(p=>({...p,costo:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+      <LI label="Stock"><input type="number" step="0.01" value={form.stock||""} placeholder="0" onChange={e=>setForm(p=>({...p,stock:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+      <LI label="Stock mínimo"><input type="number" step="0.01" value={form.stockMin||""} placeholder="0" onChange={e=>setForm(p=>({...p,stockMin:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+      <LI label="Costo ($)"><input type="number" step="0.01" value={form.costo||""} placeholder="0" onChange={e=>setForm(p=>({...p,costo:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
       <div style={{gridColumn:"1/3"}}><LI label="Proveedor"><input value={form.proveedor} onChange={e=>setForm(p=>({...p,proveedor:e.target.value}))} style={{width:"100%"}}/></LI></div>
     </div>
     <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
@@ -905,7 +906,7 @@ return <div>
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
     <div style={{gridColumn:"1/3"}}><LI label="Nombre"><input value={fv.nombre} onChange={e=>setFv(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
     <LI label="Categoría"><select value={fv.categoria} onChange={e=>setFv(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}}>{CV.map(c=><option key={c}>{c}</option>)}</select></LI>
-    <LI label="Precio ($)"><input type="number" step="0.01" value={fv.precio} onChange={e=>setFv(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+    <LI label="Precio ($)"><input type="number" step="0.01" value={fv.precio||""} placeholder="0" onChange={e=>setFv(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
     {(!puede||puede("config_total"))&&<div style={{gridColumn:"1/3"}}><LI label="Código único (alfanumérico)"><input value={fv.codigo||""} onChange={e=>setFv(p=>({...p,codigo:e.target.value.toUpperCase()}))} placeholder="Ej: BRG-01" style={{width:"100%",fontFamily:"'DM Mono'"}}/></LI></div>}
     <div style={{gridColumn:"1/3"}}><LI label="Marcas">
       <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingTop:4}}>
@@ -963,7 +964,7 @@ return <div>
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:20}}>
     <div style={{gridColumn:"1/4"}}><LI label="Nombre"><input value={fp.nombre} onChange={e=>setFp(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
     <LI label="Unidad"><input value={fp.unidad} onChange={e=>setFp(p=>({...p,unidad:e.target.value}))} style={{width:"100%"}}/></LI>
-    <LI label="Rendimiento/tanda"><input type="number" step="0.01" value={fp.rendimiento} onChange={e=>setFp(p=>({...p,rendimiento:parseFloat(e.target.value)||1}))} style={{width:"100%"}}/></LI>
+    <LI label="Rendimiento/tanda"><input type="number" step="0.01" value={fp.rendimiento||""} placeholder="1" onChange={e=>setFp(p=>({...p,rendimiento:parseFloat(e.target.value)||1}))} style={{width:"100%"}}/></LI>
   </div>
   <div style={{marginBottom:12}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -1629,6 +1630,52 @@ const F0_COIN={"100":0,"50":0,"25":0,"10":0,"5":0,"1":0};
 function formCaja0(userActivo,nextNum){
   return{fecha:today(),caja_num:nextNum,responsable:userActivo?.nombre||"",hora_inicio:"",hora_termino:"",ini_billetes:{...F0_BILL},ini_monedas:{...F0_COIN},fin_billetes:{...F0_BILL},fin_monedas:{...F0_COIN},ventas_medianet:0,nota_credito:0,pedidos_ya:0,uber:0,rappi:0,pagina_web:0,transferencias:0,propina:0,observaciones:"",pago_delivery:0,gastos_autorizados:0,reposicion_caja:0,faltante:0,sobrante:0};
 }
+// Subcomponentes fuera de CierreCaja para evitar desmonte/remonte en cada render
+function CajaDenomRow({qty,dVal,onChange,readOnly}){
+  const total=dVal*(parseFloat(qty)||0);
+  return <tr>
+    <td style={{fontFamily:"'DM Mono'",color:MUT,textAlign:"right",paddingRight:12}}>${dVal%1===0?dVal:dVal.toFixed(2)}</td>
+    <td>{readOnly
+      ?<div style={{fontFamily:"'DM Mono'",textAlign:"center",padding:"4px 8px",color:MUT}}>{qty||0}</div>
+      :<input type="number" min="0" placeholder="0" value={qty||""} onChange={e=>onChange(e.target.value)} style={{width:70,textAlign:"center"}}/>}
+    </td>
+    <td style={{fontFamily:"'DM Mono'",color:ACC,textAlign:"right"}}>${fmtN(total)}</td>
+  </tr>;
+}
+function CajaDenomTable({billData,coinData,billSec,coinSec,onChangeDenom,readOnly}){
+  const bTotal=calcSaldo(billData,F0_COIN);
+  const cTotal=calcSaldo(F0_BILL,coinData);
+  return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+    <div>
+      <div style={{fontSize:11,color:MUT,fontWeight:600,marginBottom:8,letterSpacing:1}}>BILLETES</div>
+      <table style={{width:"100%"}}><thead><tr><th style={{fontSize:11}}>Denom.</th><th style={{fontSize:11}}>Cantidad</th><th style={{fontSize:11}}>Total</th></tr></thead>
+      <tbody>
+        {BILL_D.map(d=><CajaDenomRow key={d} qty={billData[d]||0} dVal={d} onChange={v=>onChangeDenom(billSec,String(d),v)} readOnly={readOnly}/>)}
+        <tr style={{borderTop:"1px solid "+BRD}}><td colSpan={2} style={{fontWeight:600,fontSize:12,paddingTop:6}}>TOTAL</td><td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:700,textAlign:"right"}}>${fmtN(bTotal)}</td></tr>
+      </tbody></table>
+    </div>
+    <div>
+      <div style={{fontSize:11,color:MUT,fontWeight:600,marginBottom:8,letterSpacing:1}}>MONEDAS</div>
+      <table style={{width:"100%"}}><thead><tr><th style={{fontSize:11}}>Denom.</th><th style={{fontSize:11}}>Cantidad</th><th style={{fontSize:11}}>Total</th></tr></thead>
+      <tbody>
+        {COIN_K.map((k,i)=><CajaDenomRow key={k} qty={coinData[k]||0} dVal={COIN_V[i]} onChange={v=>onChangeDenom(coinSec,String(k),v)} readOnly={readOnly}/>)}
+        <tr style={{borderTop:"1px solid "+BRD}}><td colSpan={2} style={{fontWeight:600,fontSize:12,paddingTop:6}}>TOTAL</td><td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:700,textAlign:"right"}}>${fmtN(cTotal)}</td></tr>
+      </tbody></table>
+    </div>
+  </div>;
+}
+function CajaValField({label,value,color}){
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid "+BRD+"44"}}>
+    <span style={{fontSize:13,color:MUT}}>{label}</span>
+    <span style={{fontFamily:"'DM Mono'",fontWeight:600,color:color||TXT}}>${fmtN(value)}</span>
+  </div>;
+}
+function CajaNumInput({label,value,onChange,color}){
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+BRD+"33"}}>
+    <span style={{fontSize:13,color:MUT,flex:1}}>{label}</span>
+    <input type="number" step="0.01" min="0" placeholder="0" value={value||""} onChange={e=>onChange(parseFloat(e.target.value)||0)} style={{width:110,textAlign:"right",fontFamily:"'DM Mono'",borderColor:color?color+"55":BRD}}/>
+  </div>;
+}
 function CierreCaja({cierresCaja,setCierresCaja,sucs,userActivo,puede}){
 const esAdmin=puede("config_total")||userActivo?.rol==="admin_suc";
 const sucsV=userActivo?.rol==="superadmin"?sucs:sucs.filter(s=>s===userActivo?.sucursal);
@@ -1672,54 +1719,6 @@ async function guardar(cerrar){
   setVista("lista");
 }
 const cierresSuc=[...cierresCaja.filter(c=>c.sucursal===sucSel)].sort((a,b)=>b.caja_num-a.caja_num);
-// Denomination row helper
-function DenomRow({label,keyVal,section,readOnly}){
-  const qty=form[section][keyVal]||0;
-  const dVal=section.includes("bill")?parseInt(keyVal):COIN_V[COIN_K.indexOf(parseInt(keyVal))];
-  const total=dVal*(parseFloat(qty)||0);
-  return <tr>
-    <td style={{fontFamily:"'DM Mono'",color:MUT,textAlign:"right",paddingRight:12}}>${dVal%1===0?dVal:dVal.toFixed(2)}</td>
-    <td>{readOnly
-      ?<div style={{fontFamily:"'DM Mono'",textAlign:"center",padding:"4px 8px",color:MUT}}>{qty}</div>
-      :<input type="number" min="0" value={qty} onChange={e=>FB(section,keyVal,e.target.value)} style={{width:70,textAlign:"center"}}/>}
-    </td>
-    <td style={{fontFamily:"'DM Mono'",color:ACC,textAlign:"right"}}>${fmtN(total)}</td>
-  </tr>;
-}
-function DenomTable({billSec,coinSec,readOnly}){
-  const bTotal=calcSaldo(form[billSec],F0_COIN);
-  const cTotal=calcSaldo(F0_BILL,form[coinSec]);
-  return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-    <div>
-      <div style={{fontSize:11,color:MUT,fontWeight:600,marginBottom:8,letterSpacing:1}}>BILLETES</div>
-      <table style={{width:"100%"}}><thead><tr><th style={{fontSize:11}}>Denom.</th><th style={{fontSize:11}}>Cantidad</th><th style={{fontSize:11}}>Total</th></tr></thead>
-      <tbody>
-        {BILL_D.map(d=><DenomRow key={d} keyVal={String(d)} section={billSec} readOnly={readOnly}/>)}
-        <tr style={{borderTop:"1px solid "+BRD}}><td colSpan={2} style={{fontWeight:600,fontSize:12,paddingTop:6}}>TOTAL</td><td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:700,textAlign:"right"}}>${fmtN(bTotal)}</td></tr>
-      </tbody></table>
-    </div>
-    <div>
-      <div style={{fontSize:11,color:MUT,fontWeight:600,marginBottom:8,letterSpacing:1}}>MONEDAS</div>
-      <table style={{width:"100%"}}><thead><tr><th style={{fontSize:11}}>Denom.</th><th style={{fontSize:11}}>Cantidad</th><th style={{fontSize:11}}>Total</th></tr></thead>
-      <tbody>
-        {COIN_K.map((k,i)=><DenomRow key={k} keyVal={String(k)} section={coinSec} readOnly={readOnly}/>)}
-        <tr style={{borderTop:"1px solid "+BRD}}><td colSpan={2} style={{fontWeight:600,fontSize:12,paddingTop:6}}>TOTAL</td><td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:700,textAlign:"right"}}>${fmtN(cTotal)}</td></tr>
-      </tbody></table>
-    </div>
-  </div>;
-}
-function ValField({label,value,color}){
-  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid "+BRD+"44"}}>
-    <span style={{fontSize:13,color:MUT}}>{label}</span>
-    <span style={{fontFamily:"'DM Mono'",fontWeight:600,color:color||TXT}}>${fmtN(value)}</span>
-  </div>;
-}
-function NumInput({label,field,color}){
-  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+BRD+"33"}}>
-    <span style={{fontSize:13,color:MUT,flex:1}}>{label}</span>
-    <input type="number" step="0.01" min="0" value={form[field]||0} onChange={e=>F(field,parseFloat(e.target.value)||0)} style={{width:110,textAlign:"right",fontFamily:"'DM Mono'",borderColor:color?color+"55":BRD}}/>
-  </div>;
-}
 if(vista==="form"){
   const cerrado=editId&&cierresCaja.find(c=>c.id===editId)?.estado==="cerrado";
   const bloqueado=cerrado&&!esAdmin;
@@ -1742,7 +1741,7 @@ if(vista==="form"){
         <LI label="Fecha"><input type="date" value={form.fecha} onChange={e=>F("fecha",e.target.value)} disabled={bloqueado} style={{width:"100%"}}/></LI>
         <LI label="Caja #">
           {esAdmin
-            ?<input type="number" value={form.caja_num} onChange={e=>F("caja_num",parseInt(e.target.value)||1)} style={{width:"100%"}}/>
+            ?<input type="number" value={form.caja_num||""} placeholder="1" onChange={e=>F("caja_num",parseInt(e.target.value)||1)} style={{width:"100%"}}/>
             :<div style={{fontFamily:"'DM Mono'",padding:"8px 12px",background:FNT,borderRadius:6,fontSize:14,fontWeight:600}}>{form.caja_num}</div>}
         </LI>
         <LI label="Responsable *"><input value={form.responsable} onChange={e=>F("responsable",e.target.value)} disabled={bloqueado} placeholder="Nombre completo..." style={{width:"100%",borderColor:!form.responsable.trim()?RED+"66":BRD}}/></LI>
@@ -1756,7 +1755,7 @@ if(vista==="form"){
         <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1}}>1. SALDO INICIAL</div>
         <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:ACC}}>${fmtN(saldoIni)}</div>
       </div>
-      <DenomTable billSec="ini_billetes" coinSec="ini_monedas" readOnly={bloqueado}/>
+      <CajaDenomTable billData={form.ini_billetes} coinData={form.ini_monedas} billSec="ini_billetes" coinSec="ini_monedas" onChangeDenom={FB} readOnly={bloqueado}/>
     </Card>
     {/* Sección 2 */}
     <Card xtra={{marginBottom:16}}>
@@ -1764,21 +1763,21 @@ if(vista==="form"){
         <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1}}>2. SALDO FINAL COBRADO EFECTIVO</div>
         <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:GRN}}>${fmtN(saldoFin)}</div>
       </div>
-      <DenomTable billSec="fin_billetes" coinSec="fin_monedas" readOnly={bloqueado}/>
+      <CajaDenomTable billData={form.fin_billetes} coinData={form.fin_monedas} billSec="fin_billetes" coinSec="fin_monedas" onChangeDenom={FB} readOnly={bloqueado}/>
     </Card>
     {/* Sección 3 */}
     <Card xtra={{marginBottom:16}}>
-      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>3. SALDO EFECTIVO INICIAL</div>
-      <ValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
-      <NumInput label="Pago delivery" field="pago_delivery" color={RED}/>
-      <NumInput label="Gastos autorizados" field="gastos_autorizados" color={RED}/>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>3. SALDO EFECTIVO</div>
+      <CajaValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
+      <CajaNumInput label="Pago delivery" value={form.pago_delivery} onChange={v=>F("pago_delivery",v)} color={RED}/>
+      <CajaNumInput label="Gastos autorizados" value={form.gastos_autorizados} onChange={v=>F("gastos_autorizados",v)} color={RED}/>
       <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
         <span style={{fontWeight:600}}>TOTAL</span>
         <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:saldoEfectivo>=0?GRN:RED}}>${fmtN(saldoEfectivo)}</span>
       </div>
       <div style={{marginTop:12,borderTop:"1px solid "+BRD,paddingTop:12}}>
-        <NumInput label="Reposición de caja" field="reposicion_caja"/>
-        <ValField label="Efectivo cobrado local" value={saldoFin}/>
+        <CajaNumInput label="Reposición de caja" value={form.reposicion_caja} onChange={v=>F("reposicion_caja",v)}/>
+        <CajaValField label="Efectivo cobrado local" value={saldoFin}/>
         <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
           <span style={{fontWeight:600}}>TOTAL EFECTIVO</span>
           <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalEfectivo)}</span>
@@ -1788,16 +1787,16 @@ if(vista==="form"){
     {/* Sección 4 */}
     <Card xtra={{marginBottom:16}}>
       <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>4. EQUIVALENTES</div>
-      <ValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
-      <NumInput label="Total ventas Medianet/Contifico" field="ventas_medianet"/>
-      <ValField label="Total efectivo Contifico" value={saldoFin}/>
-      <NumInput label="Nota de crédito Contifico" field="nota_credito"/>
-      <NumInput label="Pedidos Ya" field="pedidos_ya"/>
-      <NumInput label="Uber" field="uber"/>
-      <NumInput label="Rappi" field="rappi"/>
-      <NumInput label="Página web (Tiendita)" field="pagina_web"/>
-      <NumInput label="Transferencias" field="transferencias"/>
-      <NumInput label="Propina" field="propina"/>
+      <CajaValField label="Saldo efectivo inicial" value={saldoIni} color={BLU}/>
+      <CajaNumInput label="Total ventas Medianet/Contifico" value={form.ventas_medianet} onChange={v=>F("ventas_medianet",v)}/>
+      <CajaValField label="Total efectivo Contifico" value={saldoFin}/>
+      <CajaNumInput label="Nota de crédito Contifico" value={form.nota_credito} onChange={v=>F("nota_credito",v)}/>
+      <CajaNumInput label="Pedidos Ya" value={form.pedidos_ya} onChange={v=>F("pedidos_ya",v)}/>
+      <CajaNumInput label="Uber" value={form.uber} onChange={v=>F("uber",v)}/>
+      <CajaNumInput label="Rappi" value={form.rappi} onChange={v=>F("rappi",v)}/>
+      <CajaNumInput label="Página web (Tiendita)" value={form.pagina_web} onChange={v=>F("pagina_web",v)}/>
+      <CajaNumInput label="Transferencias" value={form.transferencias} onChange={v=>F("transferencias",v)}/>
+      <CajaNumInput label="Propina" value={form.propina} onChange={v=>F("propina",v)}/>
       <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
         <span style={{fontWeight:600}}>TOTAL</span>
         <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalEq)}</span>
@@ -1809,8 +1808,8 @@ if(vista==="form"){
     {/* Diferencias */}
     <Card xtra={{marginBottom:16,borderColor:form.faltante>0?RED+"44":form.sobrante>0?GRN+"44":BRD}}>
       <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:12}}>5. DIFERENCIAS</div>
-      <NumInput label="Faltante" field="faltante" color={RED}/>
-      <NumInput label="Sobrante" field="sobrante" color={GRN}/>
+      <CajaNumInput label="Faltante" value={form.faltante} onChange={v=>F("faltante",v)} color={RED}/>
+      <CajaNumInput label="Sobrante" value={form.sobrante} onChange={v=>F("sobrante",v)} color={GRN}/>
     </Card>
     {/* Cierre */}
     <Card xtra={{borderColor:ACC+"44",marginBottom:24}}>
@@ -2263,12 +2262,12 @@ return <div>
               <td>
                 {esStaff
                   ?<div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:BLU,padding:"8px 12px",background:BLU+"0A",borderRadius:6,border:b1(BLU+"22")}}>{fmtN(parseFloat(fila.invInicial)||0)}</div>
-                  :<input type="number" step="0.01" value={fila.invInicial}
+                  :<input type="number" step="0.01" placeholder="0" value={fila.invInicial||""}
                     onChange={e=>setFila(item.id,"invInicial",parseFloat(e.target.value)||0)}
                     style={{width:80,textAlign:"center",borderColor:BLU+"66"}}/>}
               </td>
               <td>
-                <input type="number" step="0.01" value={fila.ingreso}
+                <input type="number" step="0.01" placeholder="0" value={fila.ingreso||""}
                   onChange={e=>setFila(item.id,"ingreso",parseFloat(e.target.value)||0)}
                   style={{width:80,textAlign:"center",borderColor:GRN+"66"}}/>
               </td>
@@ -2283,7 +2282,7 @@ return <div>
                 </div>
               </td>
               <td>
-                <input type="number" step="0.01" value={fila.stockReal}
+                <input type="number" step="0.01" placeholder="0" value={fila.stockReal||""}
                   onChange={e=>setFila(item.id,"stockReal",e.target.value)}
                   style={{width:80,textAlign:"center",borderColor:PRP+"66"}}/>
                 {diff!==null&&<div style={{fontSize:10,textAlign:"center",color:diff===0?GRN:diff>0?BLU:RED,marginTop:2}}>{diff>0?"+":""}{fmtN(diff)}</div>}
@@ -2380,7 +2379,7 @@ return <div>
             {sucs.map(suc=>{
               const sm=invSucs.find(s=>s.sucursal===suc)?.items.find(x=>x.id===i.id)?.stockMin||0;
               return <td key={suc}>
-                <input type="number" step="0.01" value={sm}
+                <input type="number" step="0.01" placeholder="0" value={sm||""}
                   onChange={e=>setStockMinItem(i.id,suc,e.target.value)}
                   style={{width:70,textAlign:"center",fontFamily:"'DM Mono'",fontSize:12}}/>
               </td>;
