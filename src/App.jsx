@@ -1693,8 +1693,8 @@ function FB(sec,denom,val){setForm(p=>({...p,[sec]:{...p[sec],[denom]:parseFloat
 // Calculated
 const saldoIni=calcSaldo(form.ini_billetes,form.ini_monedas);
 const saldoFin=calcSaldo(form.fin_billetes,form.fin_monedas);
-const totalEq=["ventas_medianet","nota_credito","pedidos_ya","uber","rappi","pagina_web","transferencias"].reduce((s,k)=>s+(parseFloat(form[k])||0),0)+saldoFin;
-const ventaEfectivo=saldoIni-(parseFloat(form.pago_delivery)||0)-(parseFloat(form.gastos_autorizados)||0)+(parseFloat(form.reposicion_caja)||0)-saldoFin;
+const totalEq=["ventas_medianet","nota_credito","pedidos_ya","uber","rappi","pagina_web","transferencias","total_contificado"].reduce((s,k)=>s+(parseFloat(form[k])||0),0);
+const ventaEfectivo=saldoFin-saldoIni+(parseFloat(form.pago_delivery)||0)+(parseFloat(form.gastos_autorizados)||0)-(parseFloat(form.reposicion_caja)||0);
 const totalContificado=parseFloat(form.total_contificado)||0;
 const calcFaltante=Math.max(0,totalContificado-ventaEfectivo);
 const calcSobrante=Math.max(0,ventaEfectivo-totalContificado);
@@ -1801,6 +1801,7 @@ if(vista==="form"){
       <CajaNumInput label="Página web (Tiendita)" value={form.pagina_web} onChange={v=>F("pagina_web",v)} readOnly={bloqueado}/>
       <CajaNumInput label="Transferencias" value={form.transferencias} onChange={v=>F("transferencias",v)} readOnly={bloqueado}/>
       <CajaNumInput label="Propina" value={form.propina} onChange={v=>F("propina",v)} readOnly={bloqueado}/>
+      <CajaNumInput label="Total efectivo Contifico" value={form.total_contificado} onChange={v=>F("total_contificado",v)} readOnly={bloqueado}/>
       <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
         <span style={{fontWeight:600}}>TOTAL EQUIVALENTES</span>
         <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC}}>${fmtN(totalEq)}</span>
@@ -1812,18 +1813,15 @@ if(vista==="form"){
       {/* Cálculo venta en efectivo */}
       <div style={{background:FNT,borderRadius:8,padding:"12px 14px",marginBottom:14}}>
         <div style={{fontSize:11,color:MUT,fontWeight:600,letterSpacing:1,marginBottom:8}}>CÁLCULO VENTA EN EFECTIVO</div>
-        <CajaValField label="Saldo inicial" value={saldoIni} color={BLU}/>
-        <CajaValField label="− Pago delivery" value={parseFloat(form.pago_delivery)||0} color={RED}/>
-        <CajaValField label="− Gastos autorizados" value={parseFloat(form.gastos_autorizados)||0} color={RED}/>
-        <CajaValField label="+ Reposición de caja" value={parseFloat(form.reposicion_caja)||0} color={GRN}/>
-        <CajaValField label="− Saldo final en caja" value={saldoFin} color={RED}/>
+        <CajaValField label="Saldo final en caja" value={saldoFin} color={BLU}/>
+        <CajaValField label="− Saldo inicial" value={saldoIni} color={RED}/>
+        <CajaValField label="+ Gastos (delivery + autorizados)" value={(parseFloat(form.pago_delivery)||0)+(parseFloat(form.gastos_autorizados)||0)} color={GRN}/>
+        <CajaValField label="− Reposición de caja" value={parseFloat(form.reposicion_caja)||0} color={RED}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,marginTop:4,borderTop:"1px solid "+BRD}}>
           <span style={{fontWeight:700,fontSize:13}}>VENTA EN EFECTIVO</span>
           <span style={{fontFamily:"'DM Mono'",fontWeight:700,fontSize:18,color:ventaEfectivo>=0?ACC:RED}}>${fmtN(ventaEfectivo)}</span>
         </div>
       </div>
-      {/* Contificado y diferencias */}
-      <CajaNumInput label="Total efectivo contificado (POS)" value={form.total_contificado} onChange={v=>F("total_contificado",v)} readOnly={bloqueado}/>
       <div style={{marginTop:8}}>
         <CajaValField label="Faltante" value={calcFaltante} color={calcFaltante>0?RED:MUT}/>
         <CajaValField label="Sobrante" value={calcSobrante} color={calcSobrante>0?GRN:MUT}/>
