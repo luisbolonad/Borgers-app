@@ -95,6 +95,7 @@ ver_cos:        ["superadmin","admin_suc","staff_suc"],
 ver_caja:       ["superadmin","admin_suc","staff_suc"],
 ver_hist:       ["superadmin","admin_suc","produccion"],
 ver_config:     ["superadmin"],
+ver_manual:     ["superadmin","admin_suc","staff_suc","produccion"],
 // Acciones
 editar_recetas: ["superadmin"],
 despacho:       ["superadmin","produccion"],
@@ -383,6 +384,11 @@ const[provs,setProvs]=useState(iPROVS);
 const[marcas,setMarcas]=useState([]);
 const[sucsMarcas,setSucsMarcas]=useState({});
 const[cierresCaja,setCierresCaja]=useState([]);
+// SQL para Manual de Procedimientos (ejecutar en Supabase):
+// CREATE TABLE IF NOT EXISTS manual_temas (id bigserial PRIMARY KEY, titulo text NOT NULL, descripcion text DEFAULT '', icono text DEFAULT '📄', color text DEFAULT '#F5A623', orden int DEFAULT 0, roles_acceso text[] DEFAULT ARRAY['superadmin','admin_suc','staff_suc','produccion'], created_at timestamptz DEFAULT now());
+// CREATE TABLE IF NOT EXISTS manual_articulos (id bigserial PRIMARY KEY, tema_id bigint REFERENCES manual_temas(id) ON DELETE CASCADE, titulo text NOT NULL, contenido jsonb DEFAULT '[]', orden int DEFAULT 0, created_at timestamptz DEFAULT now());
+const[manualTemas,setManualTemas]=useState([]);
+const[manualArticulos,setManualArticulos]=useState([]);
 const[ventas,setVentas]=useState([]);
 const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(null);
@@ -393,7 +399,8 @@ try{
 const[
 dbUsers,dbSucs,dbCatsInv,dbCatsVenta,dbCatsInvSuc,
 dbProvs,dbInv,dbRp,dbRv,dbReqs,
-dbInvSucs,dbRegs,dbVentas,dbMarcas,dbCierres
+dbInvSucs,dbRegs,dbVentas,dbMarcas,dbCierres,
+dbManualTemas,dbManualArticulos
 ]=await Promise.all([
 supaGet("users","?select=*&order=created_at"),
 supaGet("sucursales","?select=*&order=nombre"),
@@ -410,6 +417,8 @@ supaGet("registros_sucursales","?select=*&order=fecha.desc"),
 supaGet("ventas","?select=*&order=fecha.desc"),
 supaGet("marcas","?select=*&order=nombre"),
 supaGet("cierres_caja","?select=*&order=created_at.desc"),
+supaGet("manual_temas","?select=*&order=orden"),
+supaGet("manual_articulos","?select=*&order=orden"),
 ]);
 
     if(dbUsers.length>0) setUsers(dbUsers.map(u=>({...u,id:u.id})));
@@ -430,6 +439,8 @@ supaGet("cierres_caja","?select=*&order=created_at.desc"),
     if(dbVentas.length>0) setVentas(dbVentas.map(v=>({...v,rId:v.rId,cant:v.cant})));
     if(dbMarcas.length>0) setMarcas(dbMarcas);
     if(dbCierres.length>0) setCierresCaja(dbCierres);
+    if(dbManualTemas.length>0) setManualTemas(dbManualTemas);
+    if(dbManualArticulos.length>0) setManualArticulos(dbManualArticulos);
   }catch(err){
     console.error("Error cargando datos:",err);
   }finally{
@@ -454,6 +465,7 @@ const allTabs=[
 {id:"invsuc",l:"Inv. Sucursales",i:"🏬",perm:"ver_invsuc"},
 {id:"cos",l:"Costos & Ingresos",i:"💰",perm:"ver_cos"},
 {id:"caja",l:"Cuadre de Caja",i:"💵",perm:"ver_caja"},
+{id:"manual",l:"Manual",i:"📖",perm:"ver_manual"},
 {id:"hist",l:"Historial",i:"🕐",perm:"ver_hist"},
 {id:"config",l:"Configuración",i:"⚙️",perm:"ver_config"},
 ];
@@ -469,6 +481,7 @@ if(cargando) return <div style={{minHeight:"100vh",background:BG,display:"flex",
 if(!userActivo) return <Login users={users} onLogin={setUserActivo}/>;
 return <>
 <style>{globalCss}</style>
+{userActivo&&<Watermark nombre={userActivo.nombre}/>}
 <div style={{display:"flex",minHeight:"100vh"}}>
 {/* Menú lateral */}
 <div style={{width:menuAbierto?220:56,background:SRF,borderRight:b1(BRD),display:"flex",flexDirection:"column",position:"fixed",height:"100vh",zIndex:100,transition:"width 0.2s ease",overflow:"hidden"}}>
@@ -508,6 +521,7 @@ return <>
 {tab==="invsuc"&&<InvSuc {...sh} puede={puede}/>}
 {tab==="cos"&&<Cos {...sh} puede={puede} userActivo={userActivo}/>}
 {tab==="caja"&&<CierreCaja cierresCaja={cierresCaja} setCierresCaja={setCierresCaja} sucs={sucs} userActivo={userActivo} puede={puede}/>}
+{tab==="manual"&&<Manual manualTemas={manualTemas} setManualTemas={setManualTemas} manualArticulos={manualArticulos} setManualArticulos={setManualArticulos} userActivo={userActivo}/>}
 {tab==="hist"&&<Hist {...sh} userActivo={userActivo}/>}
 {tab==="config"&&<Config {...sh} puede={puede}/>}
 </div>
@@ -1676,6 +1690,210 @@ function CajaNumInput({label,value,onChange,color,readOnly}){
   return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+BRD+"33"}}>
     <span style={{fontSize:13,color:MUT,flex:1}}>{label}</span>
     <input type="number" step="0.01" min="0" placeholder="0" value={value||""} onChange={e=>!readOnly&&onChange(parseFloat(e.target.value)||0)} disabled={readOnly} style={{width:110,textAlign:"right",fontFamily:"'DM Mono'",borderColor:color?color+"55":BRD}}/>
+  </div>;
+}
+function Watermark({nombre}){
+  const svg=`<svg xmlns='http://www.w3.org/2000/svg' width='300' height='180'><text x='50%' y='50%' transform='rotate(-25 150 90)' font-family='Arial' font-size='13' fill='rgba(240,237,230,0.055)' text-anchor='middle' dominant-baseline='middle'>${(nombre||"").replace(/[<>&'"]/g,"")}</text></svg>`;
+  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,pointerEvents:"none",zIndex:9998,backgroundImage:`url("data:image/svg+xml,${encodeURIComponent(svg)}")`,backgroundRepeat:"repeat",backgroundSize:"300px 180px"}}/>;
+}
+const ROLES_MANUAL=["admin_suc","staff_suc","produccion"];
+function ytEmbed(url){const m=(url||"").match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);return m?`https://www.youtube.com/embed/${m[1]}`:null;}
+function RenderBloque({b}){
+  if(b.type==="heading")return <h3 style={{fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1,marginTop:16,marginBottom:6,color:TXT}}>{b.text}</h3>;
+  if(b.type==="paragraph")return <p style={{fontSize:14,lineHeight:1.8,color:TXT,marginBottom:10,whiteSpace:"pre-wrap"}}>{b.text}</p>;
+  if(b.type==="bold")return <p style={{fontSize:14,fontWeight:700,color:TXT,marginBottom:10}}>{b.text}</p>;
+  if(b.type==="list")return <ul style={{paddingLeft:22,marginBottom:10}}>{(b.items||[]).filter(Boolean).map((x,i)=><li key={i} style={{fontSize:14,lineHeight:1.7,color:TXT,marginBottom:3}}>{x}</li>)}</ul>;
+  if(b.type==="image")return <div style={{marginBottom:14}}><img src={b.url} alt={b.caption||""} style={{maxWidth:"100%",borderRadius:8,border:"1px solid "+BRD}} onError={e=>e.target.style.display="none"}/>{b.caption&&<p style={{fontSize:12,color:MUT,marginTop:4,textAlign:"center"}}>{b.caption}</p>}</div>;
+  if(b.type==="video"){const e=ytEmbed(b.url||"");return e?<div style={{marginBottom:14}}><div style={{position:"relative",paddingBottom:"56.25%",height:0,borderRadius:8,overflow:"hidden",border:"1px solid "+BRD}}><iframe src={e} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:"none"}} allowFullScreen title={b.caption}/></div>{b.caption&&<p style={{fontSize:12,color:MUT,marginTop:4,textAlign:"center"}}>{b.caption}</p>}</div>:<p style={{color:RED,fontSize:12}}>⚠ URL de YouTube no válida</p>;}
+  return null;
+}
+function EditorBloque({b,idx,total,onChange,onDelete,onUp,onDown}){
+  return <div style={{border:"1px solid "+BRD,borderRadius:8,padding:12,marginBottom:8,background:SRF}}>
+    <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
+      <select value={b.type} onChange={e=>onChange({type:e.target.value,text:"",url:"",caption:"",items:[]})} style={{flex:1,fontSize:12}}>
+        <option value="heading">Título de sección</option>
+        <option value="paragraph">Párrafo</option>
+        <option value="bold">Texto destacado</option>
+        <option value="list">Lista con viñetas</option>
+        <option value="image">Imagen (URL)</option>
+        <option value="video">Video YouTube</option>
+      </select>
+      {idx>0&&<button onClick={onUp} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",cursor:"pointer"}}>↑</button>}
+      {idx<total-1&&<button onClick={onDown} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",cursor:"pointer"}}>↓</button>}
+      <button onClick={onDelete} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",cursor:"pointer"}}>✕</button>
+    </div>
+    {["heading","paragraph","bold"].includes(b.type)&&<textarea value={b.text||""} onChange={e=>onChange({...b,text:e.target.value})} rows={b.type==="paragraph"?3:1} style={{width:"100%",fontSize:13,resize:"vertical",background:BG,color:TXT,border:"1px solid "+BRD,borderRadius:6,padding:"6px 10px"}} placeholder={b.type==="heading"?"Título de sección":b.type==="bold"?"Texto importante":"Contenido del párrafo..."}/>}
+    {b.type==="list"&&<textarea value={(b.items||[]).join("\n")} onChange={e=>onChange({...b,items:e.target.value.split("\n")})} rows={4} style={{width:"100%",fontSize:13,resize:"vertical",background:BG,color:TXT,border:"1px solid "+BRD,borderRadius:6,padding:"6px 10px"}} placeholder={"Un ítem por línea\nPaso 1\nPaso 2"}/>}
+    {(b.type==="image"||b.type==="video")&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      <input value={b.url||""} onChange={e=>onChange({...b,url:e.target.value})} style={{width:"100%",fontSize:12}} placeholder={b.type==="image"?"URL de imagen (https://...)":"URL de YouTube"}/>
+      <input value={b.caption||""} onChange={e=>onChange({...b,caption:e.target.value})} style={{width:"100%",fontSize:12}} placeholder="Descripción opcional"/>
+    </div>}
+  </div>;
+}
+function Manual({manualTemas,setManualTemas,manualArticulos,setManualArticulos,userActivo}){
+  const esSA=userActivo?.rol==="superadmin";
+  const miRol=userActivo?.rol;
+  const[vista,setVista]=useState("lista"); // "lista"|"tema"|"art"|"editTema"|"editArt"
+  const[temaId,setTemaId]=useState(null);
+  const[artId,setArtId]=useState(null);
+  const[busq,setBusq]=useState("");
+  const[fTema,setFTema]=useState(null);
+  const[fArt,setFArt]=useState(null);
+  const[confirmar,setConfirmar]=useState(null);
+
+  const temasVis=manualTemas.filter(t=>esSA||(t.roles_acceso||[]).includes(miRol)).sort((a,b)=>a.orden-b.orden);
+  const temaAct=manualTemas.find(t=>t.id===temaId);
+  const artsDelTema=manualArticulos.filter(a=>a.tema_id===temaId).sort((a,b)=>a.orden-b.orden);
+  const artAct=manualArticulos.find(a=>a.id===artId);
+  const bq=busq.toLowerCase().trim();
+  const temasFil=bq?temasVis.filter(t=>t.titulo.toLowerCase().includes(bq)||t.descripcion.toLowerCase().includes(bq)||manualArticulos.filter(a=>a.tema_id===t.id).some(a=>a.titulo.toLowerCase().includes(bq)||JSON.stringify(a.contenido).toLowerCase().includes(bq))):temasVis;
+
+  function FT0(){return{titulo:"",descripcion:"",icono:"📄",color:ACC,orden:manualTemas.length,roles_acceso:["superadmin",...ROLES_MANUAL]};}
+  function FA0(tId){return{tema_id:tId,titulo:"",contenido:[],orden:artsDelTema.length};}
+  function chgB(i,v){setFArt(p=>({...p,contenido:p.contenido.map((b,j)=>j===i?v:b)}));}
+  function delB(i){setFArt(p=>({...p,contenido:p.contenido.filter((_,j)=>j!==i)}));}
+  function movB(i,d){setFArt(p=>{const c=[...p.contenido];const t2=i+d;if(t2<0||t2>=c.length)return p;[c[i],c[t2]]=[c[t2],c[i]];return{...p,contenido:c};});}
+  function addB(type){setFArt(p=>({...p,contenido:[...p.contenido,{type,text:"",url:"",caption:"",items:[]}]}));}
+
+  async function saveTema(){
+    if(!fTema.titulo.trim()){alert("El título es obligatorio");return;}
+    const data={titulo:fTema.titulo.trim(),descripcion:fTema.descripcion,icono:fTema.icono||"📄",color:fTema.color||ACC,orden:typeof fTema.orden==="number"?fTema.orden:manualTemas.length,roles_acceso:fTema.roles_acceso||["superadmin"]};
+    if(fTema.id){await supaPatch("manual_temas","?id=eq."+fTema.id,data).catch(console.error);setManualTemas(p=>p.map(t=>t.id===fTema.id?{...t,...data}:t));}
+    else{const[cr]=await supaPost("manual_temas",data).catch(()=>[data]);setManualTemas(p=>[...p,{...data,id:cr?.id||Date.now()}]);}
+    setFTema(null);
+  }
+  async function saveArt(){
+    if(!fArt.titulo.trim()){alert("El título es obligatorio");return;}
+    const data={tema_id:fArt.tema_id,titulo:fArt.titulo.trim(),contenido:fArt.contenido,orden:typeof fArt.orden==="number"?fArt.orden:artsDelTema.length};
+    if(fArt.id){await supaPatch("manual_articulos","?id=eq."+fArt.id,data).catch(console.error);setManualArticulos(p=>p.map(a=>a.id===fArt.id?{...a,...data}:a));}
+    else{const[cr]=await supaPost("manual_articulos",data).catch(()=>[data]);setManualArticulos(p=>[...p,{...data,id:cr?.id||Date.now()}]);}
+    setFArt(null);setVista("tema");
+  }
+
+  // ── OVERLAY FORM (tema) ──────────────────────────────────────────────────────
+  const overlayStyle={position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20};
+  const panelStyle={background:CRD,border:"1px solid "+BRD,borderRadius:12,padding:24,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto"};
+
+  if(fTema)return <div style={overlayStyle}>
+    <div style={panelStyle}>
+      <h2 style={{fontFamily:"'Bebas Neue'",fontSize:22,marginBottom:16}}>{fTema.id?"Editar Tema":"Nuevo Tema"}</h2>
+      <LI label="Título *"><input value={fTema.titulo} onChange={e=>setFTema(p=>({...p,titulo:e.target.value}))} placeholder="Ej: Proceso de Limpieza" style={{width:"100%"}}/></LI>
+      <LI label="Descripción"><textarea value={fTema.descripcion} onChange={e=>setFTema(p=>({...p,descripcion:e.target.value}))} rows={2} style={{width:"100%",fontSize:13,resize:"vertical",background:BG,color:TXT,border:"1px solid "+BRD,borderRadius:6,padding:"8px 12px"}} placeholder="Breve descripción del tema..."/></LI>
+      <LI label="Ícono (emoji)"><input value={fTema.icono} onChange={e=>setFTema(p=>({...p,icono:e.target.value}))} style={{width:72}} maxLength={4}/></LI>
+      <LI label="Color de acento">
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {[ACC,GRN,BLU,RED,PRP,"#20B2AA","#FF8C00","#9ACD32"].map(c=><button key={c} onClick={()=>setFTema(p=>({...p,color:c}))} style={{width:28,height:28,borderRadius:"50%",background:c,border:fTema.color===c?"3px solid "+TXT:"3px solid transparent",cursor:"pointer"}}/>)}
+        </div>
+      </LI>
+      <LI label="¿Quién puede verlo?">
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",marginTop:4}}>
+          {ROLES_MANUAL.map(r=>{const chk=(fTema.roles_acceso||[]).includes(r);return <label key={r} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={chk} onChange={()=>setFTema(p=>({...p,roles_acceso:chk?p.roles_acceso.filter(x=>x!==r):[...p.roles_acceso,r]}))}/>{r}</label>;})}
+          <span style={{fontSize:11,color:MUT,alignSelf:"center"}}>(superadmin siempre tiene acceso)</span>
+        </div>
+      </LI>
+      <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>setFTema(null)}>Cancelar</Btn>
+        <Btn onClick={saveTema}>Guardar</Btn>
+      </div>
+    </div>
+  </div>;
+
+  // ── EDIT ARTICLE ─────────────────────────────────────────────────────────────
+  if(fArt)return <div style={{maxWidth:720}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <h1 style={{fontFamily:"'Bebas Neue'",fontSize:28,letterSpacing:2}}>{fArt.id?"EDITAR ARTÍCULO":"NUEVO ARTÍCULO"}</h1>
+      <div style={{display:"flex",gap:8}}>
+        <Btn v="ghost" onClick={()=>{setFArt(null);setVista(fArt.id?"art":"tema");}}>← Cancelar</Btn>
+        <Btn onClick={saveArt}>Guardar</Btn>
+      </div>
+    </div>
+    <Card xtra={{marginBottom:16}}>
+      <LI label="Título *"><input value={fArt.titulo} onChange={e=>setFArt(p=>({...p,titulo:e.target.value}))} placeholder="Título del artículo" style={{width:"100%"}}/></LI>
+    </Card>
+    <Card xtra={{marginBottom:16}}>
+      <div style={{fontWeight:600,fontSize:13,marginBottom:12}}>Contenido</div>
+      {fArt.contenido.map((b,i)=><EditorBloque key={i} b={b} idx={i} total={fArt.contenido.length} onChange={v=>chgB(i,v)} onDelete={()=>delB(i)} onUp={()=>movB(i,-1)} onDown={()=>movB(i,1)}/>)}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
+        {[["heading","+ Título"],["paragraph","+ Párrafo"],["bold","+ Destacado"],["list","+ Lista"],["image","+ Imagen"],["video","+ Video"]].map(([t,l])=><button key={t} onClick={()=>addB(t)} style={{fontSize:12,padding:"6px 12px",background:FNT,color:MUT,border:"1px dashed "+BRD,borderRadius:6,cursor:"pointer"}}>{l}</button>)}
+      </div>
+    </Card>
+  </div>;
+
+  // ── VIEW ARTICLE ─────────────────────────────────────────────────────────────
+  if(vista==="art"&&artAct)return <div style={{maxWidth:720}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <Btn v="ghost" onClick={()=>setVista("tema")}>← {temaAct?.titulo||"Volver"}</Btn>
+      {esSA&&<Btn v="ghost" s="sm" onClick={()=>{setFArt({...artAct});setVista("editArt");}}>✏️ Editar</Btn>}
+    </div>
+    <Card>
+      <h2 style={{fontFamily:"'Bebas Neue'",fontSize:26,letterSpacing:1,marginBottom:16,color:temaAct?.color||ACC}}>{artAct.titulo}</h2>
+      {(artAct.contenido||[]).map((b,i)=><RenderBloque key={i} b={b}/>)}
+    </Card>
+  </div>;
+
+  // ── TEMA VIEW (list of articles) ──────────────────────────────────────────────
+  if(vista==="tema"&&temaAct)return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div>
+        <Btn v="ghost" s="sm" onClick={()=>{setVista("lista");setBusq("");}}>← Manual</Btn>
+        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:32}}>{temaAct.icono||"📄"}</span>
+          <div>
+            <h1 style={{fontFamily:"'Bebas Neue'",fontSize:28,letterSpacing:1,color:temaAct.color||ACC}}>{temaAct.titulo}</h1>
+            {temaAct.descripcion&&<p style={{color:MUT,fontSize:13,marginTop:2}}>{temaAct.descripcion}</p>}
+          </div>
+        </div>
+      </div>
+      {esSA&&<Btn onClick={()=>{setFArt(FA0(temaId));}}>+ Nuevo Artículo</Btn>}
+    </div>
+    {artsDelTema.length===0
+      ?<Card xtra={{textAlign:"center",padding:40,color:MUT}}>No hay artículos en este tema aún.</Card>
+      :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {artsDelTema.map(a=><div key={a.id} style={{background:CRD,border:"1px solid "+BRD,borderRadius:10,padding:"16px 20px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>{setArtId(a.id);setVista("art");}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:14,color:TXT}}>{a.titulo}</div>
+            <div style={{fontSize:12,color:MUT,marginTop:2}}>{(a.contenido||[]).length} bloque{(a.contenido||[]).length!==1?"s":""}</div>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+            {esSA&&<><button onClick={()=>setFArt({...a})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✏️ Editar</button>
+            <button onClick={()=>setConfirmar({msg:"¿Eliminar «"+a.titulo+"»?",fn:async()=>{await supaDelete("manual_articulos","?id=eq."+a.id).catch(console.error);setManualArticulos(p=>p.filter(x=>x.id!==a.id));}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✕</button></>}
+            <span style={{color:MUT,fontSize:16}}>›</span>
+          </div>
+        </div>)}
+      </div>}
+    {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+  </div>;
+
+  // ── LISTA PRINCIPAL ───────────────────────────────────────────────────────────
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>MANUAL DE PROCEDIMIENTOS</h1><p style={{color:MUT,fontSize:13}}>Guías, políticas y procesos BORGERS</p></div>
+      {esSA&&<Btn onClick={()=>setFTema(FT0())}>+ Nuevo Tema</Btn>}
+    </div>
+    <div style={{position:"relative",marginBottom:20}}>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:MUT,pointerEvents:"none",fontSize:14}}>🔍</span>
+      <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar en el manual..." style={{width:"100%",paddingLeft:36}}/>
+    </div>
+    {temasFil.length===0
+      ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>{busq?"Sin resultados para \""+busq+"\"":(esSA?"Crea el primer tema con el botón + Nuevo Tema":"No hay contenido disponible.")}</Card>
+      :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:16}}>
+        {temasFil.map(t=>{const n=manualArticulos.filter(a=>a.tema_id===t.id).length;return <div key={t.id} style={{background:CRD,border:"1px solid "+BRD,borderRadius:12,overflow:"hidden",cursor:"pointer",transition:"border-color 0.15s"}} onClick={()=>{setTemaId(t.id);setBusq("");setVista("tema");}}>
+          <div style={{height:5,background:t.color||ACC}}/>
+          <div style={{padding:18}}>
+            <div style={{fontSize:34,marginBottom:8}}>{t.icono||"📄"}</div>
+            <div style={{fontFamily:"'Bebas Neue'",fontSize:19,letterSpacing:1,marginBottom:6,color:TXT}}>{t.titulo}</div>
+            {t.descripcion&&<p style={{fontSize:12,color:MUT,marginBottom:10,lineHeight:1.6}}>{t.descripcion}</p>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
+              <span style={{fontSize:12,color:MUT}}>{n} artículo{n!==1?"s":""}</span>
+              {esSA&&<div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+                <button onClick={()=>setFTema({...t})} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>✏️</button>
+                <button onClick={()=>setConfirmar({msg:"¿Eliminar tema «"+t.titulo+"» y todos sus artículos?",fn:async()=>{await supaDelete("manual_temas","?id=eq."+t.id).catch(console.error);setManualTemas(p=>p.filter(x=>x.id!==t.id));setManualArticulos(p=>p.filter(x=>x.tema_id!==t.id));}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>✕</button>
+              </div>}
+            </div>
+          </div>
+        </div>;})}
+      </div>}
+    {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
   </div>;
 }
 function CierreCaja({cierresCaja,setCierresCaja,sucs,userActivo,puede}){
