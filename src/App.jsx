@@ -1698,12 +1698,22 @@ function Watermark({nombre}){
 }
 const ROLES_MANUAL=["admin_suc","staff_suc","produccion"];
 function ytEmbed(url){const m=(url||"").match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);return m?`https://www.youtube.com/embed/${m[1]}`:null;}
+function fixImgUrl(url){
+  if(!url)return "";
+  // Google Drive /file/d/ID/view → direct
+  const m1=(url).match(/drive\.google\.com\/file\/d\/([^/?]+)/);
+  if(m1)return `https://drive.google.com/uc?export=view&id=${m1[1]}`;
+  // Google Drive open?id=ID
+  const m2=(url).match(/drive\.google\.com\/open\?id=([^&]+)/);
+  if(m2)return `https://drive.google.com/uc?export=view&id=${m2[1]}`;
+  return url;
+}
 function RenderBloque({b}){
   if(b.type==="heading")return <h3 style={{fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1,marginTop:16,marginBottom:6,color:TXT}}>{b.text}</h3>;
   if(b.type==="paragraph")return <p style={{fontSize:14,lineHeight:1.8,color:TXT,marginBottom:10,whiteSpace:"pre-wrap"}}>{b.text}</p>;
   if(b.type==="bold")return <p style={{fontSize:14,fontWeight:700,color:TXT,marginBottom:10}}>{b.text}</p>;
   if(b.type==="list")return <ul style={{paddingLeft:22,marginBottom:10}}>{(b.items||[]).filter(Boolean).map((x,i)=><li key={i} style={{fontSize:14,lineHeight:1.7,color:TXT,marginBottom:3}}>{x}</li>)}</ul>;
-  if(b.type==="image")return <div style={{marginBottom:14}}><img src={b.url} alt={b.caption||""} style={{maxWidth:"100%",borderRadius:8,border:"1px solid "+BRD}} onError={e=>e.target.style.display="none"}/>{b.caption&&<p style={{fontSize:12,color:MUT,marginTop:4,textAlign:"center"}}>{b.caption}</p>}</div>;
+  if(b.type==="image"){const src=fixImgUrl(b.url);return <div style={{marginBottom:14}}><img src={src} alt={b.caption||""} style={{maxWidth:"100%",borderRadius:8,border:"1px solid "+BRD}} onError={e=>{e.target.style.display="none";e.target.nextSibling&&(e.target.nextSibling.style.display="block");}}/><p style={{display:"none",fontSize:12,color:RED,padding:"8px 0"}}>⚠ No se pudo cargar la imagen. Verifica que el enlace sea público.</p>{b.caption&&<p style={{fontSize:12,color:MUT,marginTop:4,textAlign:"center"}}>{b.caption}</p>}</div>;}
   if(b.type==="video"){const e=ytEmbed(b.url||"");return e?<div style={{marginBottom:14}}><div style={{position:"relative",paddingBottom:"56.25%",height:0,borderRadius:8,overflow:"hidden",border:"1px solid "+BRD}}><iframe src={e} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:"none"}} allowFullScreen title={b.caption}/></div>{b.caption&&<p style={{fontSize:12,color:MUT,marginTop:4,textAlign:"center"}}>{b.caption}</p>}</div>:<p style={{color:RED,fontSize:12}}>⚠ URL de YouTube no válida</p>;}
   return null;
 }
@@ -1725,7 +1735,8 @@ function EditorBloque({b,idx,total,onChange,onDelete,onUp,onDown}){
     {["heading","paragraph","bold"].includes(b.type)&&<textarea value={b.text||""} onChange={e=>onChange({...b,text:e.target.value})} rows={b.type==="paragraph"?3:1} style={{width:"100%",fontSize:13,resize:"vertical",background:BG,color:TXT,border:"1px solid "+BRD,borderRadius:6,padding:"6px 10px"}} placeholder={b.type==="heading"?"Título de sección":b.type==="bold"?"Texto importante":"Contenido del párrafo..."}/>}
     {b.type==="list"&&<textarea value={(b.items||[]).join("\n")} onChange={e=>onChange({...b,items:e.target.value.split("\n")})} rows={4} style={{width:"100%",fontSize:13,resize:"vertical",background:BG,color:TXT,border:"1px solid "+BRD,borderRadius:6,padding:"6px 10px"}} placeholder={"Un ítem por línea\nPaso 1\nPaso 2"}/>}
     {(b.type==="image"||b.type==="video")&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
-      <input value={b.url||""} onChange={e=>onChange({...b,url:e.target.value})} style={{width:"100%",fontSize:12}} placeholder={b.type==="image"?"URL de imagen (https://...)":"URL de YouTube"}/>
+      <input value={b.url||""} onChange={e=>onChange({...b,url:e.target.value})} style={{width:"100%",fontSize:12}} placeholder={b.type==="image"?"URL de imagen — Google Drive, Imgur, etc.":"URL de YouTube"}/>
+      {b.type==="image"&&<p style={{fontSize:11,color:MUT,marginTop:3}}>💡 Google Drive: abre la foto → Compartir → "Cualquiera con el enlace" → copia el link</p>}
       <input value={b.caption||""} onChange={e=>onChange({...b,caption:e.target.value})} style={{width:"100%",fontSize:12}} placeholder="Descripción opcional"/>
     </div>}
   </div>;
