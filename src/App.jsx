@@ -1700,12 +1700,15 @@ const ROLES_MANUAL=["admin_suc","staff_suc","produccion"];
 function ytEmbed(url){const m=(url||"").match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);return m?`https://www.youtube.com/embed/${m[1]}`:null;}
 function fixImgUrl(url){
   if(!url)return "";
-  // Google Drive /file/d/ID/view → direct
+  // Google Drive /file/d/ID/view → thumbnail (more reliable than /uc?export=view)
   const m1=(url).match(/drive\.google\.com\/file\/d\/([^/?]+)/);
-  if(m1)return `https://drive.google.com/uc?export=view&id=${m1[1]}`;
+  if(m1)return `https://drive.google.com/thumbnail?id=${m1[1]}&sz=w1200`;
   // Google Drive open?id=ID
   const m2=(url).match(/drive\.google\.com\/open\?id=([^&]+)/);
-  if(m2)return `https://drive.google.com/uc?export=view&id=${m2[1]}`;
+  if(m2)return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w1200`;
+  // Google Drive uc?id=ID
+  const m3=(url).match(/drive\.google\.com\/uc\?.*id=([^&]+)/);
+  if(m3)return `https://drive.google.com/thumbnail?id=${m3[1]}&sz=w1200`;
   return url;
 }
 function RenderBloque({b}){
