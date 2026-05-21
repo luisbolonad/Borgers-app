@@ -1769,16 +1769,20 @@ function Manual({manualTemas,setManualTemas,manualArticulos,setManualArticulos,u
   async function saveTema(){
     if(!fTema.titulo.trim()){alert("El título es obligatorio");return;}
     const data={titulo:fTema.titulo.trim(),descripcion:fTema.descripcion,icono:fTema.icono||"📄",color:fTema.color||ACC,orden:typeof fTema.orden==="number"?fTema.orden:manualTemas.length,roles_acceso:fTema.roles_acceso||["superadmin"]};
-    if(fTema.id){await supaPatch("manual_temas","?id=eq."+fTema.id,data).catch(console.error);setManualTemas(p=>p.map(t=>t.id===fTema.id?{...t,...data}:t));}
-    else{const[cr]=await supaPost("manual_temas",data).catch(()=>[data]);setManualTemas(p=>[...p,{...data,id:cr?.id||Date.now()}]);}
-    setFTema(null);
+    try{
+      if(fTema.id){await supaPatch("manual_temas","?id=eq."+fTema.id,data);setManualTemas(p=>p.map(t=>t.id===fTema.id?{...t,...data}:t));}
+      else{const[cr]=await supaPost("manual_temas",data);setManualTemas(p=>[...p,{...data,id:cr?.id||Date.now()}]);}
+      setFTema(null);
+    }catch(e){alert("Error al guardar. Verifica la conexión o los permisos de la tabla en Supabase.\n\n"+e.message);}
   }
   async function saveArt(){
     if(!fArt.titulo.trim()){alert("El título es obligatorio");return;}
     const data={tema_id:fArt.tema_id,titulo:fArt.titulo.trim(),contenido:fArt.contenido,orden:typeof fArt.orden==="number"?fArt.orden:artsDelTema.length};
-    if(fArt.id){await supaPatch("manual_articulos","?id=eq."+fArt.id,data).catch(console.error);setManualArticulos(p=>p.map(a=>a.id===fArt.id?{...a,...data}:a));}
-    else{const[cr]=await supaPost("manual_articulos",data).catch(()=>[data]);setManualArticulos(p=>[...p,{...data,id:cr?.id||Date.now()}]);}
-    setFArt(null);setVista("tema");
+    try{
+      if(fArt.id){await supaPatch("manual_articulos","?id=eq."+fArt.id,data);setManualArticulos(p=>p.map(a=>a.id===fArt.id?{...a,...data}:a));}
+      else{const[cr]=await supaPost("manual_articulos",data);setManualArticulos(p=>[...p,{...data,id:cr?.id||Date.now()}]);}
+      setFArt(null);setVista("tema");
+    }catch(e){alert("Error al guardar. Verifica la conexión o los permisos de la tabla en Supabase.\n\n"+e.message);}
   }
 
   // ── OVERLAY FORM (tema) ──────────────────────────────────────────────────────
