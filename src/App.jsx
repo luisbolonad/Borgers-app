@@ -390,6 +390,7 @@ const[cierresCaja,setCierresCaja]=useState([]);
 const[manualTemas,setManualTemas]=useState([]);
 const[manualArticulos,setManualArticulos]=useState([]);
 const[ventas,setVentas]=useState([]);
+const[ivaRate,setIvaRate]=useState(0.15);
 const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(null);
 // Cargar datos desde Supabase al iniciar
@@ -400,7 +401,7 @@ const[
 dbUsers,dbSucs,dbCatsInv,dbCatsVenta,dbCatsInvSuc,
 dbProvs,dbInv,dbRp,dbRv,dbReqs,
 dbInvSucs,dbRegs,dbVentas,dbMarcas,dbCierres,
-dbManualTemas,dbManualArticulos
+dbManualTemas,dbManualArticulos,dbConfig
 ]=await Promise.all([
 supaGet("users","?select=*&order=created_at"),
 supaGet("sucursales","?select=*&order=nombre"),
@@ -419,6 +420,7 @@ supaGet("marcas","?select=*&order=nombre"),
 supaGet("cierres_caja","?select=*&order=created_at.desc"),
 supaGet("manual_temas","?select=*&order=orden"),
 supaGet("manual_articulos","?select=*&order=orden"),
+supaGet("config_general","?select=*&limit=1"),
 ]);
 
     if(dbUsers.length>0) setUsers(dbUsers.map(u=>({...u,id:u.id})));
@@ -441,6 +443,7 @@ supaGet("manual_articulos","?select=*&order=orden"),
     if(dbCierres.length>0) setCierresCaja(dbCierres);
     if(dbManualTemas.length>0) setManualTemas(dbManualTemas);
     if(dbManualArticulos.length>0) setManualArticulos(dbManualArticulos);
+    if(dbConfig.length>0&&dbConfig[0].iva_rate!=null) setIvaRate(parseFloat(dbConfig[0].iva_rate));
   }catch(err){
     console.error("Error cargando datos:",err);
   }finally{
@@ -519,11 +522,11 @@ return <>
 {tab==="req"&&<Req {...sh} puede={puede} userActivo={userActivo}/>}
 {tab==="comp"&&<Comp {...sh}/>}
 {tab==="invsuc"&&<InvSuc {...sh} puede={puede}/>}
-{tab==="cos"&&<Cos {...sh} puede={puede} userActivo={userActivo}/>}
+{tab==="cos"&&<Cos {...sh} puede={puede} userActivo={userActivo} ivaRate={ivaRate}/>}
 {tab==="caja"&&<CierreCaja cierresCaja={cierresCaja} setCierresCaja={setCierresCaja} sucs={sucs} userActivo={userActivo} puede={puede}/>}
 {tab==="manual"&&<Manual manualTemas={manualTemas} setManualTemas={setManualTemas} manualArticulos={manualArticulos} setManualArticulos={setManualArticulos} userActivo={userActivo}/>}
 {tab==="hist"&&<Hist {...sh} userActivo={userActivo}/>}
-{tab==="config"&&<Config {...sh} puede={puede}/>}
+{tab==="config"&&<Config {...sh} puede={puede} ivaRate={ivaRate} setIvaRate={setIvaRate}/>}
 </div>
 </div>
 </>;
@@ -2832,7 +2835,7 @@ placeholder="Buscar INV-001..." style={{width:160}}/>
   </div>;
 }
 // ── Costos & Ingresos ───────────────────────────────────────────────────────
-function Cos({inv,rp,rv,sucs,ventas,setVentas,regsSucs,setRegsSucs,invSucs,puede,userActivo,sucsMarcas}){
+function Cos({inv,rp,rv,sucs,ventas,setVentas,regsSucs,setRegsSucs,invSucs,puede,userActivo,sucsMarcas,ivaRate=0.15}){
 // Modal de registro diario
 const[modal,setModal]=useState(false);
 const[dFecha,setDFecha]=useState(today());
@@ -2854,11 +2857,12 @@ function setCant(rId,val){
 setDCants(p=>({...p,[rId]:val}));
 }
 const dResumen=rv.map(r=>({r,cant:dCants[r.id]||0})).filter(x=>x.cant>0);
-const dTotalIngreso=dResumen.reduce((s,{r,cant})=>s+r.precio*cant,0);
+const precioConIva=(r)=>r.precio*(1+ivaRate);
+const dTotalIngreso=dResumen.reduce((s,{r,cant})=>s+precioConIva(r)*cant,0);
 const dTotalCosto=dResumen.reduce((s,{r,cant})=>s+cc(r)*cant,0);
 async function confirmarDia(){
 if(!dResumen.length){return;}
-const nuevas=dResumen.map(({r,cant})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant}));
+const nuevas=dResumen.map(({r,cant})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant,iva_rate:ivaRate}));
 await Promise.all(nuevas.map(v=>supaPost("ventas",v).catch(console.error)));
 setVentas(p=>[...nuevas.map((v,i)=>({...v,id:Date.now()+i})),...p]);
 
@@ -2917,12 +2921,13 @@ else{const p=rp.find(x=>x.id===ing.refId);if(!p)return s;const cp=p.ings.reduce(
 const ventasVis=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
 ?ventas.filter(v=>v.sucursal===userActivo.sucursal)
 :ventas;
-const tI=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?r.precio*x.cant:0);},0);
+const precioVenta=(r,x)=>r.precio*(1+(x.iva_rate??0));
+const tI=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?precioVenta(r,x)*x.cant:0);},0);
 const tC=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?cc(r)*x.cant:0);},0);
 const u=tI-tC;
 const ps=sucsVisiblesCos.map(suc=>{
 const vs=ventas.filter(x=>x.sucursal===suc);
-const i=vs.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?r.precio*x.cant:0);},0);
+const i=vs.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?precioVenta(r,x)*x.cant:0);},0);
 const c=vs.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?cc(r)*x.cant:0);},0);
 return{suc,i,c,u:i-c};
 });
@@ -2961,7 +2966,7 @@ return <div>
     {rv.map(r=>{
       const vs=ventas.filter(x=>x.rId===r.id);
       const tv=vs.reduce((s,x)=>s+x.cant,0);
-      const ir=vs.reduce((s,x)=>s+r.precio*x.cant,0);
+      const ir=vs.reduce((s,x)=>s+precioVenta(r,x)*x.cant,0);
       const mr=ir>0?((ir-cc(r)*tv)/ir*100):0;
       return <div key={r.id} style={{display:"flex",justifyContent:"space-between",marginBottom:12,paddingBottom:12,borderBottom:b1(FNT)}}>
         <div><div style={{fontWeight:500,fontSize:13}}>{r.nombre}</div><div style={{fontSize:11,color:MUT}}>{fmtN(tv)} uds · Costo: {fmt(cc(r))}</div></div>
@@ -2976,7 +2981,7 @@ return <div>
     <thead><tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cant.</th><th>Ingreso</th>{userActivo?.rol!=="staff_suc"&&<th>Costo</th>}{userActivo?.rol!=="staff_suc"&&<th>Utilidad</th>}</tr></thead>
     <tbody>{registros.map(x=>{
       const r=rv.find(r=>r.id===x.rId);
-      const ig=(r?.precio||0)*x.cant;
+      const ig=r?precioVenta(r,x)*x.cant:0;
       const co=(r?cc(r):0)*x.cant;
       return <tr key={x.id}>
         <td style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{x.fecha}</td>
@@ -3017,7 +3022,7 @@ return <div>
     <thead><tr>
       <th style={{width:80}}>Código</th>
       <th>Producto</th>
-      <th style={{width:90}}>Precio</th>
+      <th style={{width:110}}>Precio c/IVA ({(ivaRate*100).toFixed(0)}%)</th>
       <th style={{width:130}}>Cantidad</th>
       <th style={{width:90,textAlign:"right"}}>Subtotal</th>
     </tr></thead>
@@ -3038,7 +3043,7 @@ return <div>
             <div style={{fontWeight:cant>0?600:400,fontSize:13}}>{r.nombre}</div>
             <div style={{fontSize:11,color:MUT}}>{r.categoria}</div>
           </td>
-          <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{fmt(r.precio)}</td>
+          <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{fmt(precioConIva(r))}</td>
           <td>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <button onClick={()=>setCant(r.id,Math.max(0,(cant||0)-1))}
@@ -3051,7 +3056,7 @@ return <div>
                 style={{background:ACC,color:"#000",border:"none",borderRadius:6,width:28,height:28,fontSize:16,fontWeight:700,flexShrink:0,cursor:"pointer"}}>+</button>
             </div>
           </td>
-          <td style={{fontFamily:"'DM Mono'",fontSize:13,color:cant>0?GRN:MUT,textAlign:"right"}}>{cant>0?fmt(r.precio*cant):"—"}</td>
+          <td style={{fontFamily:"'DM Mono'",fontSize:13,color:cant>0?GRN:MUT,textAlign:"right"}}>{cant>0?fmt(precioConIva(r)*cant):"—"}</td>
         </tr>;
       })}
     </tbody>
@@ -3063,7 +3068,7 @@ return <div>
     {dResumen.map(({r,cant})=>(
       <div key={r.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
         <span>{r.nombre} × {fmtN(cant)}</span>
-        <span style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(r.precio*cant)}</span>
+        <span style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(precioConIva(r)*cant)}</span>
       </div>
     ))}
     <div style={{borderTop:b1(BRD),marginTop:10,paddingTop:10,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
@@ -3135,8 +3140,22 @@ return <tr key={r.id}><td style={{fontWeight:500}}>{r.sucursal}</td><td style={{
   </div>;
 }
 // ── Configuración ───────────────────────────────────────────────────────────
-function Config({sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede,marcas,setMarcas,sucsMarcas,setSucsMarcas}){
-const[seccion,setSeccion]=useState("sucs");
+function Config({sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede,marcas,setMarcas,sucsMarcas,setSucsMarcas,ivaRate=0.15,setIvaRate}){
+const[seccion,setSeccion]=useState("general");
+const[ivaInput,setIvaInput]=useState((ivaRate*100).toFixed(1));
+async function guardarIva(){
+  const val=parseFloat(ivaInput);
+  if(isNaN(val)||val<0||val>100){alert("Ingresa un valor de IVA válido (0-100).");return;}
+  const rate=val/100;
+  setIvaRate(rate);
+  try{
+    await supaPatch("config_general","?id=eq.1",{iva_rate:rate});
+  }catch(e){
+    // Si no existe la fila, crear
+    await supaPost("config_general",{id:1,iva_rate:rate}).catch(console.error);
+  }
+  alert("IVA actualizado a "+val+"%. Las nuevas ventas usarán este valor.");
+}
 const[editSuc,setEditSuc]=useState(null);
 const[nuevaSuc,setNuevaSuc]=useState("");
 const[editCat,setEditCat]=useState(null);
@@ -3210,11 +3229,35 @@ return <div>
 <p style={{color:MUT,fontSize:13}}>Gestión de sucursales y categorías del sistema</p>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
-{[["sucs","🏪 Sucursales"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
+{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
 const a=seccion===id;
 return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
 })}
 </div>
+
+{seccion==="general"&&<div>
+  <Card xtra={{maxWidth:480}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:20}}>DATOS GENERALES</div>
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:11,color:MUT,letterSpacing:1,marginBottom:8}}>IVA (%)</div>
+      <div style={{display:"flex",gap:10,alignItems:"center"}}>
+        <input
+          type="number" min="0" max="100" step="0.1"
+          value={ivaInput}
+          onChange={e=>setIvaInput(e.target.value)}
+          style={{width:100,fontFamily:"'DM Mono'",fontSize:16,textAlign:"center"}}
+        />
+        <span style={{fontSize:14,color:MUT}}>%</span>
+        <Btn s="sm" onClick={guardarIva}>Guardar</Btn>
+      </div>
+      <div style={{fontSize:12,color:MUT,marginTop:8}}>Valor actual: <span style={{fontFamily:"'DM Mono'",color:ACC}}>{(ivaRate*100).toFixed(1)}%</span></div>
+      <div style={{fontSize:11,color:MUT,marginTop:6,lineHeight:1.6}}>
+        El IVA se aplica sobre el precio de receta al registrar ventas.<br/>
+        Cambiar este valor <strong style={{color:TXT}}>no afecta al historial de ventas</strong> ya registradas — solo aplica a nuevas ventas.
+      </div>
+    </div>
+  </Card>
+</div>}
 
 {seccion==="sucs"&&<div>
   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:16,marginBottom:24}}>
