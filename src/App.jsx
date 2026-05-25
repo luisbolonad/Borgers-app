@@ -603,6 +603,7 @@ const[modal,setModal]=useState(null);
 const[edit,setEdit]=useState(null);
 const[mF,setMF]=useState(false);
 const[cF,setCF]=useState({});
+const[fCat,setFCat]=useState("Todas");
 const[fil,setFil]=useState("");
 const[cat,setCat]=useState("Todas");
 const[importPreview,setImportPreview]=useState(null);
@@ -622,13 +623,25 @@ if(edit){
 }
 setModal(null);setEdit(null);setForm(f0);
 }
-function startF(){const cf={};inv.forEach(i=>{cf[i.id]=i.stock;});setCF(cf);setMF(true);}
+function startF(){setCF({});setFCat("Todas");setMF(true);}
+async function savePartial(catToSave){
+const itemsScope=catToSave==="Todas"?inv:inv.filter(i=>i.categoria===catToSave);
+const d=itemsScope.filter(i=>cF[i.id]!==undefined&&cF[i.id]!==i.stock).map(i=>({id:i.id,nombre:i.nombre,anterior:i.stock,nuevo:cF[i.id]}));
+if(d.length===0){alert("No hay cambios en "+(catToSave==="Todas"?"el inventario completo":catToSave)+".");return;}
+setInv(p=>p.map(i=>{const x=d.find(x=>x.id===i.id);return x?{...i,stock:x.nuevo}:i;}));
+setHI(p=>[...p,{id:Date.now(),fecha:today(),tipo:"Inventario Físico",descripcion:(catToSave!=="Todas"?"["+catToSave+"] ":"")+d.length+" ítems ajustados",diffs:d}]);
+await Promise.all(d.map(x=>supaPatch("inventario","?id=eq."+x.id,{stock:x.nuevo}).catch(console.error)));
+setCF(p=>{const n={...p};d.forEach(x=>delete n[x.id]);return n;});
+alert(d.length+" ítems guardados"+(catToSave!=="Todas"?" ("+catToSave+")":"")+".");
+}
 async function saveF(){
 const d=inv.filter(i=>cF[i.id]!==undefined&&cF[i.id]!==i.stock).map(i=>({id:i.id,nombre:i.nombre,anterior:i.stock,nuevo:cF[i.id]}));
-setInv(p=>p.map(i=>({...i,stock:cF[i.id]??i.stock})));
+if(d.length>0){
+setInv(p=>p.map(i=>{const x=d.find(x=>x.id===i.id);return x?{...i,stock:x.nuevo}:i;}));
 setHI(p=>[...p,{id:Date.now(),fecha:today(),tipo:"Inventario Físico",descripcion:d.length+" ítems ajustados",diffs:d}]);
-await Promise.all(d.map(d=>supaPatch("inventario","?id=eq."+d.id,{stock:d.nuevo}).catch(console.error)));
-setMF(false);alert("Inventario físico guardado. "+d.length+" ítems ajustados.");
+await Promise.all(d.map(x=>supaPatch("inventario","?id=eq."+x.id,{stock:x.nuevo}).catch(console.error)));
+}
+setMF(false);setCF({});alert("Inventario físico finalizado."+(d.length>0?" "+d.length+" ítems ajustados.":""));
 }
 async function onXlsx(e){
 const file=e.target.files[0];if(!file)return;
@@ -678,17 +691,75 @@ const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Inventario");
 window.XLSX.writeFile(wb,"plantilla_inventario_borgers.xlsx");
 }
-if(mF)return <div>
-<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
-<div><h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>INVENTARIO FÍSICO</h1></div>
-<div style={{display:"flex",gap:10}}><Btn v="ghost" onClick={()=>setMF(false)}>Cancelar</Btn><Btn onClick={saveF}>Confirmar</Btn></div>
+if(mF){
+const totalTocados=inv.filter(i=>cF[i.id]!==undefined).length;
+const catItems=fCat==="Todas"?inv:inv.filter(i=>i.categoria===fCat);
+const catTocados=catItems.filter(i=>cF[i.id]!==undefined&&cF[i.id]!==i.stock).length;
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:10}}>
+<div>
+  <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>INVENTARIO FÍSICO</h1>
+  <p style={{color:MUT,fontSize:13,margin:0}}>{totalTocados} ítems modificados en total · Puedes guardar por categoría o todo al final</p>
+</div>
+<div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+  <Btn v="ghost" onClick={()=>{setMF(false);setCF({});}}>✕ Cancelar</Btn>
+  <Btn v="ghost" onClick={()=>savePartial(fCat)} disabled={catTocados===0}>
+    💾 Guardar {fCat==="Todas"?"todo":"categoría"}{catTocados>0&&" ("+catTocados+")"}
+  </Btn>
+  <Btn onClick={saveF}>✓ Finalizar inventario</Btn>
+</div>
+</div>
+{/* Tabs de categorías */}
+<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:20,marginTop:16}}>
+{["Todas",...cats].map(c=>{
+  const items=c==="Todas"?inv:inv.filter(i=>i.categoria===c);
+  const tocados=items.filter(i=>cF[i.id]!==undefined&&cF[i.id]!==i.stock).length;
+  const active=fCat===c;
+  return <button key={c} onClick={()=>setFCat(c)} style={{
+    padding:"8px 16px",borderRadius:8,fontSize:13,cursor:"pointer",
+    border:b1(active?ACC:tocados>0?GRN:BRD),
+    background:active?ACC+"18":tocados>0?GRN+"11":"transparent",
+    color:active?ACC:tocados>0?GRN:MUT,
+    fontWeight:active||tocados>0?600:400,
+    display:"flex",alignItems:"center",gap:6
+  }}>
+    {c}
+    {tocados>0&&<span style={{background:GRN,color:"#000",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700}}>{tocados}</span>}
+  </button>;
+})}
 </div>
 <Card xtra={{padding:0}}>
-<table><thead><tr><th>Ítem</th><th>Categoría</th><th>Sistema</th><th>Físico</th><th>Diferencia</th></tr></thead>
-<tbody>{inv.map(i=>{const d=(cF[i.id]??i.stock)-i.stock;return <tr key={i.id}><td>{i.nombre}</td><td style={{color:MUT}}>{i.categoria}</td><td style={{fontFamily:"'DM Mono'"}}>{i.stock}</td><td><input type="number" value={cF[i.id]??i.stock} step="0.01" onChange={e=>setCF(p=>({...p,[i.id]:parseFloat(e.target.value)||0}))} style={{width:80}}/></td><td style={{fontFamily:"'DM Mono'",color:d===0?MUT:d>0?GRN:RED,fontWeight:d!==0?600:400}}>{d>0?"+":""}{d.toFixed(2)}</td></tr>;})}</tbody>
+<table>
+<thead><tr>
+  <th>Ítem</th>
+  {fCat==="Todas"&&<th>Categoría</th>}
+  <th>Stock sistema</th>
+  <th>Conteo físico</th>
+  <th>Diferencia</th>
+</tr></thead>
+<tbody>{catItems.map(i=>{
+  const tocado=cF[i.id]!==undefined;
+  const val=tocado?cF[i.id]:i.stock;
+  const d=val-i.stock;
+  return <tr key={i.id} style={{background:tocado&&d!==0?(d>0?GRN+"0D":RED+"0D"):"transparent"}}>
+    <td style={{fontWeight:tocado?600:400}}>{i.nombre}</td>
+    {fCat==="Todas"&&<td style={{color:MUT,fontSize:12}}>{i.categoria}</td>}
+    <td style={{fontFamily:"'DM Mono'",color:MUT}}>{fmtN(i.stock)} {i.unidad}</td>
+    <td>
+      <input type="number" value={tocado?val:""} step="0.01"
+        placeholder={String(i.stock)}
+        onChange={e=>setCF(p=>({...p,[i.id]:parseFloat(e.target.value)||0}))}
+        style={{width:90,borderColor:tocado?ACC:BRD,fontWeight:tocado?600:400}}/>
+    </td>
+    <td style={{fontFamily:"'DM Mono'",color:d===0?MUT:d>0?GRN:RED,fontWeight:d!==0?600:400}}>
+      {!tocado?"—":d===0?"=":(d>0?"+":"")+d.toFixed(2)}
+    </td>
+  </tr>;
+})}</tbody>
 </table>
 </Card>
-  </div>;
+</div>;}
+
 return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
 <div>
