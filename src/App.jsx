@@ -891,6 +891,60 @@ const[st,setSt]=useState("v");
 const[modal,setModal]=useState(null);
 const[editR,setEditR]=useState(null);
 const[confirmar,setConfirmar]=useState(null);
+const[repairModal,setRepairModal]=useState(false);
+const[repairMap,setRepairMap]=useState({});
+// Detectar ingredientes rotos (IDs no encontrados en inventario actual)
+const brokenRpIds=new Map();// oldId -> [{recetaId,recetaNombre,ingIdx,cantidad,unidad}]
+rp.forEach(r=>r.ings.forEach((ing,idx)=>{
+  if(!inv.find(i=>i.id===ing.invId)){
+    const key=ing.invId;
+    if(!brokenRpIds.has(key))brokenRpIds.set(key,[]);
+    brokenRpIds.get(key).push({recetaId:r.id,recetaNombre:r.nombre,ingIdx:idx,cantidad:ing.cantidad,unidad:ing.unidad,tipo:"rp"});
+  }
+}));
+const brokenRvIds=new Map();// oldId -> [...]
+rv.forEach(r=>r.ings.forEach((ing,idx)=>{
+  if(ing.tipo==="inv"&&!inv.find(i=>i.id===ing.refId)){
+    const key=ing.refId;
+    if(!brokenRvIds.has(key))brokenRvIds.set(key,[]);
+    brokenRvIds.get(key).push({recetaId:r.id,recetaNombre:r.nombre,ingIdx:idx,cantidad:ing.cantidad,unidad:ing.unidad,tipo:"rv"});
+  }
+}));
+const totalRotos=brokenRpIds.size+brokenRvIds.size;
+async function saveRepair(){
+  // Aplicar mapeo a recetas de producción
+  const rpFixed={};
+  brokenRpIds.forEach((usos,oldId)=>{
+    const newId=parseInt(repairMap["rp_"+oldId]||"0");
+    if(!newId)return;
+    const newItem=inv.find(i=>i.id===newId);
+    usos.forEach(({recetaId,ingIdx})=>{
+      if(!rpFixed[recetaId])rpFixed[recetaId]=[...(rp.find(r=>r.id===recetaId)?.ings||[])];
+      rpFixed[recetaId][ingIdx]={...rpFixed[recetaId][ingIdx],invId:newId,unidad:newItem?.unidad||rpFixed[recetaId][ingIdx].unidad};
+    });
+  });
+  // Aplicar mapeo a recetas de venta
+  const rvFixed={};
+  brokenRvIds.forEach((usos,oldId)=>{
+    const newId=parseInt(repairMap["rv_"+oldId]||"0");
+    if(!newId)return;
+    const newItem=inv.find(i=>i.id===newId);
+    usos.forEach(({recetaId,ingIdx})=>{
+      if(!rvFixed[recetaId])rvFixed[recetaId]=[...(rv.find(r=>r.id===recetaId)?.ings||[])];
+      rvFixed[recetaId][ingIdx]={...rvFixed[recetaId][ingIdx],refId:newId,unidad:newItem?.unidad||rvFixed[recetaId][ingIdx].unidad};
+    });
+  });
+  const rpEntries=Object.entries(rpFixed);
+  const rvEntries=Object.entries(rvFixed);
+  if(rpEntries.length===0&&rvEntries.length===0){alert("No hay cambios. Selecciona el ítem correcto para cada ingrediente.");return;}
+  await Promise.all([
+    ...rpEntries.map(([id,ings])=>{setRp(p=>p.map(r=>r.id===parseInt(id)?{...r,ings}:r));return supaPatch("recetas_produccion","?id=eq."+id,{ings});}),
+    ...rvEntries.map(([id,ings])=>{setRv(p=>p.map(r=>r.id===parseInt(id)?{...r,ings}:r));return supaPatch("recetas_venta","?id=eq."+id,{ings});})
+  ]);
+  const reparadas=new Set([...rpEntries.map(([id])=>id),...rvEntries.map(([id])=>id)]).size;
+  setRepairModal(false);setRepairMap({});
+  alert("✓ "+reparadas+" recetas reparadas correctamente. Revísalas para confirmar.");
+}
 const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:"",marcas:[]};
 const fP={nombre:"",unidad:"und",rendimiento:1,ings:[]};
 const[fv,setFv]=useState(fV);
@@ -922,9 +976,14 @@ return upd;
 })}));
 }
 return <div>
-<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24,flexWrap:"wrap",gap:10}}>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>RECETAS</h1>
+<div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+{totalRotos>0&&<Btn v="ghost" onClick={()=>{setRepairMap({});setRepairModal(true);}} style={{borderColor:RED,color:RED,background:RED+"11"}}>
+  🔧 Reparar ingredientes ({totalRotos} rotos)
+</Btn>}
 {(!puede||puede("editar_recetas"))&&<Btn onClick={()=>{setEditR(null);st==="v"?setFv(fV):setFp(fP);setModal("f");}}>+ Nueva Receta</Btn>}
+</div>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:20}}>
 {[["v","Productos de Venta"],["p","Producción Interna"]]
@@ -1078,6 +1137,73 @@ return <div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={sp2}>Guardar</Btn></div>
 </Mdl>}
 {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+
+{repairModal&&<Mdl title="🔧 REPARAR INGREDIENTES ROTOS" onClose={()=>setRepairModal(false)} wide>
+  <div style={{background:RED+"11",border:"1px solid "+RED+"44",borderRadius:8,padding:12,marginBottom:20,fontSize:13,color:TXT}}>
+    <strong style={{color:RED}}>¿Qué pasó?</strong> Al recargar el inventario con Excel, los ítems recibieron IDs nuevos en la base de datos. Las recetas guardan los ingredientes por ID — ahora esos IDs no coinciden con ningún ítem del inventario actual.<br/>
+    <strong>Solución:</strong> Indica cuál es el ítem correcto para cada ingrediente roto. Se aplica a <strong>todas</strong> las recetas que usen ese ingrediente a la vez.
+  </div>
+  {brokenRpIds.size>0&&<div style={{marginBottom:24}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:12}}>RECETAS DE PRODUCCIÓN ({brokenRpIds.size} ingrediente{brokenRpIds.size>1?"s":""} roto{brokenRpIds.size>1?"s":""})</div>
+    {[...brokenRpIds.entries()].map(([oldId,usos])=>{
+      const unidad=usos[0].unidad;
+      const recetasAfectadas=[...new Set(usos.map(u=>u.recetaNombre))];
+      const cantRef=usos[0].cantidad;
+      return <div key={oldId} style={{background:FNT,borderRadius:8,padding:14,marginBottom:10,border:"1px solid "+BRD}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div>
+            <span style={{fontFamily:"'DM Mono'",fontSize:11,color:RED,background:RED+"18",borderRadius:4,padding:"2px 6px"}}>ID viejo: {oldId}</span>
+            <span style={{marginLeft:8,fontSize:12,color:MUT}}>{cantRef} {unidad}</span>
+          </div>
+          <div style={{fontSize:11,color:MUT}}>Usado en: {recetasAfectadas.join(", ")}</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:12,color:MUT,flexShrink:0}}>¿Es este ítem?</span>
+          <select value={repairMap["rp_"+oldId]||""}
+            onChange={e=>setRepairMap(p=>({...p,["rp_"+oldId]:e.target.value}))}
+            style={{flex:1,borderColor:repairMap["rp_"+oldId]?GRN:RED+"66",fontWeight:repairMap["rp_"+oldId]?600:400}}>
+            <option value="">— Seleccionar ítem del inventario —</option>
+            {[...inv].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(i=>
+              <option key={i.id} value={i.id}>{i.nombre} ({i.unidad}) — {i.categoria}</option>
+            )}
+          </select>
+        </div>
+      </div>;
+    })}
+  </div>}
+  {brokenRvIds.size>0&&<div style={{marginBottom:24}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:12}}>RECETAS DE VENTA ({brokenRvIds.size} ingrediente{brokenRvIds.size>1?"s":""} roto{brokenRvIds.size>1?"s":""})</div>
+    {[...brokenRvIds.entries()].map(([oldId,usos])=>{
+      const unidad=usos[0].unidad;
+      const recetasAfectadas=[...new Set(usos.map(u=>u.recetaNombre))];
+      const cantRef=usos[0].cantidad;
+      return <div key={oldId} style={{background:FNT,borderRadius:8,padding:14,marginBottom:10,border:"1px solid "+BRD}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div>
+            <span style={{fontFamily:"'DM Mono'",fontSize:11,color:RED,background:RED+"18",borderRadius:4,padding:"2px 6px"}}>ID viejo: {oldId}</span>
+            <span style={{marginLeft:8,fontSize:12,color:MUT}}>{cantRef} {unidad}</span>
+          </div>
+          <div style={{fontSize:11,color:MUT}}>Usado en: {recetasAfectadas.join(", ")}</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:12,color:MUT,flexShrink:0}}>¿Es este ítem?</span>
+          <select value={repairMap["rv_"+oldId]||""}
+            onChange={e=>setRepairMap(p=>({...p,["rv_"+oldId]:e.target.value}))}
+            style={{flex:1,borderColor:repairMap["rv_"+oldId]?GRN:RED+"66",fontWeight:repairMap["rv_"+oldId]?600:400}}>
+            <option value="">— Seleccionar ítem del inventario —</option>
+            {[...inv].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(i=>
+              <option key={i.id} value={i.id}>{i.nombre} ({i.unidad}) — {i.categoria}</option>
+            )}
+          </select>
+        </div>
+      </div>;
+    })}
+  </div>}
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",borderTop:b1(BRD),paddingTop:16,marginTop:8}}>
+    <Btn v="ghost" onClick={()=>setRepairModal(false)}>Cancelar</Btn>
+    <Btn onClick={saveRepair}>✓ Aplicar reparación</Btn>
+  </div>
+</Mdl>}
 
   </div>;
 }
