@@ -1759,7 +1759,7 @@ const lista=[...todos].map(id=>{
 const item=inv.find(i=>i.id===id);if(!item)return null;
 const porProd=necProd[id]||0;  // ingredientes necesarios para producción
 // A comprar = lo que necesita producción + stock mínimo - stock actual
-const aComprar=Math.max(0, porProd + item.stockMin - item.stock);
+const aComprar=Math.ceil(Math.max(0, porProd + item.stockMin - item.stock));
 const mot=porProd>0&&item.stock<item.stockMin?"Ambos":porProd>0?"Producción":item.stock<item.stockMin?"Stock mínimo":null;
 if(!mot||aComprar<=0.001)return null;
 return{item,aComprar,porProd:porProd.toFixed(2),porStock:item.stockMin,sa:item.stock,mot};
