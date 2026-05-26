@@ -653,8 +653,9 @@ const rows=await readXLSX(file);
 const mapped=rows.map((row,idx)=>{
 const keys=Object.keys(row).map(k=>k.toLowerCase().trim());
 const get=(names)=>{for(const n of names){const k=Object.keys(row).find(k=>k.toLowerCase().trim()===n);if(k!==undefined&&row[k]!=="")return row[k];}return "";};
+const idVal=parseInt(get(["id"]));
 return{
-id:Math.max(0,...inv.map(i=>i.id))+idx+1,
+id:(!isNaN(idVal)&&idVal>0)?idVal:0,
 nombre:String(get(["nombre","item","ingrediente","name"])||"").trim(),
 categoria:String(get(["categoria","categoría","category"])||"Secos").trim(),
 unidad:String(get(["unidad","unit","ud"])||"und").trim(),
@@ -670,22 +671,30 @@ setModal("preview");
 }
 async function confirmarImport(){
 const prev=importPreview;
-setInv(prev);
 setImportPreview(null);
 setModal(null);
-await supaDelete("inventario","?id=gt.0").catch(console.error);
-const {id:_,...rest}=prev[0]||{};
-for(const item of prev){
-  const{id:__,...data}=item;
-  await supaPost("inventario",data).catch(console.error);
+const conId=prev.filter(i=>i.id>0);
+const sinId=prev.filter(i=>!i.id||i.id<=0);
+let resultados=[];
+// Upsert ítems con ID existente (actualiza sin borrar)
+if(conId.length>0){
+  const ups=await supaUpsert("inventario",conId).catch(()=>conId);
+  resultados=[...resultados,...(Array.isArray(ups)&&ups.length>0?ups:conId)];
 }
-alert(prev.length+" ítems importados. El inventario fue reemplazado.");
+// Insertar ítems nuevos sin ID
+for(const item of sinId){
+  const{id:_,...data}=item;
+  const[created]=await supaPost("inventario",data).catch(()=>[item]);
+  resultados.push(created||item);
+}
+setInv(resultados.map(i=>({...i,stockMin:i.stockMin||0})));
+alert(conId.length+" ítems actualizados"+(sinId.length>0?", "+sinId.length+" productos nuevos agregados":"")+".");
 }
 function descargarPlantilla(){
 if(!xlsxReady){alert("SheetJS cargando...");return;}
 const datos=inv.length>0
-?inv.map(i=>({nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stock:i.stock,stockMin:i.stockMin,costo:i.costo,proveedor:i.proveedor}))
-:[{nombre:"Carne de res 80/20",categoria:"Carnes",unidad:"kg",stock:45,stockMin:20,costo:8500,proveedor:"Carnes Premium SA"}];
+?inv.map(i=>({id:i.id,nombre:i.nombre,categoria:i.categoria,unidad:i.unidad,stock:i.stock,stockMin:i.stockMin,costo:i.costo,proveedor:i.proveedor}))
+:[{id:"",nombre:"Carne de res 80/20",categoria:"Carnes",unidad:"kg",stock:45,stockMin:20,costo:8500,proveedor:"Carnes Premium SA"}];
 const ws=window.XLSX.utils.json_to_sheet(datos);
 const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Inventario");
@@ -804,14 +813,30 @@ return <tr key={i.id}>
 </Card>
 
 {modal==="preview" && importPreview && (
-  <Mdl title={"PREVIEW — "+importPreview.length+" ÍTEMS A IMPORTAR"} onClose={()=>setModal(null)} wide>
-    <div style={{background:BG,borderRadius:8,padding:12,marginBottom:16,fontSize:12,color:MUT}}>
-      Este archivo reemplazará el inventario actual completamente. Verifica que los datos sean correctos.
+  <Mdl title={"PREVIEW — "+importPreview.length+" ÍTEMS"} onClose={()=>setModal(null)} wide>
+    {(()=>{const conId=importPreview.filter(i=>i.id>0);const sinId=importPreview.filter(i=>!i.id||i.id<=0);return(
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+      <div style={{background:GRN+"11",border:"1px solid "+GRN+"44",borderRadius:8,padding:10,fontSize:12}}>
+        <span style={{color:GRN,fontWeight:700}}>{conId.length} ítems actualizarán</span> sus datos sin cambiar su ID. Las recetas siguen intactas.
+      </div>
+      <div style={{background:ACC+"11",border:"1px solid "+ACC+"44",borderRadius:8,padding:10,fontSize:12}}>
+        <span style={{color:ACC,fontWeight:700}}>{sinId.length} ítems nuevos</span> sin ID — se insertarán con ID nuevo automáticamente.
+      </div>
     </div>
+    );})()}
     <div style={{maxHeight:360,overflow:"auto",marginBottom:16}}>
       <table>
-        <thead><tr><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Stock</th><th>Mín.</th><th>Costo</th><th>Proveedor</th></tr></thead>
-        <tbody>{importPreview.map((i,idx)=><tr key={idx}><td style={{fontWeight:500}}>{i.nombre}</td><td style={{color:MUT}}>{i.categoria}</td><td style={{color:MUT}}>{i.unidad}</td><td style={{fontFamily:"'DM Mono'"}}>{fmtN(i.stock)}</td><td style={{fontFamily:"'DM Mono'"}}>{fmtN(i.stockMin)}</td><td style={{fontFamily:"'DM Mono'"}}>{fmt(i.costo)}</td><td style={{color:MUT,fontSize:12}}>{i.proveedor}</td></tr>)}</tbody>
+        <thead><tr><th>ID</th><th>Nombre</th><th>Categoría</th><th>Unidad</th><th>Stock</th><th>Mín.</th><th>Costo</th><th>Proveedor</th></tr></thead>
+        <tbody>{importPreview.map((i,idx)=><tr key={idx}>
+          <td style={{fontFamily:"'DM Mono'",fontSize:11,color:i.id>0?GRN:ACC}}>{i.id>0?i.id:"NUEVO"}</td>
+          <td style={{fontWeight:500}}>{i.nombre}</td>
+          <td style={{color:MUT}}>{i.categoria}</td>
+          <td style={{color:MUT}}>{i.unidad}</td>
+          <td style={{fontFamily:"'DM Mono'"}}>{fmtN(i.stock)}</td>
+          <td style={{fontFamily:"'DM Mono'"}}>{fmtN(i.stockMin)}</td>
+          <td style={{fontFamily:"'DM Mono'"}}>{fmt(i.costo)}</td>
+          <td style={{color:MUT,fontSize:12}}>{i.proveedor}</td>
+        </tr>)}</tbody>
       </table>
     </div>
     <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
