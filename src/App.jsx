@@ -1464,9 +1464,10 @@ return <div>
         <Btn s="sm" v="ghost" onClick={()=>abrirEditar(activo)}>Editar</Btn>
         <Btn s="sm" onClick={()=>enviar(activo.id)}>Enviar pedido</Btn>
       </>}
-      {activo.estado==="enviado"&&(!puede||puede("despacho"))&&
-        <Btn s="sm" v="success" onClick={()=>abrirDespacho(activo)}>Ingresar despacho</Btn>
-      }
+      {activo.estado==="enviado"&&<>
+        {userActivo?.rol==="superadmin"&&<Btn s="sm" v="ghost" onClick={()=>abrirEditar(activo)}>✏️ Editar</Btn>}
+        {(!puede||puede("despacho"))&&<Btn s="sm" v="success" onClick={()=>abrirDespacho(activo)}>Ingresar despacho</Btn>}
+      </>}
     </div>
   </div>
   {/* Tabla: solicitado vs despachado */}
