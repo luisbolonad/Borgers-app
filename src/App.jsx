@@ -431,7 +431,7 @@ supaGet("config_general","?select=*&limit=1"),
     if(dbProvs.length>0) setProvs(dbProvs.map((p,i)=>({...p,id:p.id||i+1})));
     if(dbInv.length>0) setInv(dbInv.map(i=>({...i,stockMin:i.stockMin||0})));
     if(dbRp.length>0){
-      setRp(dbRp.map(r=>({...r,ings:r.ings||[]})));
+      setRp(dbRp.map(r=>({...r,ings:r.ings||[],marcas:r.marcas||[]})));
       setSp(dbRp.map(r=>({recetaId:r.id,stock:r.stock||0})));
     }
     if(dbRv.length>0) setRv(dbRv.map(r=>({...r,ings:r.ings||[],marcas:r.marcas||[]})));
@@ -971,7 +971,7 @@ async function saveRepair(){
   alert("✓ "+reparadas+" recetas reparadas correctamente. Revísalas para confirmar.");
 }
 const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:"",marcas:[]};
-const fP={nombre:"",unidad:"und",rendimiento:1,ings:[]};
+const fP={nombre:"",unidad:"und",rendimiento:1,ings:[],marcas:[]};
 const[fv,setFv]=useState(fV);
 const[fp,setFp]=useState(fP);
 const CV=catV;
@@ -1051,9 +1051,13 @@ return <div>
 {st==="p"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
   {rp.map(r=>{const c=r.ings.reduce((s,ing)=>{const item=inv.find(i=>i.id===ing.invId);return s+(item?item.costo*ing.cantidad:0);},0);return <Card key={r.id}>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-      <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><div style={{fontSize:12,color:MUT}}>Rinde {r.rendimiento} {r.unidad}</div></div>
+      <div>
+        <div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div>
+        <div style={{fontSize:12,color:MUT}}>Rinde {r.rendimiento} {r.unidad}</div>
+        {(r.marcas||[]).length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>{(r.marcas||[]).map(m=><span key={m} style={{fontSize:10,background:ACC+"22",color:ACC,borderRadius:4,padding:"1px 6px"}}>{m}</span>)}</div>}
+      </div>
       {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
-        <button onClick={()=>{setEditR(r);setFp({nombre:r.nombre,unidad:r.unidad,rendimiento:r.rendimiento,ings:r.ings});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+        <button onClick={()=>{setEditR(r);setFp({nombre:r.nombre,unidad:r.unidad,rendimiento:r.rendimiento,ings:r.ings,marcas:r.marcas||[]});setModal("f");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
         <button onClick={()=>setConfirmar({msg:"¿Eliminar receta "+r.nombre+"?",fn:()=>{setRp(p=>p.filter(x=>x.id!==r.id));setSp(p=>p.filter(x=>x.recetaId!==r.id));supaDelete("recetas_produccion","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
       </div>}
     </div>
@@ -1135,11 +1139,24 @@ return <div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={sv}>Guardar</Btn></div>
 </Mdl>}
 {modal==="f"&&st==="p"&&<Mdl title={editR?"EDITAR RECETA PROD.":"NUEVA RECETA PROD."} onClose={()=>setModal(null)} wide>
-  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:20}}>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:16}}>
     <div style={{gridColumn:"1/4"}}><LI label="Nombre"><input value={fp.nombre} onChange={e=>setFp(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/></LI></div>
     <LI label="Unidad"><input value={fp.unidad} onChange={e=>setFp(p=>({...p,unidad:e.target.value}))} style={{width:"100%"}}/></LI>
     <LI label="Rendimiento/tanda"><input type="number" step="0.01" value={fp.rendimiento||""} placeholder="1" onChange={e=>setFp(p=>({...p,rendimiento:parseFloat(e.target.value)||1}))} style={{width:"100%"}}/></LI>
   </div>
+  {(marcas||[]).length>0&&<div style={{marginBottom:16}}>
+    <div style={{fontSize:11,color:MUT,letterSpacing:1,marginBottom:8}}>MARCAS</div>
+    <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+      {[...(marcas||[])].sort((a,b)=>a.nombre==="General"?-1:b.nombre==="General"?1:a.nombre.localeCompare(b.nombre,"es")).map(m=>{
+        const sel=(fp.marcas||[]).includes(m.nombre);
+        return <label key={m.id} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer",userSelect:"none"}}>
+          <input type="checkbox" checked={sel} onChange={()=>setFp(p=>({...p,marcas:sel?p.marcas.filter(x=>x!==m.nombre):[...(p.marcas||[]),m.nombre]}))}/>
+          {m.nombre}
+        </label>;
+      })}
+    </div>
+    <div style={{fontSize:11,color:MUT,marginTop:6}}>Sin marca seleccionada = visible para todas las sucursales. "General" = visible para todas.</div>
+  </div>}
   <div style={{marginBottom:12}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
       <span style={{fontSize:13,fontWeight:600}}>Ingredientes (inventario)</span>
@@ -1233,7 +1250,8 @@ return <div>
   </div>;
 }
 // ── Requerimientos (por sucursal individual) ────────────────────────────────
-function Req({reqs,setReqs,rp,xlsxReady,sucs,invSucs,regsSucs,provs,puede,userActivo}){
+function Req({reqs,setReqs,rp,xlsxReady,sucs,invSucs,regsSucs,provs,puede,userActivo,sucsMarcas}){
+function matchMarcasRp(rpMarcas,sucMarcasArr){if(!sucMarcasArr||sucMarcasArr.length===0)return true;if(!rpMarcas||rpMarcas.length===0)return true;if(rpMarcas.includes("General"))return true;return rpMarcas.some(m=>sucMarcasArr.includes(m));}
 const sucsVisiblesReq=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
 ?sucs.filter(s=>s===userActivo.sucursal)
 :sucs;
@@ -1333,15 +1351,16 @@ const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Orden");
 window.XLSX.writeFile(wb,"orden_"+provNombre.replace(/ /g,"*")+"*"+sucSel.replace(/ /g,"_")+".xlsx");
 }
+function rpDeSuc(suc){return rp.filter(r=>matchMarcasRp(r.marcas,sucsMarcas?.[suc]||[]));}
 function abrirNuevo(){
-setItems(rp.map(r=>({prodId:r.id,cantidad:0})));
+setItems(rpDeSuc(sucSel).map(r=>({prodId:r.id,cantidad:0})));
 setFecha(today());
 setEditId(null);
 setModal("form");
 }
 function abrirEditar(req){
 // Precarga con cantidades existentes
-const its=rp.map(r=>{
+const its=rpDeSuc(sucSel).map(r=>{
 const ex=req.items.find(i=>i.prodId===r.id);
 return{prodId:r.id,cantidad:ex?.cantidad||0};
 });
@@ -1400,7 +1419,7 @@ alert("Requerimiento importado como borrador: "+mapped.length+" productos.");
 }
 function descargarPlantilla(){
 if(!xlsxReady){alert("SheetJS cargando...");return;}
-const datos=rp.map(r=>({sucursal:sucSel,fecha:today(),item:r.nombre,unidad:r.unidad,requerimiento:0}));
+const datos=rpDeSuc(sucSel).map(r=>({sucursal:sucSel,fecha:today(),item:r.nombre,unidad:r.unidad,requerimiento:0}));
 const ws=window.XLSX.utils.json_to_sheet(datos);
 const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Requerimiento");
@@ -1522,7 +1541,7 @@ return <div>
   </div>
   <div style={{marginBottom:12}}>
     <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Cantidades requeridas</div>
-    {rp.map(r=>{
+    {rpDeSuc(sucSel).map(r=>{
       const val=items.find(i=>i.prodId===r.id)?.cantidad||0;
       return <div key={r.id} style={{display:"grid",gridTemplateColumns:"1fr 110px 60px",gap:10,marginBottom:10,alignItems:"center"}}>
         <div><div style={{fontWeight:500,fontSize:13}}>{r.nombre}</div><div style={{fontSize:11,color:MUT}}>{r.unidad}</div></div>
@@ -3426,7 +3445,8 @@ await supaDelete("sucursales","?nombre=eq."+encodeURIComponent(nom)).catch(conso
 }
 function descargarPlantillaSuc(nombre){
 if(!xlsxReady){alert("SheetJS cargando...");return;}
-const datos=rp.map(r=>({sucursal:nombre,fecha:today(),item:r.nombre,unidad:r.unidad,requerimiento:0}));
+function matchMarcasRpLocal(rpMarcas,sucMarcasArr){if(!sucMarcasArr||sucMarcasArr.length===0)return true;if(!rpMarcas||rpMarcas.length===0)return true;if(rpMarcas.includes("General"))return true;return rpMarcas.some(m=>sucMarcasArr.includes(m));}
+const datos=rp.filter(r=>matchMarcasRpLocal(r.marcas,sucsMarcas?.[nombre]||[])).map(r=>({sucursal:nombre,fecha:today(),item:r.nombre,unidad:r.unidad,requerimiento:0}));
 const ws=window.XLSX.utils.json_to_sheet(datos);
 const wb=window.XLSX.utils.book_new();
 window.XLSX.utils.book_append_sheet(wb,ws,"Requerimiento");
