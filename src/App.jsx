@@ -2428,6 +2428,10 @@ useEffect(()=>{
 const reg=regsSucs.find(r=>r.sucursal===sucSel&&r.fecha===fecha);
 setDiaCerrado(reg?.estado==="cerrado"||false);
 },[sucSel,fecha,regsSucs]);
+// Bloqueo por fecha pasada para no-superadmin
+const esSuperAdmin=userActivo?.rol==="superadmin";
+const esPasado=fecha<today();
+const bloqueadoPorFecha=esPasado&&!esSuperAdmin;
 // Verificar si hay ventas del día ya registradas (para mostrar estado)
 // Las ventas se acceden desde props ventas global (pasadas por InvSuc si se agrega)
 // Por ahora el egreso ya viene calculado en regsSucs via confirmarDia
@@ -2763,21 +2767,24 @@ return <div>
             const sf=(parseFloat(fila.invInicial)||0)+(parseFloat(fila.ingreso)||0)-(parseFloat(fila.egreso)||0);
             const diff=fila.stockReal!==""?(parseFloat(fila.stockReal)||0)-sf:null;
             const esStaff=userActivo?.rol==="staff_suc";
+            const filaBloq=bloqueadoPorFecha||diaCerrado;
             return <tr key={item.id}>
               <td style={{fontWeight:500,minWidth:140}}>{item.nombre}</td>
               <td style={{color:MUT,fontSize:12}}>{item.categoria}</td>
               <td style={{color:MUT,fontSize:12}}>{item.unidad}</td>
               <td>
-                {esStaff
+                {(esStaff||filaBloq)
                   ?<div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:BLU,padding:"8px 12px",background:BLU+"0A",borderRadius:6,border:b1(BLU+"22")}}>{fmtN(parseFloat(fila.invInicial)||0)}</div>
                   :<input type="number" step="0.01" placeholder="0" value={fila.invInicial||""}
                     onChange={e=>setFila(item.id,"invInicial",parseFloat(e.target.value)||0)}
                     style={{width:80,textAlign:"center",borderColor:BLU+"66"}}/>}
               </td>
               <td>
-                <input type="number" step="0.01" placeholder="0" value={fila.ingreso||""}
-                  onChange={e=>setFila(item.id,"ingreso",parseFloat(e.target.value)||0)}
-                  style={{width:80,textAlign:"center",borderColor:GRN+"66"}}/>
+                {filaBloq
+                  ?<div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:GRN,padding:"8px 12px",background:GRN+"0A",borderRadius:6,border:b1(GRN+"22")}}>{fmtN(parseFloat(fila.ingreso)||0)}</div>
+                  :<input type="number" step="0.01" placeholder="0" value={fila.ingreso||""}
+                    onChange={e=>setFila(item.id,"ingreso",parseFloat(e.target.value)||0)}
+                    style={{width:80,textAlign:"center",borderColor:GRN+"66"}}/>}
               </td>
               <td>
                 <div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:RED,padding:"8px 12px",background:RED+"0A",borderRadius:6,border:b1(RED+"22")}}>
@@ -2790,16 +2797,20 @@ return <div>
                 </div>
               </td>
               <td>
-                <input type="number" step="0.01" placeholder="0" value={fila.stockReal||""}
-                  onChange={e=>setFila(item.id,"stockReal",e.target.value)}
-                  style={{width:80,textAlign:"center",borderColor:PRP+"66"}}/>
+                {filaBloq
+                  ?<div style={{fontFamily:"'DM Mono'",fontSize:13,textAlign:"center",color:PRP,padding:"8px 12px",background:PRP+"0A",borderRadius:6,border:b1(PRP+"22")}}>{fila.stockReal!==""?fmtN(parseFloat(fila.stockReal)||0):"—"}</div>
+                  :<input type="number" step="0.01" placeholder="0" value={fila.stockReal||""}
+                    onChange={e=>setFila(item.id,"stockReal",e.target.value)}
+                    style={{width:80,textAlign:"center",borderColor:PRP+"66"}}/>}
                 {diff!==null&&<div style={{fontSize:10,textAlign:"center",color:diff===0?GRN:diff>0?BLU:RED,marginTop:2}}>{diff>0?"+":""}{fmtN(diff)}</div>}
               </td>
               <td>
-                <input value={fila.obs||""}
-                  onChange={e=>setFila(item.id,"obs",e.target.value)}
-                  placeholder="Observación..."
-                  style={{width:160,fontSize:12}}/>
+                {filaBloq
+                  ?<div style={{fontSize:12,color:MUT,minWidth:140}}>{fila.obs||"—"}</div>
+                  :<input value={fila.obs||""}
+                    onChange={e=>setFila(item.id,"obs",e.target.value)}
+                    placeholder="Observación..."
+                    style={{width:160,fontSize:12}}/>}
               </td>
             </tr>;
           })}
@@ -2822,16 +2833,17 @@ return <div>
             {diaCerrado
               ?<>
                 <Bdg c="green">Día cerrado</Bdg>
-                <Btn s="sm" v="ghost" onClick={()=>{
+                {esSuperAdmin&&<Btn s="sm" v="ghost" onClick={()=>{
                   setRegsSucs(p=>p.map(r=>r.sucursal===sucSel&&r.fecha===fecha?{...r,estado:"abierto"}:r));
+                  supaPatch("registros_sucursales","?sucursal=eq."+encodeURIComponent(sucSel)+"&fecha=eq."+fecha,{estado:"abierto"}).catch(console.error);
                   setDiaCerrado(false);
-                }}>Reabrir</Btn>
-                <Btn s="sm" onClick={()=>{
+                }}>Reabrir</Btn>}
+                {(!esPasado||esSuperAdmin)&&<Btn s="sm" onClick={()=>{
                   setNuevaFechaInv(diaSiguiente(fecha));
                   setModalNuevoInv(true);
-                }}>+ Abrir nuevo inventario</Btn>
+                }}>+ Abrir nuevo inventario</Btn>}
               </>
-              :<Btn s="sm" v="success" disabled={!hayVentas}
+              :!bloqueadoPorFecha&&<Btn s="sm" v="success" disabled={!hayVentas}
                 xtra={!hayVentas?{opacity:0.4,cursor:"not-allowed"}:{}}
                 onClick={async()=>{
                   if(!hayVentas)return;
@@ -2918,9 +2930,10 @@ return <div>
     <Btn onClick={()=>{
       if(!nuevaFechaInv){return;}
       let nuevoData=null;
+      let existeId=null;
       setRegsSucs(p=>{
         const ultCierre=[...p]
-          .filter(r=>r.sucursal===sucSel&&r.estado==="cerrado")
+          .filter(r=>r.sucursal===sucSel&&r.estado==="cerrado"&&r.fecha<nuevaFechaInv)
           .sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
         const filas=items.map(i=>{
           const filaAnt=ultCierre?.filas.find(f=>f.itemId===i.id);
@@ -2931,11 +2944,33 @@ return <div>
             :0;
           return{itemId:i.id,invInicial,ingreso:0,egreso:0,stockFinal:invInicial,stockReal:"",obs:""};
         });
-        const nnum=nextNumInv(sucSel,p);
-        nuevoData={numInv:nnum,sucursal:sucSel,fecha:nuevaFechaInv,filas,ventas:[],estado:"abierto"};
-        return[...p,{id:Date.now(),...nuevoData}];
+        const existe=p.find(r=>r.sucursal===sucSel&&r.fecha===nuevaFechaInv);
+        if(existe){
+          // Actualizar filas del registro existente con los valores correctos
+          existeId=existe.id;
+          return p.map(r=>r.sucursal===sucSel&&r.fecha===nuevaFechaInv?{...r,filas,estado:"abierto"}:r);
+        }else{
+          const nnum=nextNumInv(sucSel,p);
+          nuevoData={numInv:nnum,sucursal:sucSel,fecha:nuevaFechaInv,filas,ventas:[],estado:"abierto"};
+          return[...p,{id:Date.now(),...nuevoData}];
+        }
       });
-      if(nuevoData){
+      if(existeId){
+        // Calcular filas de nuevo para el patch (estado ya en memoria)
+        const ultCierre=[...regsSucs]
+          .filter(r=>r.sucursal===sucSel&&r.estado==="cerrado"&&r.fecha<nuevaFechaInv)
+          .sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+        const filas=items.map(i=>{
+          const filaAnt=ultCierre?.filas.find(f=>f.itemId===i.id);
+          const invInicial=filaAnt
+            ?(filaAnt.stockReal!=null&&filaAnt.stockReal!==""
+              ?parseFloat(filaAnt.stockReal)||0
+              :parseFloat(filaAnt.stockFinal)||0)
+            :0;
+          return{itemId:i.id,invInicial,ingreso:0,egreso:0,stockFinal:invInicial,stockReal:"",obs:""};
+        });
+        supaPatch("registros_sucursales","?id=eq."+existeId,{filas,estado:"abierto"}).catch(console.error);
+      }else if(nuevoData){
         supaPost("registros_sucursales",nuevoData).then(([created])=>{
           if(created?.id) setRegsSucs(pp=>pp.map(r=>r.sucursal===sucSel&&r.fecha===nuevaFechaInv&&r.id>1000000000000?{...r,id:created.id}:r));
         }).catch(console.error);
@@ -3115,7 +3150,7 @@ function aplicarDeltaEgresos(draft,sucursal,fecha,egresosDelta,signo){
       if(!item)return f;
       const delta=(egresosDelta[item.nombre.trim().toLowerCase()]||0)*signo;
       if(delta===0)return f;
-      const nuevoEgreso=parseFloat(((parseFloat(f.egreso)||0)+delta).toFixed(4));
+      const nuevoEgreso=parseFloat(Math.max(0,(parseFloat(f.egreso)||0)+delta).toFixed(4));
       const ini=parseFloat(f.invInicial)||0;
       const ing=parseFloat(f.ingreso)||0;
       return{...f,egreso:nuevoEgreso,stockFinal:ini+ing-nuevoEgreso};
