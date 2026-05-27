@@ -142,7 +142,7 @@ const iRQ=[
 const fmt=n=>new Intl.NumberFormat("es-CL",{style:"currency",currency:"CLP",minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
 const fmtN=n=>new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
 const fmtC=n=>(parseFloat(n)||0).toFixed(2);
-const today=()=>new Date().toISOString().split("T")[0];
+const today=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().split("T")[0];};
 const getWeek=()=>{const d=new Date(),j=new Date(d.getFullYear(),0,4),w=Math.ceil(((d-j)/86400000+j.getDay()+1)/7);return d.getFullYear()+"-W"+String(w).padStart(2,"0");};
 const globalCss="@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');"
 +"*{box-sizing:border-box;margin:0;padding:0}"
