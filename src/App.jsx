@@ -3086,8 +3086,23 @@ const sucsVisiblesCos=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol
 :sucs;
 const[dSuc,setDSuc]=useState(sucsVisiblesCos[0]||"");
 const[dBuscar,setDBuscar]=useState("");
-// cantidades del día: {rId: cant}
 const[dCants,setDCants]=useState({});
+const[filtDesde,setFiltDesde]=useState("");
+const[filtHasta,setFiltHasta]=useState("");
+const[editVenta,setEditVenta]=useState(null);
+const[formVenta,setFormVenta]=useState({});
+function abrirEditVenta(x){setFormVenta({fecha:x.fecha,sucursal:x.sucursal,rId:x.rId,cant:x.cant});setEditVenta(x);}
+async function guardarVenta(){
+  const data={fecha:formVenta.fecha,sucursal:formVenta.sucursal,rId:parseInt(formVenta.rId),cant:parseFloat(formVenta.cant)||0};
+  await supaPatch("ventas","?id=eq."+editVenta.id,data).catch(console.error);
+  setVentas(p=>p.map(v=>v.id===editVenta.id?{...v,...data}:v));
+  setEditVenta(null);
+}
+async function eliminarVenta(x){
+  if(!window.confirm("¿Eliminar esta venta?"))return;
+  await supaDelete("ventas","?id=eq."+x.id).catch(console.error);
+  setVentas(p=>p.filter(v=>v.id!==x.id));
+}
 function abrirModal(){
 setDFecha(today());
 setDSuc(sucsVisiblesCos[0]||"");
@@ -3173,11 +3188,12 @@ const i=vs.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?precioVen
 const c=vs.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?cc(r)*x.cant:0);},0);
 return{suc,i,c,u:i-c};
 });
-// Agrupar registro por fecha+sucursal para mostrar en tabla
 const ventasFiltradas=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="staff_suc"))
 ?ventas.filter(v=>v.sucursal===userActivo.sucursal)
 :ventas;
-const registros=[...ventasFiltradas].sort((a,b)=>b.fecha.localeCompare(a.fecha));
+const registros=[...ventasFiltradas]
+.filter(v=>(!filtDesde||v.fecha>=filtDesde)&&(!filtHasta||v.fecha<=filtHasta))
+.sort((a,b)=>b.fecha.localeCompare(a.fecha));
 return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>COSTOS & INGRESOS</h1>
@@ -3218,9 +3234,26 @@ return <div>
   </Card>
 </div>}
 <Card xtra={{padding:0}}>
-  <div style={{padding:"16px 20px",borderBottom:b1(BRD)}}><span style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC}}>REGISTRO DE VENTAS</span></div>
+  <div style={{padding:"16px 20px",borderBottom:b1(BRD),display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+    <span style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC}}>REGISTRO DE VENTAS</span>
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <LI label="Desde" xtra={{margin:0}}>
+        <input type="date" value={filtDesde} onChange={e=>setFiltDesde(e.target.value)} style={{width:140}}/>
+      </LI>
+      <LI label="Hasta" xtra={{margin:0}}>
+        <input type="date" value={filtHasta} onChange={e=>setFiltHasta(e.target.value)} style={{width:140}}/>
+      </LI>
+      {(filtDesde||filtHasta)&&<button onClick={()=>{setFiltDesde("");setFiltHasta("");}} style={{background:"transparent",border:"none",color:MUT,cursor:"pointer",fontSize:12,padding:"4px 8px",borderRadius:4}}>✕ Limpiar</button>}
+      <span style={{fontSize:12,color:MUT}}>{registros.length} registros</span>
+    </div>
+  </div>
   <table>
-    <thead><tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cant.</th><th>Ingreso</th>{userActivo?.rol!=="staff_suc"&&<th>Costo</th>}{userActivo?.rol!=="staff_suc"&&<th>Utilidad</th>}</tr></thead>
+    <thead><tr>
+      <th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cant.</th><th>Ingreso</th>
+      {userActivo?.rol!=="staff_suc"&&<th>Costo</th>}
+      {userActivo?.rol!=="staff_suc"&&<th>Utilidad</th>}
+      {userActivo?.rol==="superadmin"&&<th></th>}
+    </tr></thead>
     <tbody>{registros.map(x=>{
       const r=rv.find(r=>r.id===x.rId);
       const ig=r?precioVenta(r,x)*x.cant:0;
@@ -3233,6 +3266,10 @@ return <div>
         <td style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(ig)}</td>
         {userActivo?.rol!=="staff_suc"&&<td style={{fontFamily:"'DM Mono'",color:RED}}>{fmt(co)}</td>}
         {userActivo?.rol!=="staff_suc"&&<td style={{fontFamily:"'DM Mono'",color:ig-co>0?ACC:RED}}>{fmt(ig-co)}</td>}
+        {userActivo?.rol==="superadmin"&&<td><div style={{display:"flex",gap:4}}>
+          <button onClick={()=>abrirEditVenta(x)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"3px 7px",fontSize:11,cursor:"pointer"}}>E</button>
+          <button onClick={()=>eliminarVenta(x)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 7px",fontSize:11,cursor:"pointer"}}>X</button>
+        </div></td>}
       </tr>;
     })}</tbody>
   </table>
@@ -3322,6 +3359,36 @@ return <div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
     <Btn v="ghost" onClick={()=>setModal(false)}>Cancelar</Btn>
     <Btn onClick={confirmarDia} disabled={!dResumen.length}>Confirmar ventas del día</Btn>
+  </div>
+</Mdl>}
+
+{editVenta&&<Mdl title="EDITAR VENTA" onClose={()=>setEditVenta(null)}>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+    <LI label="Fecha">
+      <input type="date" value={formVenta.fecha} onChange={e=>setFormVenta(p=>({...p,fecha:e.target.value}))} style={{width:"100%"}}/>
+    </LI>
+    <LI label="Sucursal">
+      <select value={formVenta.sucursal} onChange={e=>setFormVenta(p=>({...p,sucursal:e.target.value}))} style={{width:"100%"}}>
+        {sucs.map(s=><option key={s}>{s}</option>)}
+      </select>
+    </LI>
+    <div style={{gridColumn:"1/3"}}>
+      <LI label="Producto">
+        <select value={formVenta.rId} onChange={e=>setFormVenta(p=>({...p,rId:parseInt(e.target.value)}))} style={{width:"100%"}}>
+          {[...rv].sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).map(r=><option key={r.id} value={r.id}>{r.nombre}</option>)}
+        </select>
+      </LI>
+    </div>
+    <LI label="Cantidad">
+      <input type="number" min="0" step="0.01" value={formVenta.cant} onChange={e=>setFormVenta(p=>({...p,cant:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/>
+    </LI>
+    <LI label="Precio c/IVA">
+      <input value={fmt(precioConIva(rv.find(r=>r.id===parseInt(formVenta.rId))||{precio:0}))} readOnly style={{width:"100%",color:MUT}}/>
+    </LI>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+    <Btn v="ghost" onClick={()=>setEditVenta(null)}>Cancelar</Btn>
+    <Btn onClick={guardarVenta}>Guardar cambios</Btn>
   </div>
 </Mdl>}
 
