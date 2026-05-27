@@ -3092,16 +3092,76 @@ const[filtHasta,setFiltHasta]=useState("");
 const[editVenta,setEditVenta]=useState(null);
 const[formVenta,setFormVenta]=useState({});
 function abrirEditVenta(x){setFormVenta({fecha:x.fecha,sucursal:x.sucursal,rId:x.rId,cant:x.cant});setEditVenta(x);}
+// Calcula el mapa de egresos por nombre de ítem de sucursal para una venta {rId, cant}
+function calcEgresosPorItem(rId,cant){
+  const r=rv.find(x=>x.id===rId);
+  if(!r)return{};
+  const m={};
+  r.ings.forEach(ing=>{
+    if(!ing.sucItemNombre)return;
+    m[ing.sucItemNombre]=(m[ing.sucItemNombre]||0)+ing.cantidad*cant;
+  });
+  return m;
+}
+// Aplica delta de egresos (+1 para agregar, -1 para revertir) a registros_sucursales
+function aplicarDeltaEgresos(draft,sucursal,fecha,egresosDelta,signo){
+  const sucData=invSucs.find(s=>s.sucursal===sucursal);
+  if(!sucData||Object.keys(egresosDelta).length===0)return draft;
+  return draft.map(reg=>{
+    if(reg.sucursal!==sucursal||reg.fecha!==fecha)return reg;
+    const nuevasFilas=reg.filas.map(f=>{
+      const item=sucData.items.find(i=>i.id===f.itemId);
+      if(!item)return f;
+      const delta=(egresosDelta[item.nombre]||0)*signo;
+      if(delta===0)return f;
+      const nuevoEgreso=parseFloat(((parseFloat(f.egreso)||0)+delta).toFixed(4));
+      const ini=parseFloat(f.invInicial)||0;
+      const ing=parseFloat(f.ingreso)||0;
+      return{...f,egreso:nuevoEgreso,stockFinal:ini+ing-nuevoEgreso};
+    });
+    return{...reg,filas:nuevasFilas};
+  });
+}
 async function guardarVenta(){
-  const data={fecha:formVenta.fecha,sucursal:formVenta.sucursal,rId:parseInt(formVenta.rId),cant:parseFloat(formVenta.cant)||0};
-  await supaPatch("ventas","?id=eq."+editVenta.id,data).catch(console.error);
-  setVentas(p=>p.map(v=>v.id===editVenta.id?{...v,...data}:v));
+  const nuevo={fecha:formVenta.fecha,sucursal:formVenta.sucursal,rId:parseInt(formVenta.rId),cant:parseFloat(formVenta.cant)||0};
+  const viejo={fecha:editVenta.fecha,sucursal:editVenta.sucursal,rId:editVenta.rId,cant:editVenta.cant};
+  // Actualizar venta en DB
+  await supaPatch("ventas","?id=eq."+editVenta.id,nuevo).catch(console.error);
+  setVentas(p=>p.map(v=>v.id===editVenta.id?{...v,...nuevo}:v));
+  // Actualizar egresos en registros_sucursales
+  const egresosViejos=calcEgresosPorItem(viejo.rId,viejo.cant);
+  const egresosNuevos=calcEgresosPorItem(nuevo.rId,nuevo.cant);
+  setRegsSucs(prev=>{
+    let draft=[...prev];
+    // Revertir egresos viejos
+    draft=aplicarDeltaEgresos(draft,viejo.sucursal,viejo.fecha,egresosViejos,-1);
+    // Aplicar egresos nuevos
+    draft=aplicarDeltaEgresos(draft,nuevo.sucursal,nuevo.fecha,egresosNuevos,+1);
+    // Guardar en DB los registros afectados
+    const afectadas=new Set();
+    afectadas.add(viejo.sucursal+"__"+viejo.fecha);
+    afectadas.add(nuevo.sucursal+"__"+nuevo.fecha);
+    afectadas.forEach(key=>{
+      const[suc,fec]=key.split("__");
+      const reg=draft.find(r=>r.sucursal===suc&&r.fecha===fec);
+      if(reg)supaPatch("registros_sucursales","?id=eq."+reg.id,{filas:reg.filas}).catch(console.error);
+    });
+    return draft;
+  });
   setEditVenta(null);
 }
 async function eliminarVenta(x){
   if(!window.confirm("¿Eliminar esta venta?"))return;
   await supaDelete("ventas","?id=eq."+x.id).catch(console.error);
   setVentas(p=>p.filter(v=>v.id!==x.id));
+  // Revertir egresos en registros_sucursales
+  const egresos=calcEgresosPorItem(x.rId,x.cant);
+  setRegsSucs(prev=>{
+    const draft=aplicarDeltaEgresos([...prev],x.sucursal,x.fecha,egresos,-1);
+    const reg=draft.find(r=>r.sucursal===x.sucursal&&r.fecha===x.fecha);
+    if(reg)supaPatch("registros_sucursales","?id=eq."+reg.id,{filas:reg.filas}).catch(console.error);
+    return draft;
+  });
 }
 function abrirModal(){
 setDFecha(today());
