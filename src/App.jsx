@@ -3099,7 +3099,8 @@ function calcEgresosPorItem(rId,cant){
   const m={};
   r.ings.forEach(ing=>{
     if(!ing.sucItemNombre)return;
-    m[ing.sucItemNombre]=(m[ing.sucItemNombre]||0)+ing.cantidad*cant;
+    const k=ing.sucItemNombre.trim().toLowerCase();
+    m[k]=(m[k]||0)+ing.cantidad*cant;
   });
   return m;
 }
@@ -3112,7 +3113,7 @@ function aplicarDeltaEgresos(draft,sucursal,fecha,egresosDelta,signo){
     const nuevasFilas=reg.filas.map(f=>{
       const item=sucData.items.find(i=>i.id===f.itemId);
       if(!item)return f;
-      const delta=(egresosDelta[item.nombre]||0)*signo;
+      const delta=(egresosDelta[item.nombre.trim().toLowerCase()]||0)*signo;
       if(delta===0)return f;
       const nuevoEgreso=parseFloat(((parseFloat(f.egreso)||0)+delta).toFixed(4));
       const ini=parseFloat(f.invInicial)||0;
@@ -3188,7 +3189,7 @@ const egresosPorItem={};
 dResumen.forEach(({r,cant})=>{
   r.ings.forEach(ing=>{
     if(!ing.sucItemNombre)return;
-    const nombre=ing.sucItemNombre;
+    const nombre=ing.sucItemNombre.trim().toLowerCase();
     egresosPorItem[nombre]=(egresosPorItem[nombre]||0)+ing.cantidad*cant;
   });
 });
@@ -3204,7 +3205,7 @@ setRegsSucs(p=>{
     return filas.map(f=>{
       const item=sucData.items.find(i=>i.id===f.itemId);
       if(!item)return f;
-      const egresoAdicional=egresosPorItem[item.nombre]||0;
+      const egresoAdicional=egresosPorItem[item.nombre.trim().toLowerCase()]||0;
       if(egresoAdicional===0)return f;
       const nuevoEgreso=(parseFloat(f.egreso)||0)+egresoAdicional;
       const ini=parseFloat(f.invInicial)||0;
