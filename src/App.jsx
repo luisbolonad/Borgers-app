@@ -96,6 +96,7 @@ ver_caja:       ["superadmin","admin_suc","staff_suc"],
 ver_hist:       ["superadmin","admin_suc","produccion"],
 ver_config:     ["superadmin"],
 ver_manual:     ["superadmin","admin_suc","staff_suc","produccion"],
+ver_ce:         ["superadmin","caja_eventos"],
 // Acciones
 editar_recetas: ["superadmin"],
 despacho:       ["superadmin","produccion"],
@@ -471,6 +472,7 @@ const allTabs=[
 {id:"manual",l:"Manual",i:"📖",perm:"ver_manual"},
 {id:"hist",l:"Historial",i:"🕐",perm:"ver_hist"},
 {id:"config",l:"Configuración",i:"⚙️",perm:"ver_config"},
+{id:"ce",l:"Caja Eventos",i:"🎪",perm:"ver_ce"},
 ];
 const T=allTabs.filter(t=>!t.perm||puede(t.perm));
 // Pantalla de carga
@@ -506,11 +508,12 @@ return <>
 {menuAbierto
 ?<div>
 <div style={{fontSize:12,fontWeight:600,color:TXT,marginBottom:2}}>{userActivo.nombre}</div>
-<div style={{fontSize:11,color:MUT,marginBottom:8}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:"Producción"}</div>
+<div style={{fontSize:11,color:MUT,marginBottom:8}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):"Producción"}</div>
 <button onClick={()=>{setUserActivo(null);setTab("inicio");}} style={{fontSize:11,color:RED,background:"transparent",border:"none",cursor:"pointer",padding:0}}>Cerrar sesión</button>
 </div>
 :<button onClick={()=>{setUserActivo(null);setTab("inicio");}} title="Cerrar sesión" style={{background:"transparent",border:"none",color:RED,cursor:"pointer",fontSize:16,width:"100%",textAlign:"center"}}>⏏</button>
 }
+
 </div>
 </div>
 <div style={{marginLeft:menuAbierto?220:56,flex:1,padding:28,minWidth:0,transition:"margin-left 0.2s ease"}}>
@@ -527,6 +530,7 @@ return <>
 {tab==="manual"&&<Manual manualTemas={manualTemas} setManualTemas={setManualTemas} manualArticulos={manualArticulos} setManualArticulos={setManualArticulos} userActivo={userActivo}/>}
 {tab==="hist"&&<Hist {...sh} userActivo={userActivo}/>}
 {tab==="config"&&<Config {...sh} puede={puede} ivaRate={ivaRate} setIvaRate={setIvaRate}/>}
+{tab==="ce"&&<CajaEventos userActivo={userActivo} puede={puede} sucs={sucs} users={users}/>}
 </div>
 </div>
 </>;
@@ -3898,8 +3902,8 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
           <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{u.nombre}</div>
           <div style={{fontSize:12,color:MUT,marginBottom:6}}>{u.email}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            <Bdg c={u.rol==="superadmin"?"orange":u.rol==="produccion"?"blue":u.rol==="admin_suc"?"green":"muted"}>
-              {u.rol==="superadmin"?"Superadmin":u.rol==="admin_suc"?"Admin Suc.":u.rol==="staff_suc"?"Staff Suc.":"Producción"}
+            <Bdg c={u.rol==="superadmin"?"orange":u.rol==="produccion"?"blue":u.rol==="admin_suc"?"green":u.rol==="caja_eventos"?"purple":"muted"}>
+              {u.rol==="superadmin"?"Superadmin":u.rol==="admin_suc"?"Admin Suc.":u.rol==="staff_suc"?"Staff Suc.":u.rol==="caja_eventos"?"Caja Eventos":"Producción"}
             </Bdg>
             {u.sucursal&&<Bdg c="muted">{u.sucursal}</Bdg>}
             {!u.activo&&<Bdg c="red">Inactivo</Bdg>}
@@ -3930,9 +3934,10 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
         <option value="admin_suc">Admin Sucursal</option>
         <option value="staff_suc">Staff Sucursal</option>
         <option value="produccion">Producción</option>
+        <option value="caja_eventos">Caja Eventos</option>
       </select>
     </LI>
-    {(formUser.rol==="admin_suc"||formUser.rol==="staff_suc")&&<LI label="Sucursal">
+    {(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos")&&<LI label="Sucursal">
       <select value={formUser.sucursal} onChange={e=>setFormUser(p=>({...p,sucursal:e.target.value}))} style={{width:"100%"}}>
         {sucs.map(s=><option key={s}>{s}</option>)}
       </select>
@@ -3964,4 +3969,421 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
 {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
 
   </div>;
+}
+// ── Caja Eventos ─────────────────────────────────────────────────────────────
+function CajaEventos({userActivo,puede,sucs,users}){
+const fmtM=v=>"$"+parseFloat(v||0).toFixed(2);
+const ceUsers=(users||[]).filter(u=>u.rol==="caja_eventos"&&u.activo);
+const esSA=userActivo.rol==="superadmin";
+const[userSel,setUserSel]=useState(esSA?(ceUsers[0]?.id||null):userActivo.id);
+const userId=esSA?userSel:userActivo.id;
+const userInfo=(users||[]).find(u=>u.id===userId)||userActivo;
+const[menu,setMenu]=useState([]);
+const[ventas,setVentas]=useState([]);
+const[cierres,setCierres]=useState([]);
+const[loading,setLoading]=useState(true);
+const[tab,setTab]=useState("caja");
+const[carrito,setCarrito]=useState([]);
+const[codInput,setCodInput]=useState("");
+const[cantInput,setCantInput]=useState(1);
+const[descTipo,setDescTipo]=useState("$");
+const[descValor,setDescValor]=useState("");
+const[pagos,setPagos]=useState([]);
+const[pagoTipo,setPagoTipo]=useState("efectivo");
+const[pagoMonto,setPagoMonto]=useState("");
+const[efectivoRec,setEfectivoRec]=useState("");
+const[obs,setObs]=useState("");
+const[confirmarCierre,setConfirmarCierre]=useState(false);
+const[modalMenu,setModalMenu]=useState(false);
+const[editMI,setEditMI]=useState(null);
+const[formM,setFormM]=useState({codigo:"",nombre:"",precio:""});
+const[fechaRes,setFechaRes]=useState(today());
+const[fechaHist,setFechaHist]=useState(today());
+const[ventaExp,setVentaExp]=useState(null);
+const[confirmarEl,setConfirmarEl]=useState(null);
+const codRef=useRef();
+useEffect(()=>{
+if(!userId)return;
+setLoading(true);
+Promise.all([
+  supaGet("ce_menu","?user_id=eq."+userId+"&order=codigo.asc"),
+  supaGet("ce_ventas","?user_id=eq."+userId+"&order=fecha.desc,hora.desc"),
+  supaGet("ce_cierres","?user_id=eq."+userId+"&order=fecha.desc"),
+]).then(([m,v,c])=>{setMenu(m||[]);setVentas(v||[]);setCierres(c||[]);})
+.catch(console.error).finally(()=>setLoading(false));
+},[userId]);
+const subtotal=carrito.reduce((s,i)=>s+i.precio*i.cantidad,0);
+const descMonto=descValor?(descTipo==="%"?subtotal*(parseFloat(descValor)/100):parseFloat(descValor)):0;
+const total=Math.max(0,subtotal-descMonto);
+const totalPagado=pagos.reduce((s,p)=>s+(parseFloat(p.monto)||0),0);
+const efectivoEnPagos=pagos.filter(p=>p.tipo==="efectivo").reduce((s,p)=>s+(parseFloat(p.monto)||0),0);
+const hoyFecha=today();
+const hoyActualCerrado=cierres.some(c=>c.fecha===hoyFecha);
+const faltante=parseFloat((total-totalPagado).toFixed(2));
+function agregarAlCarrito(){
+  const item=menu.find(m=>m.codigo.toUpperCase()===codInput.toUpperCase().trim());
+  if(!item){alert("Código no encontrado: "+codInput);return;}
+  const cant=parseInt(cantInput)||1;
+  setCarrito(prev=>{
+    const idx=prev.findIndex(i=>i.codigo===item.codigo);
+    if(idx>=0)return prev.map((x,j)=>j===idx?{...x,cantidad:x.cantidad+cant}:x);
+    return[...prev,{codigo:item.codigo,nombre:item.nombre,precio:item.precio,cantidad:cant}];
+  });
+  setCodInput("");setCantInput(1);
+  setTimeout(()=>codRef.current?.focus(),50);
+}
+function agregarPago(){
+  const m=parseFloat(pagoMonto)||0;
+  if(m<=0)return;
+  setPagos(p=>[...p,{tipo:pagoTipo,monto:m}]);
+  setPagoMonto("");
+}
+async function confirmarVenta(){
+  if(carrito.length===0){alert("El carrito está vacío.");return;}
+  if(Math.abs(faltante)>0.01){alert("El total de pagos no coincide con el total.");return;}
+  if(hoyActualCerrado){alert("La caja del día ya está cerrada.");return;}
+  const hora=new Date().toLocaleTimeString("es-EC",{hour:"2-digit",minute:"2-digit"});
+  const venta={user_id:userId,sucursal:userInfo.sucursal||"",fecha:hoyFecha,hora,items:carrito,pagos,descuento_tipo:descTipo,descuento_valor:parseFloat(descValor)||0,total,observaciones:obs,estado:"abierto"};
+  try{
+    const[created]=await supaPost("ce_ventas",venta);
+    setVentas(p=>[created||{...venta,id:Date.now()},...p]);
+    setCarrito([]);setDescValor("");setPagos([]);setEfectivoRec("");setObs("");
+    setTimeout(()=>codRef.current?.focus(),50);
+  }catch(e){console.error(e);alert("Error al guardar la venta.");}
+}
+async function guardarMenuItem(){
+  if(!formM.codigo.trim()||!formM.nombre.trim()||!formM.precio)return;
+  const data={user_id:userId,codigo:formM.codigo.trim().toUpperCase(),nombre:formM.nombre.trim(),precio:parseFloat(formM.precio)};
+  if(editMI){
+    await supaPatch("ce_menu","?id=eq."+editMI.id,data).catch(console.error);
+    setMenu(p=>p.map(m=>m.id===editMI.id?{...m,...data}:m));
+  }else{
+    const[created]=await supaPost("ce_menu",data).catch(()=>[data]);
+    setMenu(p=>[...p,created||{...data,id:Date.now()}].sort((a,b)=>a.codigo.localeCompare(b.codigo)));
+  }
+  setModalMenu(false);setEditMI(null);setFormM({codigo:"",nombre:"",precio:""});
+}
+async function cerrarDia(){
+  const cierre={user_id:userId,sucursal:userInfo.sucursal||"",fecha:hoyFecha};
+  try{
+    const[created]=await supaPost("ce_cierres",cierre);
+    setCierres(p=>[created||cierre,...p]);
+    await supaPatch("ce_ventas","?user_id=eq."+userId+"&fecha=eq."+hoyFecha,{estado:"cerrado"}).catch(console.error);
+    setVentas(p=>p.map(v=>v.fecha===hoyFecha?{...v,estado:"cerrado"}:v));
+  }catch(e){console.error(e);}
+  setConfirmarCierre(false);
+}
+const ventasRes=ventas.filter(v=>v.fecha===fechaRes);
+const resProds={};
+ventasRes.forEach(v=>(v.items||[]).forEach(item=>{
+  if(!resProds[item.codigo])resProds[item.codigo]={codigo:item.codigo,nombre:item.nombre,cantidad:0,total:0};
+  resProds[item.codigo].cantidad+=item.cantidad;
+  resProds[item.codigo].total+=item.precio*item.cantidad;
+}));
+const resPagos={efectivo:0,transferencia:0,tarjeta:0,otros:0};
+ventasRes.forEach(v=>(v.pagos||[]).forEach(p=>{const k=p.tipo in resPagos?p.tipo:"otros";resPagos[k]+=parseFloat(p.monto)||0;}));
+const totalRes=Object.values(resPagos).reduce((s,v)=>s+v,0);
+const diaResCerrado=cierres.some(c=>c.fecha===fechaRes);
+if(loading)return <div style={{textAlign:"center",padding:48,color:MUT,fontSize:13}}>Cargando datos...</div>;
+if(esSA&&ceUsers.length===0)return <Card xtra={{textAlign:"center",padding:48,color:MUT}}>No hay usuarios <strong style={{color:ACC}}>caja_eventos</strong> activos. Crea uno en Configuración → Usuarios.</Card>;
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
+  <div>
+    <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CAJA EVENTOS</h1>
+    <p style={{color:MUT,fontSize:13}}>{userInfo.nombre} · {userInfo.sucursal||"Sin sucursal"}</p>
+  </div>
+  {esSA&&ceUsers.length>0&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
+    <span style={{fontSize:12,color:MUT}}>Usuario:</span>
+    <select value={userSel||""} onChange={e=>{setUserSel(parseInt(e.target.value));setCarrito([]);setPagos([]);}} style={{fontSize:13,padding:"6px 10px",borderRadius:6}}>
+      {ceUsers.map(u=><option key={u.id} value={u.id}>{u.nombre} · {u.sucursal}</option>)}
+    </select>
+  </div>}
+</div>
+<div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+  {[["caja","💰 CAJA"],["menu","🍽️ MENÚ"],["resumen","📊 RESUMEN"],["historial","🕐 HISTORIAL"]].map(([id,l])=>{
+    const a=tab===id;
+    return <button key={id} onClick={()=>setTab(id)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
+  })}
+</div>
+{tab==="caja"&&<div style={{display:"grid",gridTemplateColumns:"1fr 360px",gap:20,alignItems:"start"}}>
+  <Card>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:14}}>CARRITO</div>
+    <div style={{display:"flex",gap:8,marginBottom:10}}>
+      <input ref={codRef} value={codInput} onChange={e=>setCodInput(e.target.value.toUpperCase())}
+        onKeyDown={e=>e.key==="Enter"&&agregarAlCarrito()} placeholder="Código..."
+        style={{flex:1,textTransform:"uppercase",fontWeight:600,letterSpacing:1}} autoFocus/>
+      <input type="number" value={cantInput} min={1} onChange={e=>setCantInput(parseInt(e.target.value)||1)}
+        onKeyDown={e=>e.key==="Enter"&&agregarAlCarrito()} style={{width:70,textAlign:"center"}} placeholder="Cant"/>
+      <Btn onClick={agregarAlCarrito}>+ Agregar</Btn>
+    </div>
+    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12,paddingBottom:12,borderBottom:b1(FNT)}}>
+      {menu.map(m=><button key={m.id} onClick={()=>{
+        setCarrito(prev=>{const idx=prev.findIndex(i=>i.codigo===m.codigo);if(idx>=0)return prev.map((x,j)=>j===idx?{...x,cantidad:x.cantidad+1}:x);return[...prev,{codigo:m.codigo,nombre:m.nombre,precio:m.precio,cantidad:1}];});
+      }} style={{padding:"5px 10px",borderRadius:6,fontSize:12,cursor:"pointer",border:b1(BRD),background:FNT,color:TXT,transition:"background 0.15s"}}
+        onMouseOver={e=>e.currentTarget.style.background=ACC+"22"} onMouseOut={e=>e.currentTarget.style.background=FNT}>
+        <strong style={{color:ACC}}>{m.codigo}</strong> {m.nombre} <span style={{color:GRN}}>{fmtM(m.precio)}</span>
+      </button>)}
+    </div>
+    {carrito.length===0
+      ?<div style={{textAlign:"center",padding:"24px 0",color:MUT,fontSize:13}}>El carrito está vacío</div>
+      :<table style={{width:"100%",marginBottom:12}}>
+        <thead><tr>
+          <th style={{textAlign:"left"}}>Producto</th>
+          <th style={{textAlign:"center",width:70}}>Cant</th>
+          <th style={{textAlign:"right",width:90}}>P.Unit</th>
+          <th style={{textAlign:"right",width:90}}>Subtotal</th>
+          <th style={{width:36}}></th>
+        </tr></thead>
+        <tbody>
+          {carrito.map((item,i)=><tr key={i}>
+            <td><div style={{fontWeight:500,fontSize:13}}>{item.nombre}</div><div style={{fontSize:11,color:MUT}}>{item.codigo}</div></td>
+            <td style={{textAlign:"center"}}>
+              <input type="number" min={1} value={item.cantidad}
+                onChange={e=>setCarrito(p=>p.map((x,j)=>j===i?{...x,cantidad:parseInt(e.target.value)||1}:x))}
+                style={{width:55,textAlign:"center"}}/>
+            </td>
+            <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:13,color:MUT}}>{fmtM(item.precio)}</td>
+            <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:13,color:ACC,fontWeight:600}}>{fmtM(item.precio*item.cantidad)}</td>
+            <td style={{textAlign:"center"}}>
+              <button onClick={()=>setCarrito(p=>p.filter((_,j)=>j!==i))} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:12}}>✕</button>
+            </td>
+          </tr>)}
+        </tbody>
+      </table>
+    }
+    <div style={{borderTop:b1(BRD),paddingTop:12}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+        <span style={{fontSize:12,color:MUT,whiteSpace:"nowrap"}}>Descuento:</span>
+        <select value={descTipo} onChange={e=>setDescTipo(e.target.value)} style={{width:55,fontSize:13,padding:"4px 6px"}}>
+          <option value="$">$</option>
+          <option value="%">%</option>
+        </select>
+        <input type="number" min={0} value={descValor} onChange={e=>setDescValor(e.target.value)} placeholder="0" style={{width:100}}/>
+        {descValor&&<Btn v="ghost" s="sm" onClick={()=>setDescValor("")}>✕</Btn>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:MUT}}><span>Subtotal</span><span style={{fontFamily:"'DM Mono'"}}>{fmtM(subtotal)}</span></div>
+        {descMonto>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:RED}}><span>Descuento {descTipo==="%"?descValor+"%":"$"+parseFloat(descValor||0).toFixed(2)}</span><span style={{fontFamily:"'DM Mono'"}}>-{fmtM(descMonto)}</span></div>}
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:22,fontFamily:"'Bebas Neue'",letterSpacing:1,color:ACC,borderTop:b1(BRD),paddingTop:8,marginTop:2}}><span>TOTAL</span><span>{fmtM(total)}</span></div>
+      </div>
+    </div>
+  </Card>
+  <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <Card>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:14}}>FORMA DE PAGO</div>
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <select value={pagoTipo} onChange={e=>setPagoTipo(e.target.value)} style={{flex:1,fontSize:13,padding:"6px 8px"}}>
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="otros">Otros</option>
+        </select>
+        <input type="number" value={pagoMonto} onChange={e=>setPagoMonto(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&agregarPago()} placeholder="Monto" style={{width:100,textAlign:"right"}}/>
+        <Btn s="sm" onClick={agregarPago}>+</Btn>
+      </div>
+      {pagos.length>0&&<div style={{marginBottom:10}}>
+        {pagos.map((p,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:b1(FNT)}}>
+          <Bdg c={p.tipo==="efectivo"?"green":p.tipo==="transferencia"?"blue":p.tipo==="tarjeta"?"orange":"muted"}>{p.tipo.charAt(0).toUpperCase()+p.tipo.slice(1)}</Bdg>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontFamily:"'DM Mono'",fontSize:13}}>{fmtM(p.monto)}</span>
+            <button onClick={()=>setPagos(prev=>prev.filter((_,j)=>j!==i))} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:11}}>✕</button>
+          </div>
+        </div>)}
+      </div>}
+      {efectivoEnPagos>0&&<div style={{background:GRN+"11",borderRadius:8,padding:10,marginBottom:10,border:b1(GRN+"33")}}>
+        <div style={{fontSize:12,color:MUT,marginBottom:5}}>Efectivo recibido</div>
+        <input type="number" value={efectivoRec} onChange={e=>setEfectivoRec(e.target.value)}
+          placeholder="0.00" style={{width:"100%",textAlign:"right",marginBottom:6}}/>
+        {efectivoRec&&<div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,color:GRN}}>
+          <span>Cambio (vuelto):</span><span style={{fontFamily:"'DM Mono'"}}>{fmtM(parseFloat(efectivoRec||0)-efectivoEnPagos)}</span>
+        </div>}
+      </div>}
+      <div style={{background:Math.abs(faltante)<0.01&&pagos.length>0?GRN+"11":FNT,borderRadius:8,padding:"8px 12px",display:"flex",justifyContent:"space-between",fontSize:13}}>
+        <span style={{color:MUT}}>Pendiente:</span>
+        <span style={{fontFamily:"'DM Mono'",color:Math.abs(faltante)<0.01?GRN:faltante<0?RED:ACC,fontWeight:700}}>{fmtM(faltante)}</span>
+      </div>
+    </Card>
+    <Card xtra={{padding:14}}>
+      <div style={{fontSize:12,color:MUT,marginBottom:5}}>Observaciones</div>
+      <textarea value={obs} onChange={e=>setObs(e.target.value)} rows={2}
+        placeholder="Notas del pedido..." style={{width:"100%",fontSize:12,resize:"vertical"}}/>
+    </Card>
+    <Btn v="success" xtra={{padding:"14px",fontSize:16,fontFamily:"'Bebas Neue'",letterSpacing:2,textAlign:"center",opacity:(carrito.length===0||Math.abs(faltante)>0.01)?0.4:1,cursor:carrito.length===0||Math.abs(faltante)>0.01?"not-allowed":"pointer"}}
+      onClick={confirmarVenta}>✓ CONFIRMAR VENTA</Btn>
+    {hoyActualCerrado&&<div style={{background:RED+"18",color:RED,borderRadius:8,padding:"10px 14px",fontSize:13,border:b1(RED+"44"),textAlign:"center"}}>🔒 Caja cerrada. No se pueden registrar nuevas ventas.</div>}
+    <Btn v="ghost" s="sm" xtra={{textAlign:"center",opacity:carrito.length>0?1:0.3}} onClick={()=>{if(window.confirm("¿Limpiar el carrito?"))setCarrito([]);setDescValor("");setPagos([]);setObs("");}}>🗑 Limpiar carrito</Btn>
+  </div>
+</div>}
+{tab==="menu"&&<div>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+    <div style={{fontSize:13,color:MUT}}>{menu.length} productos · Ingresa el código en CAJA para agregar al carrito</div>
+    <Btn onClick={()=>{setEditMI(null);setFormM({codigo:"",nombre:"",precio:""});setModalMenu(true);}}>+ Agregar producto</Btn>
+  </div>
+  {menu.length===0
+    ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin productos. Agrega productos al menú para usarlos en caja.</Card>
+    :<Card xtra={{padding:0}}>
+      <table>
+        <thead><tr>
+          <th style={{textAlign:"center",width:90}}>Código</th>
+          <th>Nombre</th>
+          <th style={{textAlign:"right",width:120}}>Precio (c/IVA)</th>
+          <th style={{width:80}}></th>
+        </tr></thead>
+        <tbody>
+          {menu.map(item=><tr key={item.id}>
+            <td style={{textAlign:"center"}}><Bdg c="orange" xtra={{fontFamily:"'DM Mono'",fontSize:12,letterSpacing:1}}>{item.codigo}</Bdg></td>
+            <td style={{fontWeight:500}}>{item.nombre}</td>
+            <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:13,color:GRN}}>{fmtM(item.precio)}</td>
+            <td style={{textAlign:"center"}}>
+              <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                <button onClick={()=>{setEditMI(item);setFormM({codigo:item.codigo,nombre:item.nombre,precio:item.precio});setModalMenu(true);}}
+                  style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>E</button>
+                <button onClick={()=>setConfirmarEl({msg:'¿Eliminar "'+item.nombre+'"?',fn:async()=>{
+                  await supaDelete("ce_menu","?id=eq."+item.id).catch(console.error);
+                  setMenu(p=>p.filter(m=>m.id!==item.id));
+                }})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>X</button>
+              </div>
+            </td>
+          </tr>)}
+        </tbody>
+      </table>
+    </Card>
+  }
+</div>}
+{tab==="resumen"&&<div>
+  <div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:20,flexWrap:"wrap"}}>
+    <LI label="Fecha"><input type="date" value={fechaRes} onChange={e=>setFechaRes(e.target.value)} style={{width:180}}/></LI>
+    {diaResCerrado?<Bdg c="green" xtra={{marginBottom:4}}>DÍA CERRADO</Bdg>:<Bdg c="orange" xtra={{marginBottom:4}}>DÍA ABIERTO</Bdg>}
+    <div style={{fontSize:13,color:MUT,marginBottom:4}}>{ventasRes.length} venta(s)</div>
+  </div>
+  {ventasRes.length===0
+    ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin ventas para esta fecha.</Card>
+    :<>
+      <Card xtra={{marginBottom:16,padding:0}}>
+        <div style={{padding:"14px 20px",borderBottom:b1(BRD),fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1}}>PRODUCTOS VENDIDOS</div>
+        <table>
+          <thead><tr>
+            <th style={{textAlign:"center",width:90}}>Código</th>
+            <th>Producto</th>
+            <th style={{textAlign:"center",width:80}}>Cantidad</th>
+            <th style={{textAlign:"right",width:110}}>Total</th>
+          </tr></thead>
+          <tbody>
+            {Object.values(resProds).sort((a,b)=>b.total-a.total).map(p=><tr key={p.codigo}>
+              <td style={{textAlign:"center"}}><Bdg c="orange" xtra={{fontFamily:"'DM Mono'",fontSize:11}}>{p.codigo}</Bdg></td>
+              <td style={{fontWeight:500}}>{p.nombre}</td>
+              <td style={{textAlign:"center",fontFamily:"'DM Mono'",fontSize:13,fontWeight:600}}>{p.cantidad}</td>
+              <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:13,color:GRN}}>{fmtM(p.total)}</td>
+            </tr>)}
+            <tr style={{background:FNT}}>
+              <td colSpan={2} style={{fontWeight:600}}>TOTAL</td>
+              <td style={{textAlign:"center",fontFamily:"'DM Mono'",fontWeight:700}}>{Object.values(resProds).reduce((s,p)=>s+p.cantidad,0)}</td>
+              <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontWeight:700,color:ACC}}>{fmtM(totalRes)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </Card>
+      <Card xtra={{marginBottom:16,padding:0}}>
+        <div style={{padding:"14px 20px",borderBottom:b1(BRD),fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1}}>FORMAS DE PAGO</div>
+        <table>
+          <tbody>
+            {[["efectivo","Efectivo","green"],["transferencia","Transferencia","blue"],["tarjeta","Tarjeta","orange"],["otros","Otros","muted"]].map(([k,label,c])=>
+              resPagos[k]>0&&<tr key={k}>
+                <td style={{padding:"10px 20px"}}><Bdg c={c}>{label}</Bdg></td>
+                <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:14,fontWeight:600,padding:"10px 20px"}}>{fmtM(resPagos[k])}</td>
+              </tr>
+            )}
+            <tr style={{background:FNT}}>
+              <td style={{fontWeight:600,fontSize:14,padding:"10px 20px"}}>TOTAL</td>
+              <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontWeight:700,fontSize:16,color:ACC,padding:"10px 20px"}}>{fmtM(totalRes)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </Card>
+    </>
+  }
+  {fechaRes===hoyFecha&&!diaResCerrado&&<Btn v="danger" onClick={()=>setConfirmarCierre(true)} xtra={{marginTop:4}}>🔒 Cerrar Caja del Día</Btn>}
+</div>}
+{tab==="historial"&&<div>
+  <div style={{marginBottom:16}}><LI label="Fecha"><input type="date" value={fechaHist} onChange={e=>setFechaHist(e.target.value)} style={{width:180}}/></LI></div>
+  {ventas.filter(v=>v.fecha===fechaHist).length===0
+    ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin ventas para esta fecha.</Card>
+    :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {ventas.filter(v=>v.fecha===fechaHist).map(v=><Card key={v.id} xtra={{padding:"12px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setVentaExp(ventaExp===v.id?null:v.id)}>
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{v.hora}</span>
+            <span style={{fontSize:13}}>{(v.items||[]).length} ítem(s)</span>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {(v.pagos||[]).map((p,i)=><Bdg key={i} c={p.tipo==="efectivo"?"green":p.tipo==="transferencia"?"blue":p.tipo==="tarjeta"?"orange":"muted"}>{p.tipo.charAt(0).toUpperCase()+p.tipo.slice(1)}</Bdg>)}
+            </div>
+            <Bdg c={v.estado==="cerrado"?"muted":"orange"}>{v.estado==="cerrado"?"Cerrado":"Abierto"}</Bdg>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontFamily:"'DM Mono'",fontSize:15,color:ACC,fontWeight:700}}>{fmtM(v.total)}</span>
+            {esSA&&<button onClick={e=>{e.stopPropagation();setConfirmarEl({msg:"¿Eliminar esta venta de "+fmtM(v.total)+"?",fn:async()=>{
+              await supaDelete("ce_ventas","?id=eq."+v.id).catch(console.error);
+              setVentas(p=>p.filter(x=>x.id!==v.id));
+            }});}} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>X</button>}
+          </div>
+        </div>
+        {ventaExp===v.id&&<div style={{marginTop:12,paddingTop:12,borderTop:b1(BRD)}}>
+          <table style={{width:"100%",marginBottom:10}}>
+            <thead><tr>
+              <th style={{textAlign:"left"}}>Producto</th>
+              <th style={{textAlign:"center"}}>Cant</th>
+              <th style={{textAlign:"right"}}>P.Unit</th>
+              <th style={{textAlign:"right"}}>Subtotal</th>
+            </tr></thead>
+            <tbody>
+              {(v.items||[]).map((item,i)=><tr key={i}>
+                <td>{item.nombre} <span style={{color:MUT,fontSize:11}}>({item.codigo})</span></td>
+                <td style={{textAlign:"center"}}>{item.cantidad}</td>
+                <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:12}}>{fmtM(item.precio)}</td>
+                <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:12,color:ACC}}>{fmtM(item.precio*item.cantidad)}</td>
+              </tr>)}
+            </tbody>
+          </table>
+          {v.descuento_valor>0&&<div style={{fontSize:12,color:RED,marginBottom:6}}>Descuento {v.descuento_tipo==="%"?v.descuento_valor+"%":"$"+parseFloat(v.descuento_valor).toFixed(2)} aplicado</div>}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:4}}>
+            {(v.pagos||[]).map((p,i)=><Bdg key={i} c={p.tipo==="efectivo"?"green":p.tipo==="transferencia"?"blue":p.tipo==="tarjeta"?"orange":"muted"}>{p.tipo.charAt(0).toUpperCase()+p.tipo.slice(1)}: {fmtM(p.monto)}</Bdg>)}
+          </div>
+          {v.observaciones&&<div style={{fontSize:12,color:MUT,fontStyle:"italic",marginTop:4}}>{v.observaciones}</div>}
+        </div>}
+      </Card>)}
+    </div>
+  }
+</div>}
+{modalMenu&&<Mdl title={editMI?"EDITAR PRODUCTO":"NUEVO PRODUCTO"} onClose={()=>setModalMenu(false)}>
+  <div style={{display:"grid",gap:14}}>
+    <LI label="Código alfanumérico (ej: H1, P01)">
+      <input value={formM.codigo} onChange={e=>setFormM(p=>({...p,codigo:e.target.value.toUpperCase()}))} style={{width:"100%",textTransform:"uppercase"}} placeholder="H1"/>
+    </LI>
+    <LI label="Nombre del producto">
+      <input value={formM.nombre} onChange={e=>setFormM(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/>
+    </LI>
+    <LI label="Precio (ya incluye IVA)">
+      <input type="number" step="0.01" value={formM.precio} onChange={e=>setFormM(p=>({...p,precio:e.target.value}))} style={{width:"100%"}} placeholder="0.00"/>
+    </LI>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <Btn v="ghost" onClick={()=>setModalMenu(false)}>Cancelar</Btn>
+    <Btn onClick={guardarMenuItem} xtra={{opacity:!formM.codigo||!formM.nombre||!formM.precio?0.4:1}}>Guardar</Btn>
+  </div>
+</Mdl>}
+{confirmarCierre&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+  <Card xtra={{maxWidth:420,width:"100%",textAlign:"center",padding:32}}>
+    <div style={{fontSize:36,marginBottom:12}}>🔒</div>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:RED,letterSpacing:1,marginBottom:8}}>CERRAR CAJA</div>
+    <div style={{fontSize:14,color:MUT,marginBottom:6}}>¿Estás seguro de que deseas cerrar la caja de hoy?</div>
+    <div style={{fontSize:13,color:MUT,marginBottom:24}}>No se podrán registrar nuevas ventas para el <strong style={{color:TXT}}>{hoyFecha}</strong>.</div>
+    <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+      <Btn v="ghost" onClick={()=>setConfirmarCierre(false)}>Cancelar</Btn>
+      <Btn v="danger" xtra={{background:RED,color:"#fff",fontWeight:600}} onClick={cerrarDia}>Sí, cerrar caja</Btn>
+    </div>
+  </Card>
+</div>}
+{confirmarEl&&<Confirmar mensaje={confirmarEl.msg} onSi={()=>{confirmarEl.fn();setConfirmarEl(null);}} onNo={()=>setConfirmarEl(null)}/>}
+</div>;
 }
