@@ -4001,6 +4001,7 @@ const[fechaRes,setFechaRes]=useState(today());
 const[fechaHist,setFechaHist]=useState(today());
 const[ventaExp,setVentaExp]=useState(null);
 const[confirmarEl,setConfirmarEl]=useState(null);
+const[cajaActual,setCajaActual]=useState(1);
 const codRef=useRef();
 useEffect(()=>{
 if(!userId)return;
@@ -4008,9 +4009,17 @@ setLoading(true);
 Promise.all([
   supaGet("ce_menu","?user_id=eq."+userId+"&order=codigo.asc"),
   supaGet("ce_ventas","?user_id=eq."+userId+"&order=fecha.desc,hora.desc"),
-  supaGet("ce_cierres","?user_id=eq."+userId+"&order=fecha.desc"),
-]).then(([m,v,c])=>{setMenu(m||[]);setVentas(v||[]);setCierres(c||[]);})
-.catch(console.error).finally(()=>setLoading(false));
+  supaGet("ce_cierres","?user_id=eq."+userId+"&order=caja_num.desc"),
+]).then(([m,v,c])=>{
+  setMenu(m||[]);setVentas(v||[]);setCierres(c||[]);
+  // Calcular número de caja activo
+  const allC=c||[];const allV=v||[];
+  const maxC=Math.max(0,...allC.map(x=>x.caja_num||1));
+  const maxV=Math.max(0,...allV.map(x=>x.caja_num||1));
+  const maxNum=Math.max(maxC,maxV,0);
+  const lastClosed=maxNum>0&&allC.some(x=>(x.caja_num||1)===maxNum);
+  setCajaActual(lastClosed?maxNum+1:Math.max(maxNum,1));
+}).catch(console.error).finally(()=>setLoading(false));
 },[userId]);
 const subtotal=carrito.reduce((s,i)=>s+i.precio*i.cantidad,0);
 const descMonto=descValor?(descTipo==="%"?subtotal*(parseFloat(descValor)/100):parseFloat(descValor)):0;
@@ -4018,7 +4027,7 @@ const total=Math.max(0,subtotal-descMonto);
 const totalPagado=pagos.reduce((s,p)=>s+(parseFloat(p.monto)||0),0);
 const efectivoEnPagos=pagos.filter(p=>p.tipo==="efectivo").reduce((s,p)=>s+(parseFloat(p.monto)||0),0);
 const hoyFecha=today();
-const hoyActualCerrado=cierres.some(c=>c.fecha===hoyFecha);
+const cajaActualCerrada=cierres.some(c=>(c.caja_num||1)===cajaActual);
 const faltante=parseFloat((total-totalPagado).toFixed(2));
 function agregarAlCarrito(){
   const item=menu.find(m=>m.codigo.toUpperCase()===codInput.toUpperCase().trim());
@@ -4041,9 +4050,9 @@ function agregarPago(){
 async function confirmarVenta(){
   if(carrito.length===0){alert("El carrito está vacío.");return;}
   if(Math.abs(faltante)>0.01){alert("El total de pagos no coincide con el total.");return;}
-  if(hoyActualCerrado){alert("La caja del día ya está cerrada.");return;}
+  if(cajaActualCerrada){alert("Esta caja ya está cerrada. Abre una nueva caja para continuar.");return;}
   const hora=new Date().toLocaleTimeString("es-EC",{hour:"2-digit",minute:"2-digit"});
-  const venta={user_id:userId,sucursal:userInfo.sucursal||"",fecha:hoyFecha,hora,items:carrito,pagos,descuento_tipo:descTipo,descuento_valor:parseFloat(descValor)||0,total,observaciones:obs,estado:"abierto"};
+  const venta={user_id:userId,sucursal:userInfo.sucursal||"",fecha:hoyFecha,hora,caja_num:cajaActual,items:carrito,pagos,descuento_tipo:descTipo,descuento_valor:parseFloat(descValor)||0,total,observaciones:obs,estado:"abierto"};
   try{
     const[created]=await supaPost("ce_ventas",venta);
     setVentas(p=>[created||{...venta,id:Date.now()},...p]);
@@ -4064,16 +4073,25 @@ async function guardarMenuItem(){
   setModalMenu(false);setEditMI(null);setFormM({codigo:"",nombre:"",precio:""});
 }
 async function cerrarDia(){
-  const cierre={user_id:userId,sucursal:userInfo.sucursal||"",fecha:hoyFecha};
+  const cierre={user_id:userId,sucursal:userInfo.sucursal||"",fecha:hoyFecha,caja_num:cajaActual};
   try{
     const[created]=await supaPost("ce_cierres",cierre);
-    setCierres(p=>[created||cierre,...p]);
-    await supaPatch("ce_ventas","?user_id=eq."+userId+"&fecha=eq."+hoyFecha,{estado:"cerrado"}).catch(console.error);
-    setVentas(p=>p.map(v=>v.fecha===hoyFecha?{...v,estado:"cerrado"}:v));
+    setCierres(p=>[created||{...cierre,id:Date.now()},...p]);
+    await supaPatch("ce_ventas","?user_id=eq."+userId+"&caja_num=eq."+cajaActual,{estado:"cerrado"}).catch(console.error);
+    setVentas(p=>p.map(v=>(v.caja_num||1)===cajaActual?{...v,estado:"cerrado"}:v));
   }catch(e){console.error(e);}
   setConfirmarCierre(false);
 }
-const ventasRes=ventas.filter(v=>v.fecha===fechaRes);
+function abrirNuevaCaja(){
+  setCajaActual(cajaActual+1);
+  setCarrito([]);setDescValor("");setPagos([]);setEfectivoRec("");setObs("");
+  setTimeout(()=>codRef.current?.focus(),100);
+}
+// Cajas disponibles para la fecha del resumen
+const cajasFecha=[...new Set(ventas.filter(v=>v.fecha===fechaRes).map(v=>v.caja_num||1))].sort((a,b)=>a-b);
+const[cajaSel,setCajaSel]=useState(null); // null = todas
+const cajasResFiltro=cajaSel===null?cajasFecha:[cajaSel];
+const ventasRes=ventas.filter(v=>v.fecha===fechaRes&&(cajaSel===null||(v.caja_num||1)===cajaSel));
 const resProds={};
 ventasRes.forEach(v=>(v.items||[]).forEach(item=>{
   if(!resProds[item.codigo])resProds[item.codigo]={codigo:item.codigo,nombre:item.nombre,cantidad:0,total:0};
@@ -4083,13 +4101,17 @@ ventasRes.forEach(v=>(v.items||[]).forEach(item=>{
 const resPagos={efectivo:0,transferencia:0,tarjeta:0,otros:0};
 ventasRes.forEach(v=>(v.pagos||[]).forEach(p=>{const k=p.tipo in resPagos?p.tipo:"otros";resPagos[k]+=parseFloat(p.monto)||0;}));
 const totalRes=Object.values(resPagos).reduce((s,v)=>s+v,0);
-const diaResCerrado=cierres.some(c=>c.fecha===fechaRes);
+const cajaSelCerrada=cajaSel!==null&&cierres.some(c=>c.fecha===fechaRes&&(c.caja_num||1)===cajaSel);
+const diaResCerrado=cajaSel===null?cajasFecha.length>0&&cajasFecha.every(n=>cierres.some(c=>c.fecha===fechaRes&&(c.caja_num||1)===n)):cajaSelCerrada;
 if(loading)return <div style={{textAlign:"center",padding:48,color:MUT,fontSize:13}}>Cargando datos...</div>;
 if(esSA&&ceUsers.length===0)return <Card xtra={{textAlign:"center",padding:48,color:MUT}}>No hay usuarios <strong style={{color:ACC}}>caja_eventos</strong> activos. Crea uno en Configuración → Usuarios.</Card>;
 return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24,flexWrap:"wrap",gap:12}}>
   <div>
-    <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CAJA EVENTOS</h1>
+    <div style={{display:"flex",alignItems:"center",gap:12}}>
+      <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>CAJA EVENTOS</h1>
+      <Bdg c={cajaActualCerrada?"muted":"green"} xtra={{fontSize:14,padding:"4px 12px",fontFamily:"'Bebas Neue'",letterSpacing:1}}>CAJA #{cajaActual}</Bdg>
+    </div>
     <p style={{color:MUT,fontSize:13}}>{userInfo.nombre} · {userInfo.sucursal||"Sin sucursal"}</p>
   </div>
   {esSA&&ceUsers.length>0&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -4211,7 +4233,10 @@ return <div>
     </Card>
     <Btn v="success" xtra={{padding:"14px",fontSize:16,fontFamily:"'Bebas Neue'",letterSpacing:2,textAlign:"center",opacity:(carrito.length===0||Math.abs(faltante)>0.01)?0.4:1,cursor:carrito.length===0||Math.abs(faltante)>0.01?"not-allowed":"pointer"}}
       onClick={confirmarVenta}>✓ CONFIRMAR VENTA</Btn>
-    {hoyActualCerrado&&<div style={{background:RED+"18",color:RED,borderRadius:8,padding:"10px 14px",fontSize:13,border:b1(RED+"44"),textAlign:"center"}}>🔒 Caja cerrada. No se pueden registrar nuevas ventas.</div>}
+    {cajaActualCerrada&&<div style={{background:RED+"11",borderRadius:10,padding:"14px 16px",border:b1(RED+"33"),textAlign:"center"}}>
+      <div style={{color:RED,fontSize:13,fontWeight:600,marginBottom:10}}>🔒 Caja #{cajaActual} cerrada</div>
+      <Btn v="success" onClick={abrirNuevaCaja} xtra={{width:"100%",padding:"10px",fontFamily:"'Bebas Neue'",fontSize:16,letterSpacing:1}}>+ ABRIR CAJA #{cajaActual+1}</Btn>
+    </div>}
     <Btn v="ghost" s="sm" xtra={{textAlign:"center",opacity:carrito.length>0?1:0.3}} onClick={()=>{if(window.confirm("¿Limpiar el carrito?"))setCarrito([]);setDescValor("");setPagos([]);setObs("");}}>🗑 Limpiar carrito</Btn>
   </div>
 </div>}
@@ -4252,11 +4277,22 @@ return <div>
   }
 </div>}
 {tab==="resumen"&&<div>
-  <div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:20,flexWrap:"wrap"}}>
-    <LI label="Fecha"><input type="date" value={fechaRes} onChange={e=>setFechaRes(e.target.value)} style={{width:180}}/></LI>
+  <div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:12,flexWrap:"wrap"}}>
+    <LI label="Fecha"><input type="date" value={fechaRes} onChange={e=>{setFechaRes(e.target.value);setCajaSel(null);}} style={{width:180}}/></LI>
     {diaResCerrado?<Bdg c="green" xtra={{marginBottom:4}}>DÍA CERRADO</Bdg>:<Bdg c="orange" xtra={{marginBottom:4}}>DÍA ABIERTO</Bdg>}
     <div style={{fontSize:13,color:MUT,marginBottom:4}}>{ventasRes.length} venta(s)</div>
   </div>
+  {cajasFecha.length>1&&<div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+    {[null,...cajasFecha].map(n=>{
+      const a=cajaSel===n;
+      const cerrada=n===null?diaResCerrado:cierres.some(c=>c.fecha===fechaRes&&(c.caja_num||1)===n);
+      return <button key={n??-1} onClick={()=>setCajaSel(n)}
+        style={{padding:"5px 12px",borderRadius:6,fontSize:12,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400,display:"flex",alignItems:"center",gap:5}}>
+        {n===null?"Todas":("Caja #"+n)}
+        {cerrada&&<span style={{color:a?ACC:MUT,fontSize:10}}>🔒</span>}
+      </button>;
+    })}
+  </div>}
   {ventasRes.length===0
     ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin ventas para esta fecha.</Card>
     :<>
@@ -4303,7 +4339,7 @@ return <div>
       </Card>
     </>
   }
-  {fechaRes===hoyFecha&&!diaResCerrado&&<Btn v="danger" onClick={()=>setConfirmarCierre(true)} xtra={{marginTop:4}}>🔒 Cerrar Caja del Día</Btn>}
+  {fechaRes===hoyFecha&&!diaResCerrado&&(cajaSel===null||cajaSel===cajaActual)&&!cajaActualCerrada&&<Btn v="danger" onClick={()=>setConfirmarCierre(true)} xtra={{marginTop:4}}>🔒 Cerrar Caja #{cajaActual}</Btn>}
 </div>}
 {tab==="historial"&&<div>
   <div style={{marginBottom:16}}><LI label="Fecha"><input type="date" value={fechaHist} onChange={e=>setFechaHist(e.target.value)} style={{width:180}}/></LI></div>
@@ -4314,6 +4350,7 @@ return <div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setVentaExp(ventaExp===v.id?null:v.id)}>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{v.hora}</span>
+            <Bdg c="blue" xtra={{fontSize:11}}>Caja #{v.caja_num||1}</Bdg>
             <span style={{fontSize:13}}>{(v.items||[]).length} ítem(s)</span>
             <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
               {(v.pagos||[]).map((p,i)=><Bdg key={i} c={p.tipo==="efectivo"?"green":p.tipo==="transferencia"?"blue":p.tipo==="tarjeta"?"orange":"muted"}>{p.tipo.charAt(0).toUpperCase()+p.tipo.slice(1)}</Bdg>)}
@@ -4375,9 +4412,9 @@ return <div>
 {confirmarCierre&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
   <Card xtra={{maxWidth:420,width:"100%",textAlign:"center",padding:32}}>
     <div style={{fontSize:36,marginBottom:12}}>🔒</div>
-    <div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:RED,letterSpacing:1,marginBottom:8}}>CERRAR CAJA</div>
-    <div style={{fontSize:14,color:MUT,marginBottom:6}}>¿Estás seguro de que deseas cerrar la caja de hoy?</div>
-    <div style={{fontSize:13,color:MUT,marginBottom:24}}>No se podrán registrar nuevas ventas para el <strong style={{color:TXT}}>{hoyFecha}</strong>.</div>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:RED,letterSpacing:1,marginBottom:8}}>CERRAR CAJA #{cajaActual}</div>
+    <div style={{fontSize:14,color:MUT,marginBottom:6}}>¿Estás seguro de que deseas cerrar la Caja #{cajaActual}?</div>
+    <div style={{fontSize:13,color:MUT,marginBottom:24}}>Fecha: <strong style={{color:TXT}}>{hoyFecha}</strong>. Podrás abrir la Caja #{cajaActual+1} a continuación.</div>
     <div style={{display:"flex",gap:10,justifyContent:"center"}}>
       <Btn v="ghost" onClick={()=>setConfirmarCierre(false)}>Cancelar</Btn>
       <Btn v="danger" xtra={{background:RED,color:"#fff",fontWeight:600}} onClick={cerrarDia}>Sí, cerrar caja</Btn>
