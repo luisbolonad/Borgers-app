@@ -4586,6 +4586,7 @@ const[asigs,setAsigs]=useState([]);
 const[tipos,setTipos]=useState([]);
 const[loading,setLoading]=useState(true);
 const[modal,setModal]=useState(false);
+const[editAsig,setEditAsig]=useState(null);
 const[form,setForm]=useState({tipo_id:"",tipo_nombre:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});
 useEffect(()=>{
   Promise.all([supaGet("act_asignaciones","?order=id.desc"),supaGet("act_tipos","?activo=eq.true&order=nombre")])
@@ -4593,14 +4594,32 @@ useEffect(()=>{
 },[]);
 function toggleDia(n){setForm(p=>({...p,dias_semana:p.dias_semana.includes(n)?p.dias_semana.filter(d=>d!==n):[...p.dias_semana,n].sort()}));}
 const personalUsers=users.filter(u=>["personal","staff_suc","caja_eventos"].includes(u.rol)&&u.activo);
+function abrirEditar(a){
+  setEditAsig(a);
+  setForm({
+    tipo_id:String(a.tipo_id||""),
+    asig_a:a.user_id?"usuario":"sucursal",
+    user_id:String(a.user_id||""),
+    sucursal:a.sucursal||sucs[0]||"",
+    dias_semana:a.dias_semana||[],
+    hora_limite:a.hora_limite||"17:00",
+  });
+  setModal(true);
+}
+function cerrarModal(){setModal(false);setEditAsig(null);setForm({tipo_id:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});}
 async function guardar(){
   if(!form.tipo_id||form.dias_semana.length===0){alert("Selecciona tipo y al menos un día.");return;}
   const tipo=tipos.find(t=>t.id===parseInt(form.tipo_id));
   const user=personalUsers.find(u=>u.id===parseInt(form.user_id));
-  const data={tipo_id:parseInt(form.tipo_id),tipo_nombre:tipo?.nombre||"",user_id:form.asig_a==="usuario"&&form.user_id?parseInt(form.user_id):null,user_nombre:form.asig_a==="usuario"&&user?user.nombre:"",sucursal:form.asig_a==="sucursal"?form.sucursal:null,dias_semana:form.dias_semana,hora_limite:form.hora_limite,activo:true};
-  const[created]=await supaPost("act_asignaciones",data).catch(()=>[null]);
-  if(created)setAsigs(p=>[created,...p]);
-  setModal(false);setForm({tipo_id:"",tipo_nombre:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});
+  const data={tipo_id:parseInt(form.tipo_id),tipo_nombre:tipo?.nombre||"",user_id:form.asig_a==="usuario"&&form.user_id?parseInt(form.user_id):null,user_nombre:form.asig_a==="usuario"&&user?user.nombre:"",sucursal:form.asig_a==="sucursal"?form.sucursal:null,dias_semana:form.dias_semana,hora_limite:form.hora_limite};
+  if(editAsig){
+    await supaPatch("act_asignaciones","?id=eq."+editAsig.id,data).catch(console.error);
+    setAsigs(p=>p.map(x=>x.id===editAsig.id?{...x,...data}:x));
+  }else{
+    const[created]=await supaPost("act_asignaciones",{...data,activo:true}).catch(()=>[null]);
+    if(created)setAsigs(p=>[created,...p]);
+  }
+  cerrarModal();
 }
 async function toggleAsig(a){
   await supaPatch("act_asignaciones","?id=eq."+a.id,{activo:!a.activo}).catch(console.error);
@@ -4615,7 +4634,7 @@ return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
   <div><div style={{fontFamily:"'Bebas Neue'",fontSize:24,letterSpacing:2}}>ASIGNACIONES DE TAREAS</div>
   <p style={{color:MUT,fontSize:13}}>Asigna actividades recurrentes al personal con días y hora límite.</p></div>
-  <Btn onClick={()=>setModal(true)} disabled={tipos.length===0}>+ Nueva asignación</Btn>
+  <Btn onClick={()=>{setEditAsig(null);setForm({tipo_id:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});setModal(true);}} disabled={tipos.length===0}>+ Nueva asignación</Btn>
 </div>
 {tipos.length===0&&!loading&&<div style={{background:ACC+"11",border:b1(ACC+"44"),borderRadius:8,padding:"12px 16px",fontSize:13,color:ACC,marginBottom:16}}>⚠️ Primero crea tipos de actividad en la sección "✅ Tipos Actividad".</div>}
 {loading?<Card xtra={{textAlign:"center",padding:32,color:MUT}}>Cargando...</Card>:asigs.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin asignaciones. Crea la primera.</Card>:
@@ -4632,14 +4651,15 @@ return <div>
       </div>
       <Bdg c={a.activo?"green":"muted"}>{a.activo?"Activa":"Inactiva"}</Bdg>
     </div>
-    <div style={{display:"flex",gap:6}}>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <button onClick={()=>abrirEditar(a)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>✏️ Editar</button>
       <button onClick={()=>toggleAsig(a)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>{a.activo?"⏸ Pausar":"▶ Activar"}</button>
       <button onClick={()=>eliminarAsig(a)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Eliminar</button>
     </div>
   </div>
 </Card>)}
 </div>}
-{modal&&<Mdl title="NUEVA ASIGNACIÓN" onClose={()=>setModal(false)}>
+{modal&&<Mdl title={editAsig?"EDITAR ASIGNACIÓN":"NUEVA ASIGNACIÓN"} onClose={cerrarModal}>
   <div style={{display:"grid",gap:14}}>
     <LI label="Actividad">
       <select value={form.tipo_id} onChange={e=>setForm(p=>({...p,tipo_id:e.target.value}))} style={{width:"100%"}}>
@@ -4675,8 +4695,8 @@ return <div>
     <LI label="Hora límite"><input type="time" value={form.hora_limite} onChange={e=>setForm(p=>({...p,hora_limite:e.target.value}))} style={{width:140}}/></LI>
   </div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
-    <Btn v="ghost" onClick={()=>setModal(false)}>Cancelar</Btn>
-    <Btn onClick={guardar} xtra={{opacity:!form.tipo_id||form.dias_semana.length===0?0.4:1}}>Guardar asignación</Btn>
+    <Btn v="ghost" onClick={cerrarModal}>Cancelar</Btn>
+    <Btn onClick={guardar} xtra={{opacity:!form.tipo_id||form.dias_semana.length===0?0.4:1}}>{editAsig?"Guardar cambios":"Guardar asignación"}</Btn>
   </div>
 </Mdl>}
 </div>;
