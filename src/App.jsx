@@ -34,6 +34,30 @@ async function supaUpsert(table, body){
   const text=await res.text();
   return text?JSON.parse(text):[];
 }
+// ── Cloudinary config ────────────────────────────────────────────────────────
+const CLOUDINARY_CLOUD="duafycons";
+const CLOUDINARY_PRESET="borgers-media";
+async function uploadCloudinary(file){
+  const isVideo=file.type.startsWith("video/");
+  const fd=new FormData();
+  fd.append("file",file);fd.append("upload_preset",CLOUDINARY_PRESET);
+  const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/${isVideo?"video":"image"}/upload`,{method:"POST",body:fd});
+  const data=await res.json();
+  if(!data.secure_url)throw new Error(data.error?.message||"Upload falló");
+  return{url:data.secure_url,tipo:isVideo?"video":"foto"};
+}
+function haversine(lat1,lng1,lat2,lng2){
+  const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
+}
+async function checkVideoDuration(file,maxSec=15){
+  return new Promise((res,rej)=>{
+    const v=document.createElement("video");v.preload="metadata";
+    v.onloadedmetadata=()=>{URL.revokeObjectURL(v.src);v.duration>maxSec?rej(new Error(`Video de ${Math.round(v.duration)}s supera el límite de ${maxSec}s. Graba uno más corto.`)):res(file);};
+    v.src=URL.createObjectURL(file);
+  });
+}
 const BG="#0F0E0C",SRF="#1A1916",CRD="#222018",BRD="#2E2C26";
 const ACC="#F5A623",RED="#E84040",GRN="#3ECF8E",BLU="#4A9EFF";
 const PRP="#9B72FF",TXT="#F0EDE6",MUT="#8A8578",FNT="#3A3830";
@@ -97,6 +121,8 @@ ver_hist:       ["superadmin","admin_suc","produccion"],
 ver_config:     ["superadmin"],
 ver_manual:     ["superadmin","admin_suc","staff_suc","produccion"],
 ver_ce:         ["superadmin","caja_eventos"],
+ver_asist:      ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
+ver_act:        ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
 // Acciones
 editar_recetas: ["superadmin"],
 despacho:       ["superadmin","produccion"],
@@ -376,6 +402,7 @@ const[reqs,setReqs]=useState(iRQ);
 const[hI,setHI]=useState([]);
 const[hC,setHC]=useState([]);
 const[sucs,setSucs]=useState(iSUCS);
+const[sucsData,setSucsData]=useState([]);
 const[cats,setCats]=useState(iCATS);
 const[catV,setCatV]=useState(iCATV);
 const[cats2,setCats2]=useState(iCATS2);
@@ -425,7 +452,7 @@ supaGet("config_general","?select=*&limit=1"),
 ]);
 
     if(dbUsers.length>0) setUsers(dbUsers.map(u=>({...u,id:u.id})));
-    if(dbSucs.length>0){setSucs(dbSucs.map(s=>s.nombre));const sm={};dbSucs.forEach(s=>{sm[s.nombre]=s.marcas||[];});setSucsMarcas(sm);}
+    if(dbSucs.length>0){setSucs(dbSucs.map(s=>s.nombre));setSucsData(dbSucs);const sm={};dbSucs.forEach(s=>{sm[s.nombre]=s.marcas||[];});setSucsMarcas(sm);}
     if(dbCatsInv.length>0) setCats(dbCatsInv.map(c=>c.nombre));
     if(dbCatsVenta.length>0) setCatV(dbCatsVenta.map(c=>c.nombre));
     if(dbCatsInvSuc.length>0) setCats2(dbCatsInvSuc.map(c=>c.nombre));
@@ -454,7 +481,7 @@ supaGet("config_general","?select=*&limit=1"),
 cargarDatos();
 
 },[]);
-const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo,marcas,setMarcas,sucsMarcas,setSucsMarcas,cierresCaja,setCierresCaja};
+const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,sucsData,setSucsData,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo,marcas,setMarcas,sucsMarcas,setSucsMarcas,cierresCaja,setCierresCaja};
 const[menuAbierto,setMenuAbierto]=useState(true);
 // puede debe definirse antes de allTabs — usa userActivo que puede ser null
 const puede=(accion)=>puedePor(userActivo,accion);
@@ -473,6 +500,8 @@ const allTabs=[
 {id:"hist",l:"Historial",i:"🕐",perm:"ver_hist"},
 {id:"config",l:"Configuración",i:"⚙️",perm:"ver_config"},
 {id:"ce",l:"Caja Eventos",i:"🎪",perm:"ver_ce"},
+{id:"asist",l:"Asistencia",i:"⏱",perm:"ver_asist"},
+{id:"act",l:"Actividades",i:"✅",perm:"ver_act"},
 ];
 const T=allTabs.filter(t=>!t.perm||puede(t.perm));
 // Pantalla de carga
@@ -508,7 +537,7 @@ return <>
 {menuAbierto
 ?<div>
 <div style={{fontSize:12,fontWeight:600,color:TXT,marginBottom:2}}>{userActivo.nombre}</div>
-<div style={{fontSize:11,color:MUT,marginBottom:8}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):"Producción"}</div>
+<div style={{fontSize:11,color:MUT,marginBottom:8}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):userActivo.rol==="personal"?"Personal · "+(userActivo.sucursal||""):"Producción"}</div>
 <button onClick={()=>{setUserActivo(null);setTab("inicio");}} style={{fontSize:11,color:RED,background:"transparent",border:"none",cursor:"pointer",padding:0}}>Cerrar sesión</button>
 </div>
 :<button onClick={()=>{setUserActivo(null);setTab("inicio");}} title="Cerrar sesión" style={{background:"transparent",border:"none",color:RED,cursor:"pointer",fontSize:16,width:"100%",textAlign:"center"}}>⏏</button>
@@ -529,8 +558,10 @@ return <>
 {tab==="caja"&&<CierreCaja cierresCaja={cierresCaja} setCierresCaja={setCierresCaja} sucs={sucs} userActivo={userActivo} puede={puede}/>}
 {tab==="manual"&&<Manual manualTemas={manualTemas} setManualTemas={setManualTemas} manualArticulos={manualArticulos} setManualArticulos={setManualArticulos} userActivo={userActivo}/>}
 {tab==="hist"&&<Hist {...sh} userActivo={userActivo}/>}
-{tab==="config"&&<Config {...sh} puede={puede} ivaRate={ivaRate} setIvaRate={setIvaRate}/>}
+{tab==="config"&&<Config {...sh} puede={puede} ivaRate={ivaRate} setIvaRate={setIvaRate} sucsData={sucsData} setSucsData={setSucsData}/>}
 {tab==="ce"&&<CajaEventos userActivo={userActivo} puede={puede} sucs={sucs} users={users}/>}
+{tab==="asist"&&<Asistencia userActivo={userActivo} sucsData={sucsData} users={users}/>}
+{tab==="act"&&<Actividades userActivo={userActivo} sucsData={sucsData} users={users}/>}
 </div>
 </div>
 </>;
@@ -3549,7 +3580,7 @@ return <tr key={r.id}><td style={{fontWeight:500}}>{r.sucursal}</td><td style={{
   </div>;
 }
 // ── Configuración ───────────────────────────────────────────────────────────
-function Config({sucs,setSucs,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede,marcas,setMarcas,sucsMarcas,setSucsMarcas,ivaRate=0.15,setIvaRate}){
+function Config({sucs,setSucs,sucsData,setSucsData,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede,marcas,setMarcas,sucsMarcas,setSucsMarcas,ivaRate=0.15,setIvaRate}){
 const[seccion,setSeccion]=useState("general");
 const[ivaInput,setIvaInput]=useState((ivaRate*100).toFixed(1));
 async function guardarIva(){
@@ -3639,7 +3670,7 @@ return <div>
 <p style={{color:MUT,fontSize:13}}>Gestión de sucursales y categorías del sistema</p>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
-{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
+{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["geo","📍 Geo Sucursales"],["acttypes","✅ Tipos Actividad"],["asignaciones","📋 Asignaciones"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
 const a=seccion===id;
 return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
 })}
@@ -3718,6 +3749,9 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
     <div style={{fontSize:11,color:MUT,marginTop:8}}>Al agregar una sucursal podrás descargar su plantilla de requerimiento desde esta misma pantalla.</div>
   </Card>
 </div>}
+{seccion==="geo"&&<GeoSucsConfig sucsData={sucsData} setSucsData={setSucsData}/>}
+{seccion==="acttypes"&&<ActTiposConfig/>}
+{seccion==="asignaciones"&&<ActAsigConfig users={users} sucs={sucs}/>}
 {seccion==="cats"&&<div>
   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12,marginBottom:24}}>
     {cats.map((c,idx)=><Card key={idx} xtra={{padding:14}}>
@@ -3902,8 +3936,8 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
           <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{u.nombre}</div>
           <div style={{fontSize:12,color:MUT,marginBottom:6}}>{u.email}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            <Bdg c={u.rol==="superadmin"?"orange":u.rol==="produccion"?"blue":u.rol==="admin_suc"?"green":u.rol==="caja_eventos"?"purple":"muted"}>
-              {u.rol==="superadmin"?"Superadmin":u.rol==="admin_suc"?"Admin Suc.":u.rol==="staff_suc"?"Staff Suc.":u.rol==="caja_eventos"?"Caja Eventos":"Producción"}
+            <Bdg c={u.rol==="superadmin"?"orange":u.rol==="produccion"?"blue":u.rol==="admin_suc"?"green":u.rol==="caja_eventos"?"purple":u.rol==="personal"?"blue":"muted"}>
+              {u.rol==="superadmin"?"Superadmin":u.rol==="admin_suc"?"Admin Suc.":u.rol==="staff_suc"?"Staff Suc.":u.rol==="caja_eventos"?"Caja Eventos":u.rol==="personal"?"Personal":"Producción"}
             </Bdg>
             {u.sucursal&&<Bdg c="muted">{u.sucursal}</Bdg>}
             {!u.activo&&<Bdg c="red">Inactivo</Bdg>}
@@ -3935,9 +3969,10 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
         <option value="staff_suc">Staff Sucursal</option>
         <option value="produccion">Producción</option>
         <option value="caja_eventos">Caja Eventos</option>
+        <option value="personal">Personal</option>
       </select>
     </LI>
-    {(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos")&&<LI label="Sucursal">
+    {(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos"||formUser.rol==="personal")&&<LI label="Sucursal">
       <select value={formUser.sucursal} onChange={e=>setFormUser(p=>({...p,sucursal:e.target.value}))} style={{width:"100%"}}>
         {sucs.map(s=><option key={s}>{s}</option>)}
       </select>
@@ -3953,7 +3988,7 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
     <Btn v="ghost" onClick={()=>setModalUser(false)}>Cancelar</Btn>
     <Btn onClick={async()=>{
       if(!formUser.nombre.trim()||!formUser.email.trim()||!formUser.password.trim())return;
-      const suc=(formUser.rol==="admin_suc"||formUser.rol==="staff_suc")?formUser.sucursal:null;
+      const suc=(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos"||formUser.rol==="personal")?formUser.sucursal:null;
       const data={...formUser,sucursal:suc};
       if(editUser){
         await supaPatch("users","?id=eq."+editUser.id,data).catch(console.error);
@@ -4422,5 +4457,559 @@ return <div>
   </Card>
 </div>}
 {confirmarEl&&<Confirmar mensaje={confirmarEl.msg} onSi={()=>{confirmarEl.fn();setConfirmarEl(null);}} onNo={()=>setConfirmarEl(null)}/>}
+</div>;
+}
+
+// ── GeoSucsConfig ─────────────────────────────────────────────────────────────
+function GeoSucsConfig({sucsData,setSucsData}){
+const[geoEdit,setGeoEdit]=useState({});
+const[saving,setSaving]=useState(null);
+function setField(nombre,field,val){setGeoEdit(p=>({...p,[nombre]:{...(p[nombre]||{}),field,val:val,[field]:val}}));}
+async function guardarGeo(suc){
+  const e=geoEdit[suc.nombre]||{};
+  const lat=parseFloat(e.lat??suc.lat??"")||null;
+  const lng=parseFloat(e.lng??suc.lng??"")||null;
+  const radio=parseInt(e.radio??suc.radio_metros??200)||200;
+  if(!lat||!lng){alert("Ingresa latitud y longitud válidas.");return;}
+  setSaving(suc.nombre);
+  await supaPatch("sucursales","?id=eq."+suc.id,{lat,lng,radio_metros:radio}).catch(console.error);
+  setSucsData(p=>p.map(s=>s.nombre===suc.nombre?{...s,lat,lng,radio_metros:radio}:s));
+  setSaving(null);
+  setGeoEdit(p=>({...p,[suc.nombre]:{}}));
+}
+async function usarMiUbicacion(suc){
+  if(!navigator.geolocation){alert("Geolocalización no disponible.");return;}
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const{latitude,longitude}=pos.coords;
+    setGeoEdit(p=>({...p,[suc.nombre]:{...(p[suc.nombre]||{}),lat:latitude.toFixed(6),lng:longitude.toFixed(6)}}));
+  },()=>alert("No se pudo obtener la ubicación."),{enableHighAccuracy:true});
+}
+return <div>
+<div style={{fontFamily:"'Bebas Neue'",fontSize:24,letterSpacing:2,marginBottom:8}}>GEO · SUCURSALES</div>
+<p style={{color:MUT,fontSize:13,marginBottom:20}}>Configura las coordenadas GPS de cada sucursal para el control de asistencia. El radio es la distancia máxima permitida para hacer Clock-In.</p>
+{sucsData.length===0&&<Card xtra={{textAlign:"center",padding:32,color:MUT}}>No hay sucursales configuradas.</Card>}
+<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:16}}>
+{sucsData.map(suc=>{
+  const e=geoEdit[suc.nombre]||{};
+  const latVal=e.lat??suc.lat??"";
+  const lngVal=e.lng??suc.lng??"";
+  const radioVal=e.radio??suc.radio_metros??200;
+  const configurado=suc.lat&&suc.lng;
+  return <Card key={suc.id}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1}}>{suc.nombre}</div>
+      <Bdg c={configurado?"green":"orange"}>{configurado?"✓ Configurado":"Sin coordenadas"}</Bdg>
+    </div>
+    <div style={{display:"grid",gap:10,marginBottom:12}}>
+      <LI label="Latitud"><input type="number" step="any" value={latVal} onChange={e=>setGeoEdit(p=>({...p,[suc.nombre]:{...(p[suc.nombre]||{}),lat:e.target.value}}))} placeholder="-0.180653" style={{width:"100%"}}/></LI>
+      <LI label="Longitud"><input type="number" step="any" value={lngVal} onChange={e=>setGeoEdit(p=>({...p,[suc.nombre]:{...(p[suc.nombre]||{}),lng:e.target.value}}))} placeholder="-78.467834" style={{width:"100%"}}/></LI>
+      <LI label="Radio (metros)"><input type="number" min={50} max={1000} value={radioVal} onChange={e=>setGeoEdit(p=>({...p,[suc.nombre]:{...(p[suc.nombre]||{}),radio:e.target.value}}))} style={{width:"100%"}}/></LI>
+    </div>
+    <div style={{display:"flex",gap:8}}>
+      <Btn s="sm" v="ghost" onClick={()=>usarMiUbicacion(suc)} xtra={{flex:1}}>📍 Usar mi ubicación</Btn>
+      <Btn s="sm" onClick={()=>guardarGeo(suc)} xtra={{flex:1,opacity:saving===suc.nombre?0.5:1}}>{saving===suc.nombre?"Guardando...":"Guardar"}</Btn>
+    </div>
+    {configurado&&<div style={{marginTop:10,fontSize:11,color:MUT,fontFamily:"'DM Mono'"}}>
+      {(suc.lat||0).toString().slice(0,10)}, {(suc.lng||0).toString().slice(0,11)} · {suc.radio_metros||200}m
+    </div>}
+  </Card>;
+})}
+</div>
+</div>;
+}
+
+// ── ActTiposConfig ─────────────────────────────────────────────────────────────
+function ActTiposConfig(){
+const[tipos,setTipos]=useState([]);
+const[loading,setLoading]=useState(true);
+const[formT,setFormT]=useState({nombre:"",descripcion:""});
+const[editT,setEditT]=useState(null);
+const[modalT,setModalT]=useState(false);
+useEffect(()=>{supaGet("act_tipos","?order=id.asc").then(d=>{setTipos(d||[]);setLoading(false);}).catch(()=>setLoading(false));},[]);
+async function guardarTipo(){
+  if(!formT.nombre.trim())return;
+  if(editT){
+    await supaPatch("act_tipos","?id=eq."+editT.id,{nombre:formT.nombre,descripcion:formT.descripcion}).catch(console.error);
+    setTipos(p=>p.map(t=>t.id===editT.id?{...t,...formT}:t));
+  }else{
+    const[created]=await supaPost("act_tipos",{nombre:formT.nombre,descripcion:formT.descripcion,activo:true}).catch(()=>[null]);
+    if(created)setTipos(p=>[...p,created]);
+  }
+  setModalT(false);setEditT(null);setFormT({nombre:"",descripcion:""});
+}
+async function toggleActivo(t){
+  await supaPatch("act_tipos","?id=eq."+t.id,{activo:!t.activo}).catch(console.error);
+  setTipos(p=>p.map(x=>x.id===t.id?{...x,activo:!x.activo}:x));
+}
+async function eliminar(t){
+  if(!window.confirm("¿Eliminar tipo \""+t.nombre+"\"?"))return;
+  await supaDelete("act_tipos","?id=eq."+t.id).catch(console.error);
+  setTipos(p=>p.filter(x=>x.id!==t.id));
+}
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+  <div><div style={{fontFamily:"'Bebas Neue'",fontSize:24,letterSpacing:2}}>TIPOS DE ACTIVIDAD</div>
+  <p style={{color:MUT,fontSize:13}}>Define las actividades que el personal puede registrar (limpieza, producción, etc.)</p></div>
+  <Btn onClick={()=>{setEditT(null);setFormT({nombre:"",descripcion:""});setModalT(true);}}>+ Nuevo tipo</Btn>
+</div>
+{loading?<Card xtra={{textAlign:"center",padding:32,color:MUT}}>Cargando...</Card>:tipos.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin tipos de actividad. Agrega el primero.</Card>:
+<Card xtra={{padding:0}}>
+  <table><thead><tr><th>Nombre</th><th>Descripción</th><th style={{textAlign:"center"}}>Estado</th><th></th></tr></thead>
+  <tbody>{tipos.map(t=><tr key={t.id}>
+    <td style={{fontWeight:500}}>{t.nombre}</td>
+    <td style={{color:MUT,fontSize:12}}>{t.descripcion||"—"}</td>
+    <td style={{textAlign:"center"}}><Bdg c={t.activo?"green":"muted"}>{t.activo?"Activo":"Inactivo"}</Bdg></td>
+    <td><div style={{display:"flex",gap:4,justifyContent:"center"}}>
+      <button onClick={()=>{setEditT(t);setFormT({nombre:t.nombre,descripcion:t.descripcion||""});setModalT(true);}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>E</button>
+      <button onClick={()=>toggleActivo(t)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>{t.activo?"⏸":"▶"}</button>
+      <button onClick={()=>eliminar(t)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>X</button>
+    </div></td>
+  </tr>)}</tbody></table>
+</Card>}
+{modalT&&<Mdl title={editT?"EDITAR TIPO":"NUEVO TIPO"} onClose={()=>setModalT(false)}>
+  <div style={{display:"grid",gap:14}}>
+    <LI label="Nombre"><input value={formT.nombre} onChange={e=>setFormT(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}} placeholder="Ej: Limpieza baño"/></LI>
+    <LI label="Descripción (opcional)"><input value={formT.descripcion} onChange={e=>setFormT(p=>({...p,descripcion:e.target.value}))} style={{width:"100%"}} placeholder="Descripción breve..."/></LI>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <Btn v="ghost" onClick={()=>setModalT(false)}>Cancelar</Btn>
+    <Btn onClick={guardarTipo} xtra={{opacity:!formT.nombre.trim()?0.4:1}}>Guardar</Btn>
+  </div>
+</Mdl>}
+</div>;
+}
+
+// ── ActAsigConfig ─────────────────────────────────────────────────────────────
+const DIAS_NOMBRES=["","Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+function ActAsigConfig({users,sucs}){
+const[asigs,setAsigs]=useState([]);
+const[tipos,setTipos]=useState([]);
+const[loading,setLoading]=useState(true);
+const[modal,setModal]=useState(false);
+const[form,setForm]=useState({tipo_id:"",tipo_nombre:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});
+useEffect(()=>{
+  Promise.all([supaGet("act_asignaciones","?order=id.desc"),supaGet("act_tipos","?activo=eq.true&order=nombre")])
+  .then(([a,t])=>{setAsigs(a||[]);setTipos(t||[]);setLoading(false);}).catch(()=>setLoading(false));
+},[]);
+function toggleDia(n){setForm(p=>({...p,dias_semana:p.dias_semana.includes(n)?p.dias_semana.filter(d=>d!==n):[...p.dias_semana,n].sort()}));}
+const personalUsers=users.filter(u=>["personal","staff_suc","caja_eventos"].includes(u.rol)&&u.activo);
+async function guardar(){
+  if(!form.tipo_id||form.dias_semana.length===0){alert("Selecciona tipo y al menos un día.");return;}
+  const tipo=tipos.find(t=>t.id===parseInt(form.tipo_id));
+  const user=personalUsers.find(u=>u.id===parseInt(form.user_id));
+  const data={tipo_id:parseInt(form.tipo_id),tipo_nombre:tipo?.nombre||"",user_id:form.asig_a==="usuario"&&form.user_id?parseInt(form.user_id):null,user_nombre:form.asig_a==="usuario"&&user?user.nombre:"",sucursal:form.asig_a==="sucursal"?form.sucursal:null,dias_semana:form.dias_semana,hora_limite:form.hora_limite,activo:true};
+  const[created]=await supaPost("act_asignaciones",data).catch(()=>[null]);
+  if(created)setAsigs(p=>[created,...p]);
+  setModal(false);setForm({tipo_id:"",tipo_nombre:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});
+}
+async function toggleAsig(a){
+  await supaPatch("act_asignaciones","?id=eq."+a.id,{activo:!a.activo}).catch(console.error);
+  setAsigs(p=>p.map(x=>x.id===a.id?{...x,activo:!x.activo}:x));
+}
+async function eliminarAsig(a){
+  if(!window.confirm("¿Eliminar esta asignación?"))return;
+  await supaDelete("act_asignaciones","?id=eq."+a.id).catch(console.error);
+  setAsigs(p=>p.filter(x=>x.id!==a.id));
+}
+return <div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+  <div><div style={{fontFamily:"'Bebas Neue'",fontSize:24,letterSpacing:2}}>ASIGNACIONES DE TAREAS</div>
+  <p style={{color:MUT,fontSize:13}}>Asigna actividades recurrentes al personal con días y hora límite.</p></div>
+  <Btn onClick={()=>setModal(true)} disabled={tipos.length===0}>+ Nueva asignación</Btn>
+</div>
+{tipos.length===0&&!loading&&<div style={{background:ACC+"11",border:b1(ACC+"44"),borderRadius:8,padding:"12px 16px",fontSize:13,color:ACC,marginBottom:16}}>⚠️ Primero crea tipos de actividad en la sección "✅ Tipos Actividad".</div>}
+{loading?<Card xtra={{textAlign:"center",padding:32,color:MUT}}>Cargando...</Card>:asigs.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin asignaciones. Crea la primera.</Card>:
+<div style={{display:"flex",flexDirection:"column",gap:10}}>
+{asigs.map(a=><Card key={a.id} xtra={{padding:"14px 16px",opacity:a.activo?1:0.55}}>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+    <div>
+      <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>{a.tipo_nombre}</div>
+      <div style={{fontSize:12,color:MUT,marginBottom:6}}>
+        {a.user_id?<span>👤 {a.user_nombre||"Usuario #"+a.user_id}</span>:<span>🏪 {a.sucursal}</span>}
+        {" · "}
+        {(a.dias_semana||[]).map(d=>DIAS_NOMBRES[d]).join(", ")}
+        {a.hora_limite&&<span> · ⏰ hasta {a.hora_limite}</span>}
+      </div>
+      <Bdg c={a.activo?"green":"muted"}>{a.activo?"Activa":"Inactiva"}</Bdg>
+    </div>
+    <div style={{display:"flex",gap:6}}>
+      <button onClick={()=>toggleAsig(a)} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>{a.activo?"⏸ Pausar":"▶ Activar"}</button>
+      <button onClick={()=>eliminarAsig(a)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Eliminar</button>
+    </div>
+  </div>
+</Card>)}
+</div>}
+{modal&&<Mdl title="NUEVA ASIGNACIÓN" onClose={()=>setModal(false)}>
+  <div style={{display:"grid",gap:14}}>
+    <LI label="Actividad">
+      <select value={form.tipo_id} onChange={e=>setForm(p=>({...p,tipo_id:e.target.value}))} style={{width:"100%"}}>
+        <option value="">— Selecciona —</option>
+        {tipos.map(t=><option key={t.id} value={t.id}>{t.nombre}</option>)}
+      </select>
+    </LI>
+    <LI label="Asignar a">
+      <div style={{display:"flex",gap:10}}>
+        {[["usuario","👤 Persona específica"],["sucursal","🏪 Toda una sucursal"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setForm(p=>({...p,asig_a:v}))} style={{flex:1,padding:"8px",borderRadius:6,border:b1(form.asig_a===v?ACC:BRD),background:form.asig_a===v?ACC+"18":"transparent",color:form.asig_a===v?ACC:MUT,fontSize:12,cursor:"pointer"}}>{l}</button>
+        ))}
+      </div>
+    </LI>
+    {form.asig_a==="usuario"&&<LI label="Persona">
+      <select value={form.user_id} onChange={e=>setForm(p=>({...p,user_id:e.target.value}))} style={{width:"100%"}}>
+        <option value="">— Selecciona —</option>
+        {personalUsers.map(u=><option key={u.id} value={u.id}>{u.nombre} · {u.sucursal||"Sin suc."}</option>)}
+      </select>
+    </LI>}
+    {form.asig_a==="sucursal"&&<LI label="Sucursal">
+      <select value={form.sucursal} onChange={e=>setForm(p=>({...p,sucursal:e.target.value}))} style={{width:"100%"}}>
+        {sucs.map(s=><option key={s}>{s}</option>)}
+      </select>
+    </LI>}
+    <LI label="Días de la semana">
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {[1,2,3,4,5,6,7].map(n=>(
+          <button key={n} onClick={()=>toggleDia(n)} style={{padding:"6px 10px",borderRadius:6,fontSize:12,border:b1(form.dias_semana.includes(n)?ACC:BRD),background:form.dias_semana.includes(n)?ACC+"22":"transparent",color:form.dias_semana.includes(n)?ACC:MUT,cursor:"pointer"}}>{DIAS_NOMBRES[n]}</button>
+        ))}
+      </div>
+    </LI>
+    <LI label="Hora límite"><input type="time" value={form.hora_limite} onChange={e=>setForm(p=>({...p,hora_limite:e.target.value}))} style={{width:140}}/></LI>
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <Btn v="ghost" onClick={()=>setModal(false)}>Cancelar</Btn>
+    <Btn onClick={guardar} xtra={{opacity:!form.tipo_id||form.dias_semana.length===0?0.4:1}}>Guardar asignación</Btn>
+  </div>
+</Mdl>}
+</div>;
+}
+
+// ── Asistencia (Clock-In / Clock-Out) ────────────────────────────────────────
+function Asistencia({userActivo,sucsData,users}){
+const esAdmin=userActivo?.rol==="superadmin"||userActivo?.rol==="admin_suc";
+const userId=userActivo?.id;
+const hoyFecha=today();
+const[clockRecs,setClockRecs]=useState([]);
+const[loading,setLoading]=useState(true);
+const[geoMsg,setGeoMsg]=useState(null);
+const[uploading,setUploading]=useState(false);
+const[fechaFiltro,setFechaFiltro]=useState(hoyFecha);
+const selfieRef=useRef(null);
+const[pendingTipo,setPendingTipo]=useState(null);
+const[pendingGeo,setPendingGeo]=useState(null);
+useEffect(()=>{
+  setLoading(true);
+  const q=esAdmin?`?fecha=eq.${fechaFiltro}&order=created_at.desc`:`?user_id=eq.${userId}&fecha=eq.${fechaFiltro}&order=created_at.desc`;
+  supaGet("clock_registros",q).then(d=>{setClockRecs(d||[]);setLoading(false);}).catch(()=>setLoading(false));
+},[fechaFiltro]);
+const myRecs=clockRecs.filter(r=>r.user_id===userId);
+const lastRec=myRecs[0];
+const dentroAhora=lastRec?.tipo==="entrada";
+const miSucursal=userActivo?.sucursal;
+const sucData=sucsData.find(s=>s.nombre===miSucursal);
+const geoConfigurado=sucData?.lat&&sucData?.lng;
+const userMap={};users.forEach(u=>{userMap[u.id]=u;});
+async function iniciarClock(tipo){
+  if(!geoConfigurado){setGeoMsg("⚠️ No hay coordenadas configuradas para esta sucursal. Pide al administrador que las configure en Configuración → Geo Sucursales.");return;}
+  setGeoMsg("📍 Verificando ubicación...");
+  try{
+    const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:12000}));
+    const{latitude:lat,longitude:lng}=pos.coords;
+    const distancia=haversine(lat,lng,parseFloat(sucData.lat),parseFloat(sucData.lng));
+    const radio=sucData.radio_metros||200;
+    if(distancia>radio){setGeoMsg(`❌ Estás a ${distancia}m del local. El rango permitido es ${radio}m. Acércate al local e intenta de nuevo.`);return;}
+    setGeoMsg(`✅ Ubicación OK (${distancia}m). Tomando selfie...`);
+    setPendingTipo(tipo);setPendingGeo({lat,lng,distancia});
+    setTimeout(()=>selfieRef.current?.click(),300);
+  }catch(e){setGeoMsg("❌ No se pudo obtener tu ubicación. Activa el GPS y vuelve a intentar.");}
+}
+async function handleSelfie(e){
+  const file=e.target.files?.[0];if(!file||!pendingTipo||!pendingGeo)return;
+  e.target.value="";setUploading(true);setGeoMsg("⬆️ Subiendo foto...");
+  try{
+    const{url}=await uploadCloudinary(file);
+    const hora=new Date().toTimeString().slice(0,5);
+    const rec={user_id:userId,sucursal:miSucursal||"",tipo:pendingTipo,fecha:hoyFecha,hora,lat:pendingGeo.lat,lng:pendingGeo.lng,distancia_metros:pendingGeo.distancia,foto_url:url};
+    const[created]=await supaPost("clock_registros",rec);
+    setClockRecs(p=>[created||{...rec,id:Date.now()},...p]);
+    setGeoMsg(null);setPendingTipo(null);setPendingGeo(null);
+  }catch(err){setGeoMsg("❌ Error: "+err.message);}
+  setUploading(false);
+}
+return <div>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2,marginBottom:4}}>ASISTENCIA</h1>
+<p style={{color:MUT,fontSize:13,marginBottom:24}}>{userActivo.nombre} · {miSucursal||"Sin sucursal"}</p>
+{!esAdmin&&<>
+  <Card xtra={{textAlign:"center",padding:32,marginBottom:20}}>
+    <div style={{fontSize:60,marginBottom:12}}>{dentroAhora?"✅":"⏸️"}</div>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:28,letterSpacing:2,color:dentroAhora?GRN:MUT,marginBottom:8}}>
+      {dentroAhora?"DENTRO DEL LOCAL":"FUERA DEL LOCAL"}
+    </div>
+    {lastRec&&<div style={{fontSize:13,color:MUT,marginBottom:20}}>
+      Último: <Bdg c={lastRec.tipo==="entrada"?"green":"red"} xtra={{display:"inline-flex"}}>{lastRec.tipo==="entrada"?"🟢 Entrada":"🔴 Salida"}</Bdg> · {lastRec.hora}
+    </div>}
+    {!uploading&&<div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+      {!dentroAhora&&<Btn v="success" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>iniciarClock("entrada")}>🟢 REGISTRAR ENTRADA</Btn>}
+      {dentroAhora&&<Btn v="danger" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>iniciarClock("salida")}>🔴 REGISTRAR SALIDA</Btn>}
+    </div>}
+    {uploading&&<div style={{color:MUT,fontSize:13}}>Procesando...</div>}
+    {geoMsg&&<div style={{marginTop:14,fontSize:13,padding:"10px 14px",borderRadius:8,background:geoMsg.startsWith("✅")?GRN+"11":geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC+"11":RED+"11",color:geoMsg.startsWith("✅")?GRN:geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC:RED}}>{geoMsg}</div>}
+  </Card>
+  <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{display:"none"}} onChange={handleSelfie}/>
+</>}
+<div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:16,flexWrap:"wrap"}}>
+  {esAdmin&&<LI label="Fecha"><input type="date" value={fechaFiltro} onChange={e=>setFechaFiltro(e.target.value)} style={{width:180}}/></LI>}
+  <div style={{fontSize:13,color:MUT}}>{clockRecs.length} registro(s)</div>
+</div>
+<Card xtra={{padding:0}}>
+  <div style={{padding:"14px 20px",borderBottom:b1(BRD),fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1}}>{esAdmin?"REGISTROS DEL EQUIPO":"MIS REGISTROS"}</div>
+  {loading?<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>Cargando...</div>
+  :clockRecs.length===0?<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>Sin registros para esta fecha.</div>
+  :<table><thead><tr>
+    {esAdmin&&<th>Empleado</th>}
+    <th>Tipo</th><th>Hora</th><th style={{textAlign:"center"}}>Distancia</th><th style={{textAlign:"center"}}>Foto</th>
+    {esAdmin&&<th>Sucursal</th>}
+  </tr></thead><tbody>
+  {clockRecs.map(r=><tr key={r.id}>
+    {esAdmin&&<td style={{fontWeight:500}}>{userMap[r.user_id]?.nombre||"#"+r.user_id}</td>}
+    <td><Bdg c={r.tipo==="entrada"?"green":"red"}>{r.tipo==="entrada"?"🟢 Entrada":"🔴 Salida"}</Bdg></td>
+    <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{r.hora}</td>
+    <td style={{textAlign:"center",fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{r.distancia_metros!=null?r.distancia_metros+"m":"—"}</td>
+    <td style={{textAlign:"center"}}>{r.foto_url?<a href={r.foto_url} target="_blank" rel="noreferrer"><img src={r.foto_url} alt="" style={{width:42,height:42,objectFit:"cover",borderRadius:6,border:b1(BRD)}}/></a>:"—"}</td>
+    {esAdmin&&<td style={{fontSize:12,color:MUT}}>{r.sucursal}</td>}
+  </tr>)}
+  </tbody></table>}
+</Card>
+</div>;
+}
+
+// ── Actividades ──────────────────────────────────────────────────────────────
+function Actividades({userActivo,sucsData,users}){
+const esAdmin=userActivo?.rol==="superadmin"||userActivo?.rol==="admin_suc";
+const userId=userActivo?.id;
+const hoyFecha=today();
+const hoyNum=new Date().getDay()===0?7:new Date().getDay();
+const[tab,setTab]=useState(esAdmin?"reporte":"tareas");
+const[tipos,setTipos]=useState([]);
+const[asigs,setAsigs]=useState([]);
+const[recs,setRecs]=useState([]);
+const[loading,setLoading]=useState(true);
+const[modalCompletar,setModalCompletar]=useState(null);
+const[notaInput,setNotaInput]=useState("");
+const[archivos,setArchivos]=useState([]);
+const[subiendo,setSubiendo]=useState(false);
+const[fechaRep,setFechaRep]=useState(hoyFecha);
+const[repRecs,setRepRecs]=useState([]);
+const mediaRef=useRef(null);
+const mediaVideoRef=useRef(null);
+useEffect(()=>{
+  Promise.all([
+    supaGet("act_tipos","?activo=eq.true&order=nombre"),
+    supaGet("act_asignaciones","?activo=eq.true&order=id.asc"),
+    supaGet("act_registros",`?user_id=eq.${userId}&fecha=eq.${hoyFecha}&order=created_at.desc`),
+  ]).then(([t,a,r])=>{setTipos(t||[]);setAsigs(a||[]);setRecs(r||[]);setLoading(false);}).catch(()=>setLoading(false));
+},[]);
+useEffect(()=>{
+  if(!esAdmin)return;
+  const q=esAdmin?`?fecha=eq.${fechaRep}&order=created_at.desc`:`?user_id=eq.${userId}&fecha=eq.${fechaRep}&order=created_at.desc`;
+  supaGet("act_registros",q).then(d=>setRepRecs(d||[])).catch(console.error);
+},[fechaRep]);
+// Tareas asignadas para hoy
+const misAsigs=asigs.filter(a=>{
+  const diasOk=(a.dias_semana||[]).includes(hoyNum);
+  const esParaMi=a.user_id===userId||(a.sucursal&&a.sucursal===userActivo?.sucursal&&!a.user_id);
+  return diasOk&&esParaMi;
+});
+function estaCompletada(asig){return recs.some(r=>r.asignacion_id===asig.id);}
+function estaVencida(asig){if(estaCompletada(asig)||!asig.hora_limite)return false;return new Date().toTimeString().slice(0,5)>asig.hora_limite;}
+const pendientes=misAsigs.filter(a=>!estaCompletada(a));
+const completadas=misAsigs.filter(a=>estaCompletada(a));
+const vencidas=pendientes.filter(a=>estaVencida(a));
+// Media capture
+async function capturarMedia(tipo){
+  if(tipo==="foto")mediaRef.current?.click();
+  else mediaVideoRef.current?.click();
+}
+async function handleMedia(e,esVideo){
+  const file=e.target.files?.[0];if(!file)return;
+  e.target.value="";
+  if(esVideo){try{await checkVideoDuration(file,15);}catch(err){alert(err.message);return;}}
+  const previewUrl=URL.createObjectURL(file);
+  setArchivos(p=>[...p,{file,previewUrl,tipo:esVideo?"video":"foto",uploading:false,url:null}]);
+}
+function quitarArchivo(i){setArchivos(p=>{URL.revokeObjectURL(p[i].previewUrl);return p.filter((_,j)=>j!==i);});}
+async function guardarActividad(){
+  if(!modalCompletar)return;
+  if(archivos.length===0&&!notaInput.trim()){alert("Agrega al menos una foto/video o una nota.");return;}
+  setSubiendo(true);
+  try{
+    const uploads=await Promise.all(archivos.map(async(a)=>{
+      if(a.url)return{url:a.url,tipo:a.tipo};
+      const result=await uploadCloudinary(a.file);
+      return result;
+    }));
+    const miSuc=userActivo?.sucursal||"";
+    const hora=new Date().toTimeString().slice(0,5);
+    const rec={user_id:userId,sucursal:miSuc,tipo_id:modalCompletar.tipo_id||null,tipo_nombre:modalCompletar.tipo_nombre||"",asignacion_id:modalCompletar.asig_id||null,fecha:hoyFecha,hora,nota:notaInput,archivos:uploads};
+    const[created]=await supaPost("act_registros",rec);
+    setRecs(p=>[created||{...rec,id:Date.now()},...p]);
+    setModalCompletar(null);setNotaInput("");setArchivos([]);
+  }catch(err){alert("Error al guardar: "+err.message);}
+  setSubiendo(false);
+}
+const userMap={};users.forEach(u=>{userMap[u.id]=u;});
+const allAsigsCombined=asigs;
+// For admin reporte: compliance per user per assignment
+function getComplianceRow(a,fecha){
+  const diasMatch=(a.dias_semana||[]).includes(new Date(fecha+"T12:00:00").getDay()===0?7:new Date(fecha+"T12:00:00").getDay());
+  if(!diasMatch)return null;
+  const completado=repRecs.some(r=>r.asignacion_id===a.id);
+  return{asig:a,completado};
+}
+return <div>
+<h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2,marginBottom:4}}>ACTIVIDADES</h1>
+<p style={{color:MUT,fontSize:13,marginBottom:20}}>{userActivo.nombre} · {userActivo.sucursal||"Sin sucursal"}</p>
+{/* Alerta de vencidas para admins */}
+{esAdmin&&vencidas.length===0&&repRecs.length>=0&&null}
+<div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+  {(!esAdmin?[["tareas","📋 Mis Tareas"],["libre","➕ Nueva Actividad"]]:
+    [["reporte","📊 Reporte"],["tareas","📋 Mis Tareas"],["libre","➕ Nueva Actividad"]]).map(([id,l])=>{
+    const a=tab===id;
+    return <button key={id} onClick={()=>setTab(id)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400,position:"relative"}}>
+      {l}
+      {id==="tareas"&&vencidas.length>0&&<span style={{position:"absolute",top:-6,right:-6,background:RED,color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{vencidas.length}</span>}
+    </button>;
+  })}
+</div>
+{/* ── Tab: Mis Tareas ── */}
+{tab==="tareas"&&<div>
+  {loading?<Card xtra={{textAlign:"center",padding:32,color:MUT}}>Cargando...</Card>:
+  misAsigs.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>
+    <div style={{fontSize:36,marginBottom:12}}>🗓️</div>
+    <div>No tienes tareas asignadas para hoy.</div>
+    <div style={{fontSize:12,marginTop:8}}>Si esperabas ver tareas, consulta con tu administrador.</div>
+  </Card>:<div style={{display:"flex",flexDirection:"column",gap:10}}>
+    {misAsigs.map(a=>{
+      const done=estaCompletada(a);const vencida=estaVencida(a);
+      return <Card key={a.id} xtra={{padding:"16px 20px",borderLeft:`4px solid ${done?GRN:vencida?RED:ACC}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{a.tipo_nombre}</div>
+            <div style={{fontSize:12,color:MUT}}>
+              {(a.dias_semana||[]).map(d=>DIAS_NOMBRES[d]).join(", ")}
+              {a.hora_limite&&<span> · ⏰ hasta {a.hora_limite}</span>}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {done?<Bdg c="green">✓ Completada</Bdg>:vencida?<Bdg c="red">⚠️ Vencida</Bdg>:<Bdg c="orange">Pendiente</Bdg>}
+            {!done&&<Btn s="sm" v={vencida?"danger":"success"} onClick={()=>{setModalCompletar({asig_id:a.id,tipo_id:a.tipo_id,tipo_nombre:a.tipo_nombre});setNotaInput("");setArchivos([]);}}>
+              {vencida?"⚠️ Registrar igual":"✓ Completar"}
+            </Btn>}
+            {done&&<button onClick={()=>{const r=recs.find(x=>x.asignacion_id===a.id);if(r?.archivos?.length>0)window.open(r.archivos[0].url,"_blank");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver evidencia</button>}
+          </div>
+        </div>
+      </Card>;
+    })}
+  </div>}
+  {completadas.length>0&&<div style={{marginTop:16,fontSize:12,color:MUT}}>✓ {completadas.length} tarea(s) completada(s) hoy</div>}
+</div>}
+{/* ── Tab: Nueva Actividad (libre) ── */}
+{tab==="libre"&&<div>
+  <Card xtra={{maxWidth:580}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:16}}>NUEVA ACTIVIDAD</div>
+    <div style={{display:"grid",gap:14}}>
+      <LI label="Tipo de actividad">
+        <select id="tipo_libre" style={{width:"100%"}}>
+          <option value="">— Selecciona —</option>
+          {tipos.map(t=><option key={t.id} value={t.id} data-nombre={t.nombre}>{t.nombre}</option>)}
+        </select>
+      </LI>
+      <LI label="Nota (opcional)">
+        <textarea id="nota_libre" rows={2} placeholder="Descripción breve..." style={{width:"100%",resize:"vertical"}}/>
+      </LI>
+    </div>
+    <div style={{marginTop:16,marginBottom:8,fontSize:12,color:MUT,fontWeight:600,letterSpacing:1}}>EVIDENCIA (FOTOS / VIDEOS)</div>
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+      <Btn s="sm" v="ghost" onClick={()=>mediaRef.current?.click()}>📷 Foto</Btn>
+      <Btn s="sm" v="ghost" onClick={()=>mediaVideoRef.current?.click()}>🎥 Video (máx 15s)</Btn>
+    </div>
+    {archivos.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+      {archivos.map((a,i)=><div key={i} style={{position:"relative"}}>
+        {a.tipo==="foto"
+          ?<img src={a.previewUrl} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:b1(BRD)}}/>
+          :<video src={a.previewUrl} style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:b1(BRD)}} muted/>}
+        <button onClick={()=>quitarArchivo(i)} style={{position:"absolute",top:-6,right:-6,background:RED,color:"#fff",border:"none",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+      </div>)}
+    </div>}
+    <Btn v="success" xtra={{width:"100%",padding:"12px",fontFamily:"'Bebas Neue'",fontSize:16,letterSpacing:1,opacity:subiendo?0.5:1}}
+      onClick={async()=>{
+        const sel=document.getElementById("tipo_libre");
+        const nota=document.getElementById("nota_libre");
+        const tipoId=sel?.value?parseInt(sel.value):null;
+        const tipoNombre=sel?.options[sel.selectedIndex]?.dataset?.nombre||"";
+        if(!tipoId){alert("Selecciona un tipo de actividad.");return;}
+        if(archivos.length===0){alert("Agrega al menos una foto o video.");return;}
+        setModalCompletar({asig_id:null,tipo_id:tipoId,tipo_nombre:tipoNombre,_nota:nota?.value||""});
+        setNotaInput(nota?.value||"");
+        await guardarActividad();
+      }}>
+      {subiendo?"GUARDANDO...":"✓ GUARDAR ACTIVIDAD"}
+    </Btn>
+  </Card>
+</div>}
+{/* ── Tab: Reporte (admin) ── */}
+{esAdmin&&tab==="reporte"&&<div>
+  <div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:20,flexWrap:"wrap"}}>
+    <LI label="Fecha"><input type="date" value={fechaRep} onChange={e=>setFechaRep(e.target.value)} style={{width:180}}/></LI>
+    <div style={{fontSize:13,color:MUT}}>{repRecs.length} registro(s)</div>
+  </div>
+  {repRecs.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin registros de actividades para esta fecha.</Card>:
+  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+    {repRecs.map(r=><Card key={r.id} xtra={{padding:"14px 16px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>{r.tipo_nombre||"Actividad libre"}</div>
+          <div style={{fontSize:12,color:MUT,marginBottom:6}}>
+            {userMap[r.user_id]?.nombre||"#"+r.user_id} · {r.sucursal} · {r.hora}
+            {r.asignacion_id&&<Bdg c="blue" xtra={{marginLeft:8,fontSize:10}}>Asignada</Bdg>}
+          </div>
+          {r.nota&&<div style={{fontSize:12,fontStyle:"italic",color:MUT}}>{r.nota}</div>}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {(r.archivos||[]).map((a,i)=>a.tipo==="foto"
+            ?<a key={i} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt="" style={{width:56,height:56,objectFit:"cover",borderRadius:6,border:b1(BRD)}}/></a>
+            :<a key={i} href={a.url} target="_blank" rel="noreferrer"><div style={{width:56,height:56,borderRadius:6,border:b1(BRD),background:FNT,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🎥</div></a>
+          )}
+        </div>
+      </div>
+    </Card>)}
+  </div>}
+</div>}
+{/* Modal completar tarea */}
+{modalCompletar&&tab==="tareas"&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+  <Card xtra={{maxWidth:500,width:"100%",maxHeight:"90vh",overflow:"auto"}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:ACC,letterSpacing:1,marginBottom:16}}>COMPLETAR: {modalCompletar.tipo_nombre}</div>
+    <LI label="Nota (opcional)" xtra={{marginBottom:14}}>
+      <textarea value={notaInput} onChange={e=>setNotaInput(e.target.value)} rows={2} placeholder="Observaciones..." style={{width:"100%",resize:"vertical"}}/>
+    </LI>
+    <div style={{fontSize:12,color:MUT,fontWeight:600,letterSpacing:1,marginBottom:8}}>EVIDENCIA (OBLIGATORIA)</div>
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
+      <Btn s="sm" v="ghost" onClick={()=>capturarMedia("foto")} xtra={{flex:1}}>📷 Foto</Btn>
+      <Btn s="sm" v="ghost" onClick={()=>capturarMedia("video")} xtra={{flex:1}}>🎥 Video (máx 15s)</Btn>
+    </div>
+    {archivos.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+      {archivos.map((a,i)=><div key={i} style={{position:"relative"}}>
+        {a.tipo==="foto"?<img src={a.previewUrl} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:b1(BRD)}}/>
+        :<video src={a.previewUrl} style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:b1(BRD)}} muted/>}
+        <button onClick={()=>quitarArchivo(i)} style={{position:"absolute",top:-6,right:-6,background:RED,color:"#fff",border:"none",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer"}}>✕</button>
+      </div>)}
+    </div>}
+    {archivos.length===0&&<div style={{background:FNT,borderRadius:8,padding:"20px",textAlign:"center",color:MUT,fontSize:13,marginBottom:14}}>Sin evidencia. Agrega al menos una foto o video.</div>}
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+      <Btn v="ghost" onClick={()=>{setModalCompletar(null);setArchivos([]);setNotaInput("");}}>Cancelar</Btn>
+      <Btn v="success" onClick={guardarActividad} xtra={{opacity:archivos.length===0||subiendo?0.4:1}}>{subiendo?"Guardando...":"✓ Guardar"}</Btn>
+    </div>
+  </Card>
+</div>}
+<input ref={mediaRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handleMedia(e,false)}/>
+<input ref={mediaVideoRef} type="file" accept="video/*" capture="environment" style={{display:"none"}} onChange={e=>handleMedia(e,true)}/>
 </div>;
 }
