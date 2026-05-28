@@ -482,7 +482,7 @@ cargarDatos();
 
 },[]);
 const sh={inv,setInv,sp,setSp,rp,setRp,rv,setRv,reqs,setReqs,hI,setHI,hC,setHC,xlsxReady,sucs,setSucs,sucsData,setSucsData,cats,setCats,catV,setCatV,cats2,setCats2,invSucs,setInvSucs,regsSucs,setRegsSucs,provs,setProvs,ventas,setVentas,users,setUsers,userActivo,setUserActivo,marcas,setMarcas,sucsMarcas,setSucsMarcas,cierresCaja,setCierresCaja};
-const[menuAbierto,setMenuAbierto]=useState(true);
+const[menuAbierto,setMenuAbierto]=useState(false);
 // puede debe definirse antes de allTabs — usa userActivo que puede ser null
 const puede=(accion)=>puedePor(userActivo,accion);
 const allTabs=[
@@ -533,17 +533,19 @@ return <>
 <nav style={{flex:1,padding:"12px 8px",overflowY:"auto"}}>
 {T.map(t=>{const a=tab===t.id;return <button key={t.id} onClick={()=>setTab(t.id)} title={t.l} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",borderRadius:8,marginBottom:2,background:a?ACC+"18":"transparent",color:a?ACC:MUT,border:"none",textAlign:"left",fontSize:13,fontWeight:a?600:400,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden"}}><span style={{flexShrink:0}}>{t.i}</span>{menuAbierto&&t.l}</button>;})}
 </nav>
-<div style={{padding:menuAbierto?"12px 16px":"8px",borderTop:b1(BRD)}}>
-{menuAbierto
-?<div>
-<div style={{fontSize:12,fontWeight:600,color:TXT,marginBottom:2}}>{userActivo.nombre}</div>
-<div style={{fontSize:11,color:MUT,marginBottom:8}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):userActivo.rol==="personal"?"Personal · "+(userActivo.sucursal||""):"Producción"}</div>
-<button onClick={()=>{setUserActivo(null);setTab("inicio");}} style={{fontSize:11,color:RED,background:"transparent",border:"none",cursor:"pointer",padding:0}}>Cerrar sesión</button>
 </div>
-:<button onClick={()=>{setUserActivo(null);setTab("inicio");}} title="Cerrar sesión" style={{background:"transparent",border:"none",color:RED,cursor:"pointer",fontSize:16,width:"100%",textAlign:"center"}}>⏏</button>
-}
-
-</div>
+{/* ── Usuario top-right ── */}
+<div style={{position:"fixed",top:12,right:16,zIndex:200,display:"flex",alignItems:"center",gap:10,background:SRF,border:b1(BRD),borderRadius:24,padding:"6px 14px 6px 10px",boxShadow:"0 2px 12px #00000055"}}>
+  <div style={{width:30,height:30,borderRadius:"50%",background:ACC+"22",border:b1(ACC+"44"),display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>
+    {userActivo.nombre.charAt(0).toUpperCase()}
+  </div>
+  <div style={{lineHeight:1.3}}>
+    <div style={{fontSize:12,fontWeight:600,color:TXT,whiteSpace:"nowrap"}}>{userActivo.nombre}</div>
+    <div style={{fontSize:10,color:MUT,whiteSpace:"nowrap"}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):userActivo.rol==="personal"?"Personal · "+(userActivo.sucursal||""):"Producción"}</div>
+  </div>
+  <button onClick={()=>{setUserActivo(null);setTab("inicio");}} title="Cerrar sesión" style={{background:RED+"18",border:b1(RED+"44"),color:RED,cursor:"pointer",fontSize:11,fontWeight:600,borderRadius:12,padding:"4px 10px",whiteSpace:"nowrap",flexShrink:0}}>
+    Salir
+  </button>
 </div>
 <div style={{marginLeft:menuAbierto?220:56,flex:1,padding:28,minWidth:0,transition:"margin-left 0.2s ease"}}>
 {tab==="inicio"&&<Inicio userActivo={userActivo} setTab={setTab} tabs={T}/>
