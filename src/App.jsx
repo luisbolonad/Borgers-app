@@ -4715,8 +4715,8 @@ const[geoMsg,setGeoMsg]=useState(null);
 const[uploading,setUploading]=useState(false);
 const[fechaFiltro,setFechaFiltro]=useState(hoyFecha);
 const selfieRef=useRef(null);
-const[pendingTipo,setPendingTipo]=useState(null);
-const[pendingGeo,setPendingGeo]=useState(null);
+// geoOk: {tipo, lat, lng, distancia} — geo pasó, esperando que el usuario presione "Tomar selfie"
+const[geoOk,setGeoOk]=useState(null);
 useEffect(()=>{
   setLoading(true);
   const q=esAdmin?`?fecha=eq.${fechaFiltro}&order=created_at.desc`:`?user_id=eq.${userId}&fecha=eq.${fechaFiltro}&order=created_at.desc`;
@@ -4729,30 +4729,32 @@ const miSucursal=userActivo?.sucursal;
 const sucData=sucsData.find(s=>s.nombre===miSucursal);
 const geoConfigurado=sucData?.lat&&sucData?.lng;
 const userMap={};users.forEach(u=>{userMap[u.id]=u;});
-async function iniciarClock(tipo){
+// Paso 1: verificar geo. Si pasa → mostrar botón de selfie (no click programático)
+async function verificarGeo(tipo){
   if(!geoConfigurado){setGeoMsg("⚠️ No hay coordenadas configuradas para esta sucursal. Pide al administrador que las configure en Configuración → Geo Sucursales.");return;}
-  setGeoMsg("📍 Verificando ubicación...");
+  setGeoMsg("📍 Verificando ubicación...");setGeoOk(null);
   try{
     const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:12000}));
     const{latitude:lat,longitude:lng}=pos.coords;
     const distancia=haversine(lat,lng,parseFloat(sucData.lat),parseFloat(sucData.lng));
     const radio=sucData.radio_metros||200;
     if(distancia>radio){setGeoMsg(`❌ Estás a ${distancia}m del local. El rango permitido es ${radio}m. Acércate al local e intenta de nuevo.`);return;}
-    setGeoMsg(`✅ Ubicación OK (${distancia}m). Tomando selfie...`);
-    setPendingTipo(tipo);setPendingGeo({lat,lng,distancia});
-    setTimeout(()=>selfieRef.current?.click(),300);
+    setGeoMsg(null);
+    setGeoOk({tipo,lat,lng,distancia});
   }catch(e){setGeoMsg("❌ No se pudo obtener tu ubicación. Activa el GPS y vuelve a intentar.");}
 }
+// Paso 2: usuario presiona el botón selfie → abre cámara directamente (gesto del usuario)
+function abrirCamara(){selfieRef.current?.click();}
 async function handleSelfie(e){
-  const file=e.target.files?.[0];if(!file||!pendingTipo||!pendingGeo)return;
+  const file=e.target.files?.[0];if(!file||!geoOk)return;
   e.target.value="";setUploading(true);setGeoMsg("⬆️ Subiendo foto...");
   try{
     const{url}=await uploadCloudinary(file);
     const hora=new Date().toTimeString().slice(0,5);
-    const rec={user_id:userId,sucursal:miSucursal||"",tipo:pendingTipo,fecha:hoyFecha,hora,lat:pendingGeo.lat,lng:pendingGeo.lng,distancia_metros:pendingGeo.distancia,foto_url:url};
+    const rec={user_id:userId,sucursal:miSucursal||"",tipo:geoOk.tipo,fecha:hoyFecha,hora,lat:geoOk.lat,lng:geoOk.lng,distancia_metros:geoOk.distancia,foto_url:url};
     const[created]=await supaPost("clock_registros",rec);
     setClockRecs(p=>[created||{...rec,id:Date.now()},...p]);
-    setGeoMsg(null);setPendingTipo(null);setPendingGeo(null);
+    setGeoMsg(null);setGeoOk(null);
   }catch(err){setGeoMsg("❌ Error: "+err.message);}
   setUploading(false);
 }
@@ -4768,12 +4770,23 @@ return <div>
     {lastRec&&<div style={{fontSize:13,color:MUT,marginBottom:20}}>
       Último: <Bdg c={lastRec.tipo==="entrada"?"green":"red"} xtra={{display:"inline-flex"}}>{lastRec.tipo==="entrada"?"🟢 Entrada":"🔴 Salida"}</Bdg> · {lastRec.hora}
     </div>}
-    {!uploading&&<div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
-      {!dentroAhora&&<Btn v="success" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>iniciarClock("entrada")}>🟢 REGISTRAR ENTRADA</Btn>}
-      {dentroAhora&&<Btn v="danger" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>iniciarClock("salida")}>🔴 REGISTRAR SALIDA</Btn>}
+    {/* Paso 1: botones principales */}
+    {!geoOk&&!uploading&&<div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+      {!dentroAhora&&<Btn v="success" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>verificarGeo("entrada")}>🟢 REGISTRAR ENTRADA</Btn>}
+      {dentroAhora&&<Btn v="danger" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>verificarGeo("salida")}>🔴 REGISTRAR SALIDA</Btn>}
     </div>}
-    {uploading&&<div style={{color:MUT,fontSize:13}}>Procesando...</div>}
-    {geoMsg&&<div style={{marginTop:14,fontSize:13,padding:"10px 14px",borderRadius:8,background:geoMsg.startsWith("✅")?GRN+"11":geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC+"11":RED+"11",color:geoMsg.startsWith("✅")?GRN:geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC:RED}}>{geoMsg}</div>}
+    {/* Paso 2: geo ok → el usuario presiona para abrir la cámara */}
+    {geoOk&&!uploading&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+      <div style={{background:GRN+"11",border:b1(GRN+"44"),borderRadius:8,padding:"8px 16px",fontSize:13,color:GRN}}>
+        ✅ Ubicación verificada ({geoOk.distancia}m del local)
+      </div>
+      <Btn v="success" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={abrirCamara}>
+        📷 TOMAR SELFIE
+      </Btn>
+      <button onClick={()=>setGeoOk(null)} style={{fontSize:12,color:MUT,background:"transparent",border:"none",cursor:"pointer",textDecoration:"underline"}}>Cancelar</button>
+    </div>}
+    {uploading&&<div style={{color:MUT,fontSize:13}}>⬆️ Subiendo foto, espera un momento...</div>}
+    {geoMsg&&<div style={{marginTop:14,fontSize:13,padding:"10px 14px",borderRadius:8,background:geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC+"11":RED+"11",color:geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC:RED}}>{geoMsg}</div>}
   </Card>
   <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{display:"none"}} onChange={handleSelfie}/>
 </>}
