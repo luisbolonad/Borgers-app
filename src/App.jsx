@@ -58,6 +58,24 @@ async function checkVideoDuration(file,maxSec=15){
     v.src=URL.createObjectURL(file);
   });
 }
+// ── AWS Rekognition via Supabase Edge Function ───────────────────────────────
+const REK_URL=SUPA_URL+"/functions/v1/rekognition";
+async function callRek(action,params={}){
+  const res=await fetch(REK_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_KEY},body:JSON.stringify({action,...params})});
+  const data=await res.json();
+  if(data.error)throw new Error(data.error);
+  return data;
+}
+function rekCollectionId(sucursal){
+  return"borgers-"+(sucursal||"default").toLowerCase().replace(/[^a-z0-9]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,50);
+}
+function captureFrame(videoEl,quality=0.85){
+  if(!videoEl||videoEl.readyState<2)return null;
+  const c=document.createElement("canvas");
+  c.width=videoEl.videoWidth||640;c.height=videoEl.videoHeight||480;
+  c.getContext("2d").drawImage(videoEl,0,0);
+  return c.toDataURL("image/jpeg",quality).split(",")[1];
+}
 const BG="#0F0E0C",SRF="#1A1916",CRD="#222018",BRD="#2E2C26";
 const ACC="#F5A623",RED="#E84040",GRN="#3ECF8E",BLU="#4A9EFF";
 const PRP="#9B72FF",TXT="#F0EDE6",MUT="#8A8578",FNT="#3A3830";
@@ -121,7 +139,7 @@ ver_hist:       ["superadmin","admin_suc","produccion"],
 ver_config:     ["superadmin"],
 ver_manual:     ["superadmin","admin_suc","staff_suc","produccion"],
 ver_ce:         ["superadmin","caja_eventos"],
-ver_asist:      ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
+ver_asist:      ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion","kiosko"],
 ver_act:        ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
 // Acciones
 editar_recetas: ["superadmin"],
@@ -513,6 +531,9 @@ if(cargando) return <div style={{minHeight:"100vh",background:BG,display:"flex",
   </div>;
 // Login gate — después de todos los hooks
 if(!userActivo) return <Login users={users} onLogin={setUserActivo}/>;
+// Onboarding gate — personal sin onboarding completado
+if(userActivo.rol==="personal"&&!userActivo.onboarding_completo)
+  return <Onboarding userActivo={userActivo} onComplete={u=>setUserActivo(u)}/>;
 return <>
 <style>{globalCss}</style>
 {userActivo&&<Watermark nombre={userActivo.nombre}/>}
@@ -541,7 +562,7 @@ return <>
   </div>
   <div style={{lineHeight:1.3}}>
     <div style={{fontSize:12,fontWeight:600,color:TXT,whiteSpace:"nowrap"}}>{userActivo.nombre}</div>
-    <div style={{fontSize:10,color:MUT,whiteSpace:"nowrap"}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):userActivo.rol==="personal"?"Personal · "+(userActivo.sucursal||""):"Producción"}</div>
+    <div style={{fontSize:10,color:MUT,whiteSpace:"nowrap"}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):userActivo.rol==="personal"?"Personal · "+(userActivo.sucursal||""):userActivo.rol==="kiosko"?"Kiosko · "+(userActivo.sucursal||""):"Producción"}</div>
   </div>
   <button onClick={()=>{setUserActivo(null);setTab("inicio");}} title="Cerrar sesión" style={{background:RED+"18",border:b1(RED+"44"),color:RED,cursor:"pointer",fontSize:11,fontWeight:600,borderRadius:12,padding:"4px 10px",whiteSpace:"nowrap",flexShrink:0}}>
     Salir
@@ -3672,7 +3693,7 @@ return <div>
 <p style={{color:MUT,fontSize:13}}>Gestión de sucursales y categorías del sistema</p>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
-{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["geo","📍 Geo Sucursales"],["acttypes","✅ Tipos Actividad"],["asignaciones","📋 Asignaciones"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
+{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["geo","📍 Geo Sucursales"],["rostros","🤳 Reconocimiento Facial"],["acttypes","✅ Tipos Actividad"],["asignaciones","📋 Asignaciones"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
 const a=seccion===id;
 return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
 })}
@@ -3752,6 +3773,7 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
   </Card>
 </div>}
 {seccion==="geo"&&<GeoSucsConfig sucsData={sucsData} setSucsData={setSucsData}/>}
+{seccion==="rostros"&&<RostrosConfig users={users} setUsers={setUsers} sucs={sucs}/>}
 {seccion==="acttypes"&&<ActTiposConfig/>}
 {seccion==="asignaciones"&&<ActAsigConfig users={users} sucs={sucs}/>}
 {seccion==="cats"&&<div>
@@ -3938,15 +3960,15 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
           <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{u.nombre}</div>
           <div style={{fontSize:12,color:MUT,marginBottom:6}}>{u.email}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            <Bdg c={u.rol==="superadmin"?"orange":u.rol==="produccion"?"blue":u.rol==="admin_suc"?"green":u.rol==="caja_eventos"?"purple":u.rol==="personal"?"blue":"muted"}>
-              {u.rol==="superadmin"?"Superadmin":u.rol==="admin_suc"?"Admin Suc.":u.rol==="staff_suc"?"Staff Suc.":u.rol==="caja_eventos"?"Caja Eventos":u.rol==="personal"?"Personal":"Producción"}
+            <Bdg c={u.rol==="superadmin"?"orange":u.rol==="produccion"?"blue":u.rol==="admin_suc"?"green":u.rol==="caja_eventos"?"purple":u.rol==="personal"?"blue":u.rol==="kiosko"?"orange":"muted"}>
+              {u.rol==="superadmin"?"Superadmin":u.rol==="admin_suc"?"Admin Suc.":u.rol==="staff_suc"?"Staff Suc.":u.rol==="caja_eventos"?"Caja Eventos":u.rol==="personal"?"Personal":u.rol==="kiosko"?"Kiosko":"Producción"}
             </Bdg>
             {u.sucursal&&<Bdg c="muted">{u.sucursal}</Bdg>}
             {!u.activo&&<Bdg c="red">Inactivo</Bdg>}
           </div>
         </div>
         <div style={{display:"flex",gap:6}}>
-          <button onClick={()=>{setEditUser(u);setFormUser({nombre:u.nombre,email:u.email,password:u.password,rol:u.rol,sucursal:u.sucursal||sucs[0]||"",activo:u.activo});setModalUser(true);}}
+          <button onClick={()=>{setEditUser(u);setFormUser({nombre:u.nombre,email:u.email,password:u.password,rol:u.rol,sucursal:u.sucursal||sucs[0]||"",activo:u.activo,cedula:u.cedula||"",celular:u.celular||""});setModalUser(true);}}
             style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
           {u.rol!=="superadmin"&&<button onClick={()=>setConfirmar({msg:"Eliminar usuario "+u.nombre+"?",fn:()=>{setUsers(p=>p.filter(x=>x.id!==u.id));supaDelete("users","?id=eq."+u.id).catch(console.error);}})}
             style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>}
@@ -3972,13 +3994,18 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
         <option value="produccion">Producción</option>
         <option value="caja_eventos">Caja Eventos</option>
         <option value="personal">Personal</option>
+        <option value="kiosko">Kiosko</option>
       </select>
     </LI>
-    {(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos"||formUser.rol==="personal")&&<LI label="Sucursal">
+    {(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos"||formUser.rol==="personal"||formUser.rol==="kiosko")&&<LI label="Sucursal">
       <select value={formUser.sucursal} onChange={e=>setFormUser(p=>({...p,sucursal:e.target.value}))} style={{width:"100%"}}>
         {sucs.map(s=><option key={s}>{s}</option>)}
       </select>
     </LI>}
+    {formUser.rol==="personal"&&<>
+      <LI label="N° Identificación (Cédula)"><input value={formUser.cedula||""} onChange={e=>setFormUser(p=>({...p,cedula:e.target.value}))} style={{width:"100%"}} placeholder="0912345678"/></LI>
+      <LI label="Celular"><input value={formUser.celular||""} onChange={e=>setFormUser(p=>({...p,celular:e.target.value}))} style={{width:"100%"}} placeholder="+593 99 999 9999"/></LI>
+    </>}
     <LI label="Estado">
       <select value={formUser.activo?"activo":"inactivo"} onChange={e=>setFormUser(p=>({...p,activo:e.target.value==="activo"}))} style={{width:"100%"}}>
         <option value="activo">Activo</option>
@@ -3990,8 +4017,9 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
     <Btn v="ghost" onClick={()=>setModalUser(false)}>Cancelar</Btn>
     <Btn onClick={async()=>{
       if(!formUser.nombre.trim()||!formUser.email.trim()||!formUser.password.trim())return;
-      const suc=(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos"||formUser.rol==="personal")?formUser.sucursal:null;
+      const suc=(formUser.rol==="admin_suc"||formUser.rol==="staff_suc"||formUser.rol==="caja_eventos"||formUser.rol==="personal"||formUser.rol==="kiosko")?formUser.sucursal:null;
       const data={...formUser,sucursal:suc};
+      if(formUser.rol==="personal"&&!editUser)data.onboarding_completo=false;
       if(editUser){
         await supaPatch("users","?id=eq."+editUser.id,data).catch(console.error);
         setUsers(p=>p.map(u=>u.id===editUser.id?{...editUser,...data}:u));
@@ -4704,91 +4732,209 @@ return <div>
 </div>;
 }
 
-// ── Asistencia (Clock-In / Clock-Out) ────────────────────────────────────────
+// ── Asistencia (Clock-In / Clock-Out con Reconocimiento Facial) ──────────────
 function Asistencia({userActivo,sucsData,users}){
 const esAdmin=userActivo?.rol==="superadmin"||userActivo?.rol==="admin_suc";
+const esKiosko=userActivo?.rol==="kiosko";
 const userId=userActivo?.id;
 const hoyFecha=today();
 const[clockRecs,setClockRecs]=useState([]);
 const[loading,setLoading]=useState(true);
-const[geoMsg,setGeoMsg]=useState(null);
-const[uploading,setUploading]=useState(false);
 const[fechaFiltro,setFechaFiltro]=useState(hoyFecha);
-const selfieRef=useRef(null);
-// geoOk: {tipo, lat, lng, distancia} — geo pasó, esperando que el usuario presione "Tomar selfie"
+const videoRef=useRef(null);
+const streamRef=useRef(null);
+const scanIntervalRef=useRef(null);
+const cooldownRef=useRef(false);
+const[camActiva,setCamActiva]=useState(false);
+const[camError,setCamError]=useState(null);
 const[geoOk,setGeoOk]=useState(null);
+const[geoMsg,setGeoMsg]=useState(null);
+const[registrando,setRegistrando]=useState(false);
+const[msg,setMsg]=useState(null);
+const[scanning,setScanning]=useState(false);
+const miSucursal=userActivo?.sucursal;
+const sucData=sucsData.find(s=>s.nombre===miSucursal);
+const geoConfigurado=sucData?.lat&&sucData?.lng;
+const myRecs=clockRecs.filter(r=>r.user_id===userId);
+const lastRec=myRecs[0];
+const dentroAhora=lastRec?.tipo==="entrada";
+const userMap={};users.forEach(u=>{userMap[u.id]=u;});
 useEffect(()=>{
   setLoading(true);
   const q=esAdmin?`?fecha=eq.${fechaFiltro}&order=created_at.desc`:`?user_id=eq.${userId}&fecha=eq.${fechaFiltro}&order=created_at.desc`;
   supaGet("clock_registros",q).then(d=>{setClockRecs(d||[]);setLoading(false);}).catch(()=>setLoading(false));
 },[fechaFiltro]);
-const myRecs=clockRecs.filter(r=>r.user_id===userId);
-const lastRec=myRecs[0];
-const dentroAhora=lastRec?.tipo==="entrada";
-const miSucursal=userActivo?.sucursal;
-const sucData=sucsData.find(s=>s.nombre===miSucursal);
-const geoConfigurado=sucData?.lat&&sucData?.lng;
-const userMap={};users.forEach(u=>{userMap[u.id]=u;});
-// Paso 1: verificar geo. Si pasa → mostrar botón de selfie (no click programático)
+useEffect(()=>{
+  if(esAdmin)return;
+  activarCamara();
+  return()=>detenerCamara();
+},[]);
+useEffect(()=>{
+  if(!esKiosko||!camActiva)return;
+  iniciarScanKiosko();
+  return()=>detenerScan();
+},[esKiosko,camActiva]);
+async function activarCamara(){
+  setCamError(null);
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}},audio:false});
+    streamRef.current=stream;
+    if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+    setCamActiva(true);
+  }catch(e){setCamError("❌ No se pudo acceder a la cámara: "+e.message);}
+}
+function detenerCamara(){
+  detenerScan();
+  streamRef.current?.getTracks().forEach(t=>t.stop());
+  streamRef.current=null;
+  setCamActiva(false);
+}
+function detenerScan(){
+  if(scanIntervalRef.current){clearInterval(scanIntervalRef.current);scanIntervalRef.current=null;}
+  setScanning(false);
+}
+function iniciarScanKiosko(){
+  if(scanIntervalRef.current)return;
+  setScanning(true);
+  scanIntervalRef.current=setInterval(()=>scanKiosko(),2500);
+}
+async function scanKiosko(){
+  if(cooldownRef.current||registrando)return;
+  const frame=captureFrame(videoRef.current);
+  if(!frame)return;
+  const colId=rekCollectionId(miSucursal);
+  try{
+    const result=await callRek("searchFace",{collectionId:colId,imageBase64:frame});
+    const match=result?.FaceMatches?.[0];
+    if(!match||match.Similarity<90)return;
+    const matchedUserId=match.Face?.ExternalImageId;
+    if(!matchedUserId)return;
+    cooldownRef.current=true;
+    setRegistrando(true);
+    try{
+      const lastForUser=(await supaGet("clock_registros",`?user_id=eq.${matchedUserId}&order=created_at.desc&limit=1`))||[];
+      const tipo=lastForUser[0]?.tipo==="entrada"?"salida":"entrada";
+      const hora=new Date().toTimeString().slice(0,5);
+      const rec={user_id:parseInt(matchedUserId),sucursal:miSucursal||"",tipo,fecha:hoyFecha,hora,lat:null,lng:null,distancia_metros:null,foto_url:null};
+      const[created]=await supaPost("clock_registros",rec);
+      const nombre=userMap[parseInt(matchedUserId)]?.nombre||"Empleado";
+      setMsg({type:"ok",text:`✅ ${nombre} — ${tipo==="entrada"?"🟢 ENTRADA":"🔴 SALIDA"} · ${hora}`});
+      setClockRecs(p=>[created||{...rec,id:Date.now()},...p]);
+      setTimeout(()=>{setMsg(null);cooldownRef.current=false;},5000);
+    }catch(e){setMsg({type:"err",text:"❌ Error al registrar: "+e.message});setTimeout(()=>{setMsg(null);cooldownRef.current=false;},3000);}
+    setRegistrando(false);
+  }catch{}
+}
 async function verificarGeo(tipo){
-  if(!geoConfigurado){setGeoMsg("⚠️ No hay coordenadas configuradas para esta sucursal. Pide al administrador que las configure en Configuración → Geo Sucursales.");return;}
+  if(!geoConfigurado){setGeoMsg("⚠️ No hay coordenadas configuradas. Pide al admin que configure Geo Sucursales.");return;}
   setGeoMsg("📍 Verificando ubicación...");setGeoOk(null);
   try{
     const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:12000}));
     const{latitude:lat,longitude:lng}=pos.coords;
     const distancia=haversine(lat,lng,parseFloat(sucData.lat),parseFloat(sucData.lng));
     const radio=sucData.radio_metros||200;
-    if(distancia>radio){setGeoMsg(`❌ Estás a ${distancia}m del local. El rango permitido es ${radio}m. Acércate al local e intenta de nuevo.`);return;}
+    if(distancia>radio){setGeoMsg(`❌ Estás a ${distancia}m del local. El rango permitido es ${radio}m.`);return;}
     setGeoMsg(null);
     setGeoOk({tipo,lat,lng,distancia});
-  }catch(e){setGeoMsg("❌ No se pudo obtener tu ubicación. Activa el GPS y vuelve a intentar.");}
+  }catch(e){setGeoMsg("❌ No se pudo obtener tu ubicación. Activa el GPS.");}
 }
-// Paso 2: usuario presiona el botón selfie → abre cámara directamente (gesto del usuario)
-function abrirCamara(){selfieRef.current?.click();}
-async function handleSelfie(e){
-  const file=e.target.files?.[0];if(!file||!geoOk)return;
-  e.target.value="";setUploading(true);setGeoMsg("⬆️ Subiendo foto...");
+async function registrarConRostro(){
+  if(!geoOk||!camActiva)return;
+  const frame=captureFrame(videoRef.current);
+  if(!frame){setGeoMsg("❌ No se pudo capturar imagen. Asegúrate de que la cámara esté activa.");return;}
+  setRegistrando(true);setGeoMsg("🔍 Verificando identidad...");
+  const colId=rekCollectionId(miSucursal);
   try{
-    const{url}=await uploadCloudinary(file);
+    const result=await callRek("searchFace",{collectionId:colId,imageBase64:frame});
+    const match=result?.FaceMatches?.[0];
+    if(!match||match.Similarity<90){
+      setGeoMsg("❌ No se reconoció tu rostro. Asegúrate de tener buena iluminación y mirar a la cámara.");
+      setRegistrando(false);return;
+    }
+    const matchedId=parseInt(match.Face?.ExternalImageId);
+    if(matchedId!==userId){
+      setGeoMsg("❌ El rostro detectado no corresponde a tu usuario.");
+      setRegistrando(false);return;
+    }
     const hora=new Date().toTimeString().slice(0,5);
-    const rec={user_id:userId,sucursal:miSucursal||"",tipo:geoOk.tipo,fecha:hoyFecha,hora,lat:geoOk.lat,lng:geoOk.lng,distancia_metros:geoOk.distancia,foto_url:url};
+    const rec={user_id:userId,sucursal:miSucursal||"",tipo:geoOk.tipo,fecha:hoyFecha,hora,lat:geoOk.lat,lng:geoOk.lng,distancia_metros:geoOk.distancia,foto_url:null};
     const[created]=await supaPost("clock_registros",rec);
     setClockRecs(p=>[created||{...rec,id:Date.now()},...p]);
     setGeoMsg(null);setGeoOk(null);
+    setMsg({type:"ok",text:`${geoOk.tipo==="entrada"?"🟢 ENTRADA":"🔴 SALIDA"} registrada · ${hora}`});
+    setTimeout(()=>setMsg(null),4000);
   }catch(err){setGeoMsg("❌ Error: "+err.message);}
-  setUploading(false);
+  setRegistrando(false);
 }
+// ── Modo kiosko ──────────────────────────────────────────────────────────────
+if(esKiosko)return <div>
+  <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2,marginBottom:4}}>CONTROL DE ASISTENCIA</h1>
+  <p style={{color:MUT,fontSize:13,marginBottom:20}}>Kiosko · {miSucursal||"Sin sucursal"} — Modo automático</p>
+  {camError&&<div style={{padding:"12px 16px",background:RED+"22",borderRadius:8,color:RED,fontSize:13,marginBottom:16}}>{camError}<br/><button onClick={activarCamara} style={{marginTop:6,fontSize:12,color:ACC,background:"transparent",border:"none",cursor:"pointer",textDecoration:"underline"}}>Reintentar</button></div>}
+  <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+    <div style={{flex:"0 0 auto"}}>
+      <div style={{position:"relative",width:320,borderRadius:12,overflow:"hidden",border:b1(scanning?"#22c55e":BRD)}}>
+        <video ref={videoRef} autoPlay playsInline muted style={{width:320,height:240,objectFit:"cover",display:"block",transform:"scaleX(-1)"}}/>
+        {scanning&&<div style={{position:"absolute",bottom:0,left:0,right:0,background:"#000000BB",padding:"6px 12px",fontSize:12,color:"#22c55e",textAlign:"center",fontFamily:"'DM Mono'"}}>🔍 ESCANEANDO...</div>}
+        {!camActiva&&!camError&&<div style={{position:"absolute",inset:0,background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",color:MUT,fontSize:13}}>Iniciando cámara...</div>}
+      </div>
+      {!camActiva&&camError&&<Btn v="ghost" s="sm" xtra={{marginTop:8,width:"100%"}} onClick={activarCamara}>🔄 Reintentar</Btn>}
+    </div>
+    <div style={{flex:1,minWidth:200}}>
+      {msg&&<div style={{padding:"16px 20px",background:msg.type==="ok"?GRN+"22":RED+"22",border:b1(msg.type==="ok"?GRN:RED),borderRadius:12,color:msg.type==="ok"?GRN:RED,fontSize:18,fontFamily:"'Bebas Neue'",letterSpacing:1,marginBottom:16}}>{msg.text}</div>}
+      <div style={{fontSize:13,color:MUT,marginBottom:16}}>Acércate a la cámara. El sistema reconoce automáticamente al empleado y registra su entrada o salida.</div>
+      <div style={{fontFamily:"'DM Mono'",fontSize:11,color:MUT,marginBottom:8,letterSpacing:1}}>ÚLTIMOS REGISTROS</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {clockRecs.slice(0,6).map(r=><div key={r.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12}}>
+          <Bdg c={r.tipo==="entrada"?"green":"red"} xtra={{fontSize:10}}>{r.tipo==="entrada"?"🟢":"🔴"}</Bdg>
+          <span style={{fontWeight:500}}>{userMap[r.user_id]?.nombre||"#"+r.user_id}</span>
+          <span style={{color:MUT,fontFamily:"'DM Mono'"}}>{r.hora}</span>
+        </div>)}
+        {clockRecs.length===0&&<div style={{color:MUT,fontSize:12}}>Sin registros hoy.</div>}
+      </div>
+    </div>
+  </div>
+</div>;
+// ── Modo personal (empleado en su teléfono) ──────────────────────────────────
 return <div>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2,marginBottom:4}}>ASISTENCIA</h1>
 <p style={{color:MUT,fontSize:13,marginBottom:24}}>{userActivo.nombre} · {miSucursal||"Sin sucursal"}</p>
 {!esAdmin&&<>
-  <Card xtra={{textAlign:"center",padding:32,marginBottom:20}}>
-    <div style={{fontSize:60,marginBottom:12}}>{dentroAhora?"✅":"⏸️"}</div>
+  <Card xtra={{textAlign:"center",padding:28,marginBottom:20}}>
+    <div style={{fontSize:56,marginBottom:10}}>{dentroAhora?"✅":"⏸️"}</div>
     <div style={{fontFamily:"'Bebas Neue'",fontSize:28,letterSpacing:2,color:dentroAhora?GRN:MUT,marginBottom:8}}>
       {dentroAhora?"DENTRO DEL LOCAL":"FUERA DEL LOCAL"}
     </div>
-    {lastRec&&<div style={{fontSize:13,color:MUT,marginBottom:20}}>
+    {lastRec&&<div style={{fontSize:13,color:MUT,marginBottom:16}}>
       Último: <Bdg c={lastRec.tipo==="entrada"?"green":"red"} xtra={{display:"inline-flex"}}>{lastRec.tipo==="entrada"?"🟢 Entrada":"🔴 Salida"}</Bdg> · {lastRec.hora}
     </div>}
-    {/* Paso 1: botones principales */}
-    {!geoOk&&!uploading&&<div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+    {/* Vista previa de la cámara */}
+    {!camError&&<div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+      <div style={{position:"relative",width:"min(260px,85vw)",borderRadius:12,overflow:"hidden",border:b1(camActiva?ACC:BRD)}}>
+        <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",display:"block",transform:"scaleX(-1)"}}/>
+        {!camActiva&&<div style={{position:"absolute",inset:0,background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",color:MUT,fontSize:12}}>Iniciando cámara...</div>}
+      </div>
+    </div>}
+    {camError&&<div style={{background:RED+"11",borderRadius:10,padding:12,marginBottom:14,color:RED,fontSize:13}}>{camError}<br/><button onClick={activarCamara} style={{marginTop:6,fontSize:12,color:ACC,background:"transparent",border:"none",cursor:"pointer",textDecoration:"underline"}}>Reintentar</button></div>}
+    {/* Botones principales */}
+    {!geoOk&&!registrando&&camActiva&&<div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
       {!dentroAhora&&<Btn v="success" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>verificarGeo("entrada")}>🟢 REGISTRAR ENTRADA</Btn>}
       {dentroAhora&&<Btn v="danger" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={()=>verificarGeo("salida")}>🔴 REGISTRAR SALIDA</Btn>}
     </div>}
-    {/* Paso 2: geo ok → el usuario presiona para abrir la cámara */}
-    {geoOk&&!uploading&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+    {/* Geo ok → verificar rostro */}
+    {geoOk&&!registrando&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
       <div style={{background:GRN+"11",border:b1(GRN+"44"),borderRadius:8,padding:"8px 16px",fontSize:13,color:GRN}}>
         ✅ Ubicación verificada ({geoOk.distancia}m del local)
       </div>
-      <Btn v="success" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={abrirCamara}>
-        📷 TOMAR SELFIE
+      <Btn v="success" xtra={{padding:"14px 32px",fontFamily:"'Bebas Neue'",fontSize:20,letterSpacing:1}} onClick={registrarConRostro}>
+        🤳 VERIFICAR ROSTRO Y REGISTRAR
       </Btn>
       <button onClick={()=>setGeoOk(null)} style={{fontSize:12,color:MUT,background:"transparent",border:"none",cursor:"pointer",textDecoration:"underline"}}>Cancelar</button>
     </div>}
-    {uploading&&<div style={{color:MUT,fontSize:13}}>⬆️ Subiendo foto, espera un momento...</div>}
-    {geoMsg&&<div style={{marginTop:14,fontSize:13,padding:"10px 14px",borderRadius:8,background:geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC+"11":RED+"11",color:geoMsg.startsWith("📍")||geoMsg.startsWith("⬆️")?ACC:RED}}>{geoMsg}</div>}
+    {registrando&&<div style={{color:MUT,fontSize:13}}>🔍 Verificando identidad, espera...</div>}
+    {msg&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:8,background:GRN+"11",color:GRN,fontSize:14,fontWeight:600}}>{msg.text}</div>}
+    {geoMsg&&<div style={{marginTop:12,fontSize:13,padding:"10px 14px",borderRadius:8,background:geoMsg.startsWith("📍")||geoMsg.startsWith("🔍")?ACC+"11":RED+"11",color:geoMsg.startsWith("📍")||geoMsg.startsWith("🔍")?ACC:RED}}>{geoMsg}</div>}
   </Card>
-  <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{display:"none"}} onChange={handleSelfie}/>
 </>}
 <div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:16,flexWrap:"wrap"}}>
   {esAdmin&&<LI label="Fecha"><input type="date" value={fechaFiltro} onChange={e=>setFechaFiltro(e.target.value)} style={{width:180}}/></LI>}
@@ -4800,7 +4946,7 @@ return <div>
   :clockRecs.length===0?<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>Sin registros para esta fecha.</div>
   :<table><thead><tr>
     {esAdmin&&<th>Empleado</th>}
-    <th>Tipo</th><th>Hora</th><th style={{textAlign:"center"}}>Distancia</th><th style={{textAlign:"center"}}>Foto</th>
+    <th>Tipo</th><th>Hora</th><th style={{textAlign:"center"}}>Distancia</th>
     {esAdmin&&<th>Sucursal</th>}
   </tr></thead><tbody>
   {clockRecs.map(r=><tr key={r.id}>
@@ -4808,7 +4954,6 @@ return <div>
     <td><Bdg c={r.tipo==="entrada"?"green":"red"}>{r.tipo==="entrada"?"🟢 Entrada":"🔴 Salida"}</Bdg></td>
     <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{r.hora}</td>
     <td style={{textAlign:"center",fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{r.distancia_metros!=null?r.distancia_metros+"m":"—"}</td>
-    <td style={{textAlign:"center"}}>{r.foto_url?<a href={r.foto_url} target="_blank" rel="noreferrer"><img src={r.foto_url} alt="" style={{width:42,height:42,objectFit:"cover",borderRadius:6,border:b1(BRD)}}/></a>:"—"}</td>
     {esAdmin&&<td style={{fontSize:12,color:MUT}}>{r.sucursal}</td>}
   </tr>)}
   </tbody></table>}
@@ -5046,5 +5191,262 @@ return <div>
 </div>}
 <input ref={mediaRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handleMedia(e,false)}/>
 <input ref={mediaVideoRef} type="file" accept="video/*" capture="environment" style={{display:"none"}} onChange={e=>handleMedia(e,true)}/>
+</div>;
+}
+
+// ── Onboarding (primer login de personal — registro de datos + rostro) ────────
+function Onboarding({userActivo,onComplete}){
+const[paso,setPaso]=useState(1);
+const[cedula,setCedula]=useState(userActivo.cedula||"");
+const[celular,setCelular]=useState(userActivo.celular||"");
+const nombre=userActivo.nombre||"";
+const[guardando,setGuardando]=useState(false);
+const[err,setErr]=useState(null);
+const FOTOS=["FRENTE — mira directo a la cámara","IZQUIERDA — gira la cabeza levemente","DERECHA — gira la cabeza levemente"];
+const[fotoIndex,setFotoIndex]=useState(0);
+const[faceIds,setFaceIds]=useState([]);
+const[regMsg,setRegMsg]=useState(null);
+const[camActiva,setCamActiva]=useState(false);
+const[camError,setCamError]=useState(null);
+const[capturando,setCapturando]=useState(false);
+const videoRef=useRef(null);
+const streamRef=useRef(null);
+useEffect(()=>{
+  if(paso===2){activarCamara();}
+  return()=>detenerCamara();
+},[paso]);
+async function activarCamara(){
+  setCamError(null);setCamActiva(false);
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}},audio:false});
+    streamRef.current=stream;
+    if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+    setCamActiva(true);
+  }catch(e){setCamError("❌ No se pudo acceder a la cámara: "+e.message);}
+}
+function detenerCamara(){
+  streamRef.current?.getTracks().forEach(t=>t.stop());
+  streamRef.current=null;setCamActiva(false);
+}
+async function guardarDatos(){
+  if(!cedula.trim()||!celular.trim()){setErr("Por favor completa todos los campos.");return;}
+  setGuardando(true);setErr(null);
+  try{
+    await supaUpsert("users",{id:userActivo.id,cedula:cedula.trim(),celular:celular.trim()});
+    setPaso(2);
+  }catch(e){setErr("Error al guardar: "+e.message);}
+  setGuardando(false);
+}
+async function capturarFoto(){
+  if(!camActiva||capturando)return;
+  const frame=captureFrame(videoRef.current);
+  if(!frame){setRegMsg({type:"err",text:"❌ No se pudo capturar imagen. Asegúrate de que la cámara esté activa."});return;}
+  setCapturando(true);setRegMsg({type:"info",text:`⬆️ Registrando foto ${fotoIndex+1}/3...`});
+  const colId=rekCollectionId(userActivo.sucursal);
+  try{
+    try{await callRek("createCollection",{collectionId:colId});}catch{}
+    const result=await callRek("indexFace",{collectionId:colId,imageBase64:frame,userId:userActivo.id});
+    const newFaceId=result?.FaceRecords?.[0]?.Face?.FaceId;
+    if(!newFaceId){setRegMsg({type:"err",text:"❌ No se detectó un rostro claro. Mejora la iluminación y vuelve a intentar."});setCapturando(false);return;}
+    const updatedIds=[...faceIds,newFaceId];
+    setFaceIds(updatedIds);
+    if(fotoIndex<2){
+      setFotoIndex(i=>i+1);
+      setRegMsg({type:"ok",text:`✅ Foto ${fotoIndex+1}/3 registrada correctamente.`});
+    }else{
+      setRegMsg({type:"info",text:"💾 Guardando registro facial..."});
+      await supaUpsert("users",{id:userActivo.id,face_ids:updatedIds,onboarding_completo:true});
+      onComplete({...userActivo,cedula:cedula.trim(),celular:celular.trim(),face_ids:updatedIds,onboarding_completo:true});
+    }
+  }catch(e){setRegMsg({type:"err",text:"❌ Error: "+e.message});}
+  setCapturando(false);
+}
+return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:BG}}>
+  <div style={{maxWidth:460,width:"100%",background:FNT,borderRadius:16,padding:32,border:b1(BRD)}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:28,letterSpacing:2,color:ACC,marginBottom:2}}>BIENVENIDO A BORGERS</div>
+    <div style={{fontSize:13,color:MUT,marginBottom:24}}>Completa tu registro antes de continuar</div>
+    {/* Barra de progreso */}
+    <div style={{display:"flex",gap:4,marginBottom:28}}>
+      {[1,2].map(p=><div key={p} style={{flex:1,height:4,borderRadius:2,background:paso>=p?ACC:BRD,transition:"background 0.3s"}}/>)}
+    </div>
+    {paso===1&&<>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:MUT,letterSpacing:1,marginBottom:16}}>PASO 1 DE 2 · CONFIRMA TUS DATOS</div>
+      <LI label="Nombre completo" xtra={{marginBottom:14}}>
+        <input value={nombre} disabled style={{opacity:0.6,cursor:"not-allowed"}}/>
+      </LI>
+      <LI label="N° de Identificación (Cédula)" xtra={{marginBottom:14}}>
+        <input value={cedula} onChange={e=>setCedula(e.target.value)} placeholder="Ej: 0912345678" autoFocus/>
+      </LI>
+      <LI label="Celular" xtra={{marginBottom:20}}>
+        <input value={celular} onChange={e=>setCelular(e.target.value)} placeholder="Ej: 0999123456"/>
+      </LI>
+      {err&&<div style={{color:RED,fontSize:13,marginBottom:12}}>{err}</div>}
+      <Btn v="success" xtra={{width:"100%",padding:"14px",fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1}} onClick={guardarDatos}>{guardando?"Guardando...":"CONTINUAR →"}</Btn>
+    </>}
+    {paso===2&&<>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:MUT,letterSpacing:1,marginBottom:4}}>PASO 2 DE 2 · REGISTRO FACIAL</div>
+      <div style={{fontSize:13,color:MUT,marginBottom:16}}>Tomaremos 3 fotos de tu rostro para identificarte automáticamente al llegar al trabajo.</div>
+      <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:12}}>
+        {[0,1,2].map(i=><div key={i} style={{width:14,height:14,borderRadius:"50%",background:faceIds.length>i?GRN:fotoIndex===i?ACC:BRD,transition:"background 0.3s",border:b1(fotoIndex===i?ACC:BRD)}}/>)}
+      </div>
+      <div style={{textAlign:"center",fontFamily:"'Bebas Neue'",fontSize:13,color:ACC,marginBottom:12,letterSpacing:1}}>FOTO {fotoIndex+1}/3 — {FOTOS[fotoIndex]}</div>
+      {camError&&<div style={{background:RED+"11",borderRadius:8,padding:10,marginBottom:10,color:RED,fontSize:12}}>{camError}<br/><button onClick={activarCamara} style={{marginTop:6,fontSize:12,color:ACC,background:"transparent",border:"none",cursor:"pointer",textDecoration:"underline"}}>Reintentar cámara</button></div>}
+      <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+        <div style={{position:"relative",width:"min(260px,88vw)",borderRadius:12,overflow:"hidden",border:b1(camActiva?ACC:BRD)}}>
+          <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",display:"block",transform:"scaleX(-1)"}}/>
+          {!camActiva&&<div style={{position:"absolute",inset:0,background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",color:MUT,fontSize:12}}>Iniciando cámara...</div>}
+        </div>
+      </div>
+      {regMsg&&<div style={{padding:"8px 12px",borderRadius:8,marginBottom:12,background:regMsg.type==="ok"?GRN+"11":regMsg.type==="err"?RED+"11":ACC+"11",color:regMsg.type==="ok"?GRN:regMsg.type==="err"?RED:ACC,fontSize:13}}>{regMsg.text}</div>}
+      <Btn v="success" xtra={{width:"100%",padding:"14px",fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,opacity:(!camActiva||capturando)?0.4:1}} onClick={capturarFoto}>
+        {capturando?"Procesando...":fotoIndex<2?"📸 CAPTURAR FOTO":"📸 ÚLTIMA FOTO Y FINALIZAR"}
+      </Btn>
+      <div style={{fontSize:11,color:MUT,textAlign:"center",marginTop:10}}>Asegúrate de tener buena iluminación y el rostro completamente visible.</div>
+    </>}
+  </div>
+</div>;
+}
+
+// ── RostrosConfig (gestión de reconocimiento facial por admin) ────────────────
+function RostrosConfig({users,setUsers,sucs}){
+const personal=users.filter(u=>u.rol==="personal");
+const[msg,setMsg]=useState(null);
+const[loading,setLoading]=useState(false);
+const[regModal,setRegModal]=useState(null);
+const[fotoIndex,setFotoIndex]=useState(0);
+const[faceIds,setFaceIds]=useState([]);
+const[camActiva,setCamActiva]=useState(false);
+const[camError,setCamError]=useState(null);
+const[capturando,setCapturando]=useState(false);
+const[regMsg,setRegMsg]=useState(null);
+const videoRef=useRef(null);
+const streamRef=useRef(null);
+const FOTOS=["FRENTE","IZQUIERDA","DERECHA"];
+async function activarCamara(){
+  setCamError(null);setCamActiva(false);
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}},audio:false});
+    streamRef.current=stream;
+    if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+    setCamActiva(true);
+  }catch(e){setCamError("❌ No se pudo acceder a la cámara: "+e.message);}
+}
+function detenerCamara(){
+  streamRef.current?.getTracks().forEach(t=>t.stop());
+  streamRef.current=null;setCamActiva(false);
+}
+function abrirRegistro(u){
+  setRegModal(u);setFotoIndex(0);setFaceIds([]);setRegMsg(null);setCamError(null);
+  setTimeout(()=>activarCamara(),100);
+}
+function cerrarRegistro(){detenerCamara();setRegModal(null);setFotoIndex(0);setFaceIds([]);setRegMsg(null);}
+async function eliminarRostros(u){
+  if(!confirm(`¿Eliminar los rostros de ${u.nombre}? Deberá re-registrarse.`))return;
+  setLoading(true);setMsg(null);
+  const colId=rekCollectionId(u.sucursal);
+  try{
+    if((u.face_ids||[]).length>0)await callRek("deleteFaces",{collectionId:colId,faceIds:u.face_ids});
+    await supaUpsert("users",{id:u.id,face_ids:[],onboarding_completo:false});
+    setUsers(p=>p.map(x=>x.id===u.id?{...x,face_ids:[],onboarding_completo:false}:x));
+    setMsg({type:"ok",text:`✅ Rostros de ${u.nombre} eliminados. Deberá re-registrarse al iniciar sesión.`});
+  }catch(e){setMsg({type:"err",text:"❌ "+e.message});}
+  setLoading(false);
+}
+async function capturarFoto(){
+  if(!camActiva||capturando||!regModal)return;
+  const frame=captureFrame(videoRef.current);
+  if(!frame){setRegMsg({type:"err",text:"❌ No se pudo capturar imagen."});return;}
+  setCapturando(true);setRegMsg({type:"info",text:`⬆️ Registrando foto ${fotoIndex+1}/3...`});
+  const colId=rekCollectionId(regModal.sucursal);
+  try{
+    try{await callRek("createCollection",{collectionId:colId});}catch{}
+    const result=await callRek("indexFace",{collectionId:colId,imageBase64:frame,userId:regModal.id});
+    const newFaceId=result?.FaceRecords?.[0]?.Face?.FaceId;
+    if(!newFaceId){setRegMsg({type:"err",text:"❌ No se detectó un rostro claro. Mejora la iluminación."});setCapturando(false);return;}
+    const updatedIds=[...faceIds,newFaceId];
+    setFaceIds(updatedIds);
+    if(fotoIndex<2){
+      setFotoIndex(i=>i+1);
+      setRegMsg({type:"ok",text:`✅ Foto ${fotoIndex+1}/3 registrada.`});
+    }else{
+      setRegMsg({type:"info",text:"💾 Guardando..."});
+      await supaUpsert("users",{id:regModal.id,face_ids:updatedIds,onboarding_completo:true});
+      setUsers(p=>p.map(x=>x.id===regModal.id?{...x,face_ids:updatedIds,onboarding_completo:true}:x));
+      setRegMsg({type:"ok",text:"✅ ¡Registro completado!"});
+      setTimeout(()=>cerrarRegistro(),1800);
+    }
+  }catch(e){setRegMsg({type:"err",text:"❌ "+e.message});}
+  setCapturando(false);
+}
+async function inicializarColeccion(suc){
+  setLoading(true);setMsg(null);
+  const colId=rekCollectionId(suc);
+  try{
+    await callRek("createCollection",{collectionId:colId});
+    setMsg({type:"ok",text:`✅ Colección "${colId}" lista.`});
+  }catch(e){
+    if(e.message?.includes("ResourceAlreadyExistsException")||e.message?.includes("already exists"))
+      setMsg({type:"ok",text:`✅ Colección de ${suc} ya existe y está lista.`});
+    else setMsg({type:"err",text:"❌ "+e.message});
+  }
+  setLoading(false);
+}
+return <div>
+  <div style={{fontFamily:"'Bebas Neue'",fontSize:22,color:ACC,letterSpacing:1,marginBottom:4}}>RECONOCIMIENTO FACIAL</div>
+  <div style={{fontSize:13,color:MUT,marginBottom:20}}>Gestiona el registro de rostros de los empleados para acceso automático.</div>
+  {msg&&<div style={{padding:"10px 14px",borderRadius:8,marginBottom:16,background:msg.type==="ok"?GRN+"11":RED+"11",border:b1(msg.type==="ok"?GRN+"44":RED+"44"),color:msg.type==="ok"?GRN:RED,fontSize:13}}>{msg.text}</div>}
+  {/* Colecciones AWS */}
+  <Card xtra={{marginBottom:20}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:14,letterSpacing:1,color:MUT,marginBottom:8}}>COLECCIONES AWS REKOGNITION POR SUCURSAL</div>
+    <div style={{fontSize:12,color:MUT,marginBottom:12}}>Inicializa la colección de una sucursal antes de registrar empleados por primera vez. Si ya existe, no se pierde nada.</div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      {sucs.map(suc=><Btn key={suc} s="sm" v="ghost" xtra={{opacity:loading?0.4:1}} onClick={()=>inicializarColeccion(suc)}>🔧 Init: {suc}</Btn>)}
+    </div>
+  </Card>
+  {/* Lista empleados */}
+  <Card xtra={{padding:0}}>
+    <div style={{padding:"14px 20px",borderBottom:b1(BRD),fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1}}>
+      EMPLEADOS PERSONALES ({personal.length})
+    </div>
+    {personal.length===0&&<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>No hay empleados con rol "personal" registrados.</div>}
+    {personal.map(u=><div key={u.id} style={{padding:"14px 20px",borderBottom:b1(BRD),display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:140}}>
+        <div style={{fontWeight:600,fontSize:14}}>{u.nombre}</div>
+        <div style={{fontSize:12,color:MUT}}>{u.sucursal||"Sin sucursal"} · {u.cedula||"Sin cédula"}</div>
+      </div>
+      <div>
+        {(u.face_ids||[]).length>0
+          ?<Bdg c="green">✅ {(u.face_ids||[]).length} foto(s)</Bdg>
+          :<Bdg c="red">❌ Sin registro</Bdg>}
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Btn s="sm" v="ghost" onClick={()=>abrirRegistro(u)}>📸 {(u.face_ids||[]).length>0?"Re-registrar":"Registrar"}</Btn>
+        {(u.face_ids||[]).length>0&&<Btn s="sm" v="danger" xtra={{opacity:loading?0.4:1}} onClick={()=>eliminarRostros(u)}>🗑 Eliminar</Btn>}
+      </div>
+    </div>)}
+  </Card>
+  {/* Modal registro */}
+  {regModal&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <Card xtra={{maxWidth:420,width:"100%"}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:ACC,letterSpacing:1,marginBottom:2}}>REGISTRAR ROSTRO</div>
+      <div style={{fontSize:13,color:MUT,marginBottom:14}}>{regModal.nombre} · {regModal.sucursal||"Sin sucursal"}</div>
+      <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:10}}>
+        {[0,1,2].map(i=><div key={i} style={{width:14,height:14,borderRadius:"50%",background:faceIds.length>i?GRN:fotoIndex===i?ACC:BRD,border:b1(fotoIndex===i?ACC:BRD),transition:"background 0.3s"}}/>)}
+      </div>
+      <div style={{textAlign:"center",fontFamily:"'Bebas Neue'",fontSize:13,color:ACC,marginBottom:10,letterSpacing:1}}>FOTO {fotoIndex+1}/3 — {FOTOS[fotoIndex]}</div>
+      {camError&&<div style={{background:RED+"11",borderRadius:8,padding:8,marginBottom:8,color:RED,fontSize:12}}>{camError}</div>}
+      <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+        <div style={{position:"relative",width:"min(240px,88vw)",borderRadius:10,overflow:"hidden",border:b1(camActiva?ACC:BRD)}}>
+          <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",aspectRatio:"4/3",objectFit:"cover",display:"block",transform:"scaleX(-1)"}}/>
+          {!camActiva&&<div style={{position:"absolute",inset:0,background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",color:MUT,fontSize:12}}>Iniciando cámara...</div>}
+        </div>
+      </div>
+      {regMsg&&<div style={{padding:"8px 12px",borderRadius:8,marginBottom:10,background:regMsg.type==="ok"?GRN+"11":regMsg.type==="err"?RED+"11":ACC+"11",color:regMsg.type==="ok"?GRN:regMsg.type==="err"?RED:ACC,fontSize:12}}>{regMsg.text}</div>}
+      <div style={{display:"flex",gap:10}}>
+        <Btn v="ghost" xtra={{flex:1}} onClick={cerrarRegistro}>Cancelar</Btn>
+        <Btn v="success" xtra={{flex:2,opacity:(!camActiva||capturando)?0.4:1}} onClick={capturarFoto}>{capturando?"Procesando...":"📸 CAPTURAR"}</Btn>
+      </div>
+    </Card>
+  </div>}
 </div>;
 }
