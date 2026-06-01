@@ -533,7 +533,7 @@ if(cargando) return <div style={{minHeight:"100vh",background:BG,display:"flex",
 if(!userActivo) return <Login users={users} onLogin={setUserActivo}/>;
 // Onboarding gate — personal sin onboarding completado
 if(userActivo.rol==="personal"&&!userActivo.onboarding_completo)
-  return <Onboarding userActivo={userActivo} onComplete={u=>setUserActivo(u)}/>;
+  return <Onboarding userActivo={userActivo} onComplete={u=>{setUserActivo(u);setUsers(p=>p.map(x=>x.id===u.id?u:x));}}/>;
 return <>
 <style>{globalCss}</style>
 {userActivo&&<Watermark nombre={userActivo.nombre}/>}
