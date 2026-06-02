@@ -5232,7 +5232,7 @@ async function guardarDatos(){
   if(!cedula.trim()||!celular.trim()){setErr("Por favor completa todos los campos.");return;}
   setGuardando(true);setErr(null);
   try{
-    await supaUpsert("users",{id:userActivo.id,cedula:cedula.trim(),celular:celular.trim()});
+    await supaPatch("users",`?id=eq.${userActivo.id}`,{cedula:cedula.trim(),celular:celular.trim()});
     setPaso(2);
   }catch(e){setErr("Error al guardar: "+e.message);}
   setGuardando(false);
@@ -5255,7 +5255,7 @@ async function capturarFoto(){
       setRegMsg({type:"ok",text:`✅ Foto ${fotoIndex+1}/3 registrada correctamente.`});
     }else{
       setRegMsg({type:"info",text:"💾 Guardando registro facial..."});
-      await supaUpsert("users",{id:userActivo.id,face_ids:updatedIds,onboarding_completo:true});
+      await supaPatch("users",`?id=eq.${userActivo.id}`,{face_ids:updatedIds,onboarding_completo:true});
       onComplete({...userActivo,cedula:cedula.trim(),celular:celular.trim(),face_ids:updatedIds,onboarding_completo:true});
     }
   }catch(e){setRegMsg({type:"err",text:"❌ Error: "+e.message});}
@@ -5346,7 +5346,7 @@ async function eliminarRostros(u){
   const colId=rekCollectionId(u.sucursal);
   try{
     if((u.face_ids||[]).length>0)await callRek("deleteFaces",{collectionId:colId,faceIds:u.face_ids});
-    await supaUpsert("users",{id:u.id,face_ids:[],onboarding_completo:false});
+    await supaPatch("users",`?id=eq.${u.id}`,{face_ids:[],onboarding_completo:false});
     setUsers(p=>p.map(x=>x.id===u.id?{...x,face_ids:[],onboarding_completo:false}:x));
     setMsg({type:"ok",text:`✅ Rostros de ${u.nombre} eliminados. Deberá re-registrarse al iniciar sesión.`});
   }catch(e){setMsg({type:"err",text:"❌ "+e.message});}
@@ -5370,7 +5370,7 @@ async function capturarFoto(){
       setRegMsg({type:"ok",text:`✅ Foto ${fotoIndex+1}/3 registrada.`});
     }else{
       setRegMsg({type:"info",text:"💾 Guardando..."});
-      await supaUpsert("users",{id:regModal.id,face_ids:updatedIds,onboarding_completo:true});
+      await supaPatch("users",`?id=eq.${regModal.id}`,{face_ids:updatedIds,onboarding_completo:true});
       setUsers(p=>p.map(x=>x.id===regModal.id?{...x,face_ids:updatedIds,onboarding_completo:true}:x));
       setRegMsg({type:"ok",text:"✅ ¡Registro completado!"});
       setTimeout(()=>cerrarRegistro(),1800);
