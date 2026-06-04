@@ -4617,31 +4617,43 @@ const[tipos,setTipos]=useState([]);
 const[loading,setLoading]=useState(true);
 const[modal,setModal]=useState(false);
 const[editAsig,setEditAsig]=useState(null);
-const[form,setForm]=useState({tipo_id:"",tipo_nombre:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});
+const formVacio={tipo_id:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],horas_limite:["17:00"]};
+const[form,setForm]=useState(formVacio);
 useEffect(()=>{
   Promise.all([supaGet("act_asignaciones","?order=id.desc"),supaGet("act_tipos","?activo=eq.true&order=nombre")])
   .then(([a,t])=>{setAsigs(a||[]);setTipos(t||[]);setLoading(false);}).catch(()=>setLoading(false));
 },[]);
 function toggleDia(n){setForm(p=>({...p,dias_semana:p.dias_semana.includes(n)?p.dias_semana.filter(d=>d!==n):[...p.dias_semana,n].sort()}));}
+function agregarTurno(){setForm(p=>({...p,horas_limite:[...p.horas_limite,"08:00"]}));}
+function quitarTurno(i){setForm(p=>({...p,horas_limite:p.horas_limite.filter((_,j)=>j!==i)}));}
+function editarTurno(i,v){setForm(p=>({...p,horas_limite:p.horas_limite.map((h,j)=>j===i?v:h)}));}
 const personalUsers=users.filter(u=>["personal","staff_suc","caja_eventos"].includes(u.rol)&&u.activo);
+// Compatibilidad: si tiene hora_limite vieja, usarla como primer turno
+function getSlotsAsig(a){
+  if((a.horas_limite||[]).length>0)return a.horas_limite;
+  if(a.hora_limite)return[a.hora_limite];
+  return[];
+}
 function abrirEditar(a){
   setEditAsig(a);
+  const slots=getSlotsAsig(a);
   setForm({
     tipo_id:String(a.tipo_id||""),
     asig_a:a.user_id?"usuario":"sucursal",
     user_id:String(a.user_id||""),
     sucursal:a.sucursal||sucs[0]||"",
     dias_semana:a.dias_semana||[],
-    hora_limite:a.hora_limite||"17:00",
+    horas_limite:slots.length>0?slots:["17:00"],
   });
   setModal(true);
 }
-function cerrarModal(){setModal(false);setEditAsig(null);setForm({tipo_id:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});}
+function cerrarModal(){setModal(false);setEditAsig(null);setForm(formVacio);}
 async function guardar(){
   if(!form.tipo_id||form.dias_semana.length===0){alert("Selecciona tipo y al menos un día.");return;}
   const tipo=tipos.find(t=>t.id===parseInt(form.tipo_id));
   const user=personalUsers.find(u=>u.id===parseInt(form.user_id));
-  const data={tipo_id:parseInt(form.tipo_id),tipo_nombre:tipo?.nombre||"",user_id:form.asig_a==="usuario"&&form.user_id?parseInt(form.user_id):null,user_nombre:form.asig_a==="usuario"&&user?user.nombre:"",sucursal:form.asig_a==="sucursal"?form.sucursal:null,dias_semana:form.dias_semana,hora_limite:form.hora_limite};
+  const horas=form.horas_limite.filter(h=>h).sort();
+  const data={tipo_id:parseInt(form.tipo_id),tipo_nombre:tipo?.nombre||"",user_id:form.asig_a==="usuario"&&form.user_id?parseInt(form.user_id):null,user_nombre:form.asig_a==="usuario"&&user?user.nombre:"",sucursal:form.asig_a==="sucursal"?form.sucursal:null,dias_semana:form.dias_semana,horas_limite:horas,hora_limite:horas[horas.length-1]||null};
   if(editAsig){
     await supaPatch("act_asignaciones","?id=eq."+editAsig.id,data).catch(console.error);
     setAsigs(p=>p.map(x=>x.id===editAsig.id?{...x,...data}:x));
@@ -4663,13 +4675,15 @@ async function eliminarAsig(a){
 return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
   <div><div style={{fontFamily:"'Bebas Neue'",fontSize:24,letterSpacing:2}}>ASIGNACIONES DE TAREAS</div>
-  <p style={{color:MUT,fontSize:13}}>Asigna actividades recurrentes al personal con días y hora límite.</p></div>
-  <Btn onClick={()=>{setEditAsig(null);setForm({tipo_id:"",asig_a:"usuario",user_id:"",sucursal:sucs[0]||"",dias_semana:[],hora_limite:"17:00"});setModal(true);}} disabled={tipos.length===0}>+ Nueva asignación</Btn>
+  <p style={{color:MUT,fontSize:13}}>Asigna actividades recurrentes al personal con días y turnos horarios.</p></div>
+  <Btn onClick={()=>{setEditAsig(null);setForm(formVacio);setModal(true);}} disabled={tipos.length===0}>+ Nueva asignación</Btn>
 </div>
 {tipos.length===0&&!loading&&<div style={{background:ACC+"11",border:b1(ACC+"44"),borderRadius:8,padding:"12px 16px",fontSize:13,color:ACC,marginBottom:16}}>⚠️ Primero crea tipos de actividad en la sección "✅ Tipos Actividad".</div>}
 {loading?<Card xtra={{textAlign:"center",padding:32,color:MUT}}>Cargando...</Card>:asigs.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin asignaciones. Crea la primera.</Card>:
 <div style={{display:"flex",flexDirection:"column",gap:10}}>
-{asigs.map(a=><Card key={a.id} xtra={{padding:"14px 16px",opacity:a.activo?1:0.55}}>
+{asigs.map(a=>{
+  const slots=getSlotsAsig(a);
+  return <Card key={a.id} xtra={{padding:"14px 16px",opacity:a.activo?1:0.55}}>
   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
     <div>
       <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>{a.tipo_nombre}</div>
@@ -4677,7 +4691,7 @@ return <div>
         {a.user_id?<span>👤 {a.user_nombre||"Usuario #"+a.user_id}</span>:<span>🏪 {a.sucursal}</span>}
         {" · "}
         {(a.dias_semana||[]).map(d=>DIAS_NOMBRES[d]).join(", ")}
-        {a.hora_limite&&<span> · ⏰ hasta {a.hora_limite}</span>}
+        {slots.length>0&&<span> · ⏰ {slots.length===1?slots[0]:slots.length+" turnos ("+slots.join(", ")+")"}</span>}
       </div>
       <Bdg c={a.activo?"green":"muted"}>{a.activo?"Activa":"Inactiva"}</Bdg>
     </div>
@@ -4687,7 +4701,7 @@ return <div>
       <button onClick={()=>eliminarAsig(a)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Eliminar</button>
     </div>
   </div>
-</Card>)}
+</Card>;})}
 </div>}
 {modal&&<Mdl title={editAsig?"EDITAR ASIGNACIÓN":"NUEVA ASIGNACIÓN"} onClose={cerrarModal}>
   <div style={{display:"grid",gap:14}}>
@@ -4722,7 +4736,17 @@ return <div>
         ))}
       </div>
     </LI>
-    <LI label="Hora límite"><input type="time" value={form.hora_limite} onChange={e=>setForm(p=>({...p,hora_limite:e.target.value}))} style={{width:140}}/></LI>
+    <div>
+      <div style={{fontSize:12,fontWeight:600,color:MUT,letterSpacing:".05em",marginBottom:8}}>TURNOS HORARIOS</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {form.horas_limite.map((h,i)=><div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input type="time" value={h} onChange={e=>editarTurno(i,e.target.value)} style={{width:130}}/>
+          {form.horas_limite.length>1&&<button onClick={()=>quitarTurno(i)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:12,cursor:"pointer"}}>✕</button>}
+        </div>)}
+        <button onClick={agregarTurno} style={{alignSelf:"flex-start",background:ACC+"18",color:ACC,border:b1(ACC+"44"),borderRadius:6,padding:"6px 14px",fontSize:12,cursor:"pointer"}}>+ Agregar turno</button>
+      </div>
+      <div style={{fontSize:11,color:MUT,marginTop:6}}>Cada turno genera una tarea independiente en el día. Ej: limpieza a las 08:00, 12:00 y 17:00.</div>
+    </div>
   </div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
     <Btn v="ghost" onClick={cerrarModal}>Cancelar</Btn>
@@ -4992,17 +5016,34 @@ useEffect(()=>{
   const q=esAdmin?`?fecha=eq.${fechaRep}&order=created_at.desc`:`?user_id=eq.${userId}&fecha=eq.${fechaRep}&order=created_at.desc`;
   supaGet("act_registros",q).then(d=>setRepRecs(d||[])).catch(console.error);
 },[fechaRep]);
-// Tareas asignadas para hoy
+// Tareas asignadas para hoy — expandidas en slots por turno
+const horaActual=new Date().toTimeString().slice(0,5);
+function getSlotsAsig(a){
+  if((a.horas_limite||[]).length>0)return a.horas_limite;
+  if(a.hora_limite)return[a.hora_limite];
+  return[null]; // sin hora límite → un único slot sin tiempo
+}
 const misAsigs=asigs.filter(a=>{
   const diasOk=(a.dias_semana||[]).includes(hoyNum);
   const esParaMi=a.user_id===userId||(a.sucursal&&a.sucursal===userActivo?.sucursal&&!a.user_id);
   return diasOk&&esParaMi;
 });
-function estaCompletada(asig){return recs.some(r=>r.asignacion_id===asig.id);}
-function estaVencida(asig){if(estaCompletada(asig)||!asig.hora_limite)return false;return new Date().toTimeString().slice(0,5)>asig.hora_limite;}
-const pendientes=misAsigs.filter(a=>!estaCompletada(a));
-const completadas=misAsigs.filter(a=>estaCompletada(a));
-const vencidas=pendientes.filter(a=>estaVencida(a));
+// Expandir en {asig, slotIndex, horaSlot}
+const misSlots=misAsigs.flatMap(a=>getSlotsAsig(a).map((h,i)=>({asig:a,slotIndex:i,horaSlot:h})));
+function estaCompletadoSlot(asig,slotIndex){
+  // Si tiene múltiples turnos → busca por slot_index; si es único → busca solo por asignacion_id
+  const slots=getSlotsAsig(asig);
+  if(slots.length===1)return recs.some(r=>r.asignacion_id===asig.id);
+  return recs.some(r=>r.asignacion_id===asig.id&&r.slot_index===slotIndex);
+}
+function estaVencidoSlot(asig,slotIndex){
+  if(estaCompletadoSlot(asig,slotIndex))return false;
+  const h=getSlotsAsig(asig)[slotIndex];
+  return h?horaActual>h:false;
+}
+const slotsVencidos=misSlots.filter(s=>estaVencidoSlot(s.asig,s.slotIndex)&&!estaCompletadoSlot(s.asig,s.slotIndex));
+const pendientes=misSlots.filter(s=>!estaCompletadoSlot(s.asig,s.slotIndex));
+const completadas=misSlots.filter(s=>estaCompletadoSlot(s.asig,s.slotIndex));
 // Media capture
 async function capturarMedia(tipo){
   if(tipo==="foto")mediaRef.current?.click();
@@ -5028,7 +5069,7 @@ async function guardarActividad(){
     }));
     const miSuc=userActivo?.sucursal||"";
     const hora=new Date().toTimeString().slice(0,5);
-    const rec={user_id:userId,sucursal:miSuc,tipo_id:modalCompletar.tipo_id||null,tipo_nombre:modalCompletar.tipo_nombre||"",asignacion_id:modalCompletar.asig_id||null,fecha:hoyFecha,hora,nota:notaInput,archivos:uploads};
+    const rec={user_id:userId,sucursal:miSuc,tipo_id:modalCompletar.tipo_id||null,tipo_nombre:modalCompletar.tipo_nombre||"",asignacion_id:modalCompletar.asig_id||null,slot_index:modalCompletar.slot_index??null,fecha:hoyFecha,hora,nota:notaInput,archivos:uploads};
     const[created]=await supaPost("act_registros",rec);
     setRecs(p=>[created||{...rec,id:Date.now()},...p]);
     setModalCompletar(null);setNotaInput("");setArchivos([]);
@@ -5037,12 +5078,15 @@ async function guardarActividad(){
 }
 const userMap={};users.forEach(u=>{userMap[u.id]=u;});
 const allAsigsCombined=asigs;
-// For admin reporte: compliance per user per assignment
-function getComplianceRow(a,fecha){
+// For admin reporte: compliance per user per assignment slot
+function getComplianceRows(a,fecha){
   const diasMatch=(a.dias_semana||[]).includes(new Date(fecha+"T12:00:00").getDay()===0?7:new Date(fecha+"T12:00:00").getDay());
-  if(!diasMatch)return null;
-  const completado=repRecs.some(r=>r.asignacion_id===a.id);
-  return{asig:a,completado};
+  if(!diasMatch)return[];
+  const slots=getSlotsAsig(a);
+  return slots.map((h,i)=>({
+    asig:a,slotIndex:i,horaSlot:h,
+    completado:slots.length===1?repRecs.some(r=>r.asignacion_id===a.id):repRecs.some(r=>r.asignacion_id===a.id&&r.slot_index===i),
+  }));
 }
 return <div>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2,marginBottom:4}}>ACTIVIDADES</h1>
@@ -5055,41 +5099,48 @@ return <div>
     const a=tab===id;
     return <button key={id} onClick={()=>setTab(id)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400,position:"relative"}}>
       {l}
-      {id==="tareas"&&vencidas.length>0&&<span style={{position:"absolute",top:-6,right:-6,background:RED,color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{vencidas.length}</span>}
+      {id==="tareas"&&slotsVencidos.length>0&&<span style={{position:"absolute",top:-6,right:-6,background:RED,color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{slotsVencidos.length}</span>}
     </button>;
   })}
 </div>
 {/* ── Tab: Mis Tareas ── */}
 {tab==="tareas"&&<div>
   {loading?<Card xtra={{textAlign:"center",padding:32,color:MUT}}>Cargando...</Card>:
-  misAsigs.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>
+  misSlots.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>
     <div style={{fontSize:36,marginBottom:12}}>🗓️</div>
     <div>No tienes tareas asignadas para hoy.</div>
     <div style={{fontSize:12,marginTop:8}}>Si esperabas ver tareas, consulta con tu administrador.</div>
   </Card>:<div style={{display:"flex",flexDirection:"column",gap:10}}>
-    {misAsigs.map(a=>{
-      const done=estaCompletada(a);const vencida=estaVencida(a);
-      return <Card key={a.id} xtra={{padding:"16px 20px",borderLeft:`4px solid ${done?GRN:vencida?RED:ACC}`}}>
+    {misSlots.map(({asig:a,slotIndex,horaSlot})=>{
+      const done=estaCompletadoSlot(a,slotIndex);
+      const vencida=estaVencidoSlot(a,slotIndex);
+      const slots=getSlotsAsig(a);
+      const recSlot=done?recs.find(r=>r.asignacion_id===a.id&&(slots.length===1||r.slot_index===slotIndex)):null;
+      return <Card key={a.id+"-"+slotIndex} xtra={{padding:"16px 20px",borderLeft:`4px solid ${done?GRN:vencida?RED:ACC}`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
           <div>
-            <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{a.tipo_nombre}</div>
+            <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>
+              {a.tipo_nombre}
+              {slots.length>1&&<span style={{fontFamily:"'DM Mono'",fontSize:12,color:ACC,marginLeft:8,background:ACC+"18",borderRadius:4,padding:"2px 7px"}}>⏰ {horaSlot}</span>}
+            </div>
             <div style={{fontSize:12,color:MUT}}>
               {(a.dias_semana||[]).map(d=>DIAS_NOMBRES[d]).join(", ")}
-              {a.hora_limite&&<span> · ⏰ hasta {a.hora_limite}</span>}
+              {slots.length===1&&horaSlot&&<span> · ⏰ hasta {horaSlot}</span>}
+              {done&&recSlot&&<span style={{color:GRN}}> · completado {recSlot.hora}</span>}
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {done?<Bdg c="green">✓ Completada</Bdg>:vencida?<Bdg c="red">⚠️ Vencida</Bdg>:<Bdg c="orange">Pendiente</Bdg>}
-            {!done&&<Btn s="sm" v={vencida?"danger":"success"} onClick={()=>{setModalCompletar({asig_id:a.id,tipo_id:a.tipo_id,tipo_nombre:a.tipo_nombre});setNotaInput("");setArchivos([]);}}>
+            {done?<Bdg c="green">✓ Completado</Bdg>:vencida?<Bdg c="red">⚠️ Vencido</Bdg>:<Bdg c="orange">Pendiente</Bdg>}
+            {!done&&<Btn s="sm" v={vencida?"danger":"success"} onClick={()=>{setModalCompletar({asig_id:a.id,slot_index:slotIndex,tipo_id:a.tipo_id,tipo_nombre:a.tipo_nombre+(slots.length>1?" · "+horaSlot:"")});setNotaInput("");setArchivos([]);}}>
               {vencida?"⚠️ Registrar igual":"✓ Completar"}
             </Btn>}
-            {done&&<button onClick={()=>{const r=recs.find(x=>x.asignacion_id===a.id);if(r?.archivos?.length>0)window.open(r.archivos[0].url,"_blank");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver evidencia</button>}
+            {done&&recSlot?.archivos?.length>0&&<button onClick={()=>window.open(recSlot.archivos[0].url,"_blank")} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Ver evidencia</button>}
           </div>
         </div>
       </Card>;
     })}
   </div>}
-  {completadas.length>0&&<div style={{marginTop:16,fontSize:12,color:MUT}}>✓ {completadas.length} tarea(s) completada(s) hoy</div>}
+  {completadas.length>0&&<div style={{marginTop:16,fontSize:12,color:MUT}}>✓ {completadas.length} turno(s) completado(s) hoy · {pendientes.length} pendiente(s)</div>}
 </div>}
 {/* ── Tab: Nueva Actividad (libre) ── */}
 {tab==="libre"&&<div>
