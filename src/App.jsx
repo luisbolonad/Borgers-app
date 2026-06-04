@@ -5783,12 +5783,15 @@ function FidelizacionScanner({userActivo,sucs}){
   },[]);
 
   async function startScan(){
+    if(!("BarcodeDetector" in window)){
+      setMsg({t:"warn",s:"⚠️ Tu navegador no soporta escaneo QR. Usa Chrome en Android o Chrome en PC. También puedes buscar por email o teléfono."});
+      return;
+    }
     setScanning(true);setMsg(null);
     try{
       const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
       streamRef.current=stream;
       if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
-      if(!("BarcodeDetector" in window)){setMsg({t:"err",s:"BarcodeDetector no disponible en este navegador."});stopScan();return;}
       const bd=new BarcodeDetector({formats:["qr_code"]});
       scanRef.current=setInterval(async()=>{
         if(!videoRef.current)return;
@@ -5916,7 +5919,7 @@ function FidelizacionScanner({userActivo,sucs}){
         </>}
       </Card>
       {loading&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Cargando...</div>}
-      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":RED+"18",color:msg.t==="ok"?GRN:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
+      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":msg.t==="warn"?ACC+"18":RED+"18",color:msg.t==="ok"?GRN:msg.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
       {result&&selProg&&<Card>
         <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>{result.customer.nombre}</div>
         <div style={{fontSize:12,color:MUT,marginBottom:16}}>{result.customer.email||""} {result.customer.telefono||""}</div>
@@ -5947,7 +5950,7 @@ function FidelizacionScanner({userActivo,sucs}){
         </div>
       </Card>
       {loading&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Cargando...</div>}
-      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":RED+"18",color:msg.t==="ok"?GRN:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
+      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":msg.t==="warn"?ACC+"18":RED+"18",color:msg.t==="ok"?GRN:msg.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
       {gcData&&<Card>
         <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:ACC,marginBottom:4}}>{gcData.code}</div>
         <div style={{fontSize:12,color:MUT,marginBottom:12}}>{gcData.sold_to_name||"Sin destinatario"}{gcData.expires_at?" · Vence: "+gcData.expires_at:""}</div>
