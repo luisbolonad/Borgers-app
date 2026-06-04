@@ -76,6 +76,10 @@ function captureFrame(videoEl,quality=0.85){
   c.getContext("2d").drawImage(videoEl,0,0);
   return c.toDataURL("image/jpeg",quality).split(",")[1];
 }
+// ── Fidelización helpers ────────────────────────────────────────────────────
+const APP_URL="https://borgers-app.vercel.app";
+function genToken(len=16){const c="abcdefghijklmnopqrstuvwxyz0123456789";return Array.from({length:len},()=>c[Math.floor(Math.random()*c.length)]).join("");}
+function qrImgUrl(data){return"https://api.qrserver.com/v1/create-qr-code/?size=220x220&data="+encodeURIComponent(data)+"&format=svg&margin=1";}
 const BG="#0F0E0C",SRF="#1A1916",CRD="#222018",BRD="#2E2C26";
 const ACC="#F5A623",RED="#E84040",GRN="#3ECF8E",BLU="#4A9EFF";
 const PRP="#9B72FF",TXT="#F0EDE6",MUT="#8A8578",FNT="#3A3830";
@@ -141,6 +145,7 @@ ver_manual:     ["superadmin","admin_suc","staff_suc","produccion"],
 ver_ce:         ["superadmin","caja_eventos"],
 ver_asist:      ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion","kiosko"],
 ver_act:        ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
+ver_fidel:      ["superadmin","admin_suc","staff_suc"],
 // Acciones
 editar_recetas: ["superadmin"],
 despacho:       ["superadmin","produccion"],
@@ -520,6 +525,7 @@ const allTabs=[
 {id:"ce",l:"Caja Eventos",i:"🎪",perm:"ver_ce"},
 {id:"asist",l:"Asistencia",i:"⏱",perm:"ver_asist"},
 {id:"act",l:"Actividades",i:"✅",perm:"ver_act"},
+{id:"fidel",l:"Fidelización",i:"🎯",perm:"ver_fidel"},
 ];
 const T=allTabs.filter(t=>!t.perm||puede(t.perm));
 // Pantalla de carga
@@ -585,6 +591,7 @@ return <>
 {tab==="ce"&&<CajaEventos userActivo={userActivo} puede={puede} sucs={sucs} users={users}/>}
 {tab==="asist"&&<Asistencia userActivo={userActivo} sucsData={sucsData} users={users}/>}
 {tab==="act"&&<Actividades userActivo={userActivo} sucsData={sucsData} users={users}/>}
+{tab==="fidel"&&<FidelizacionScanner userActivo={userActivo} sucs={sucs}/>}
 </div>
 </div>
 </>;
@@ -3693,7 +3700,7 @@ return <div>
 <p style={{color:MUT,fontSize:13}}>Gestión de sucursales y categorías del sistema</p>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
-{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["geo","📍 Geo Sucursales"],["rostros","🤳 Reconocimiento Facial"],["acttypes","✅ Tipos Actividad"],["asignaciones","📋 Asignaciones"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
+{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["geo","📍 Geo Sucursales"],["rostros","🤳 Reconocimiento Facial"],["acttypes","✅ Tipos Actividad"],["asignaciones","📋 Asignaciones"],["fidelizacion","🎯 Programas Fidelización"],["giftcards","🎁 Gift Cards"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
 const a=seccion===id;
 return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
 })}
@@ -3776,6 +3783,8 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
 {seccion==="rostros"&&<RostrosConfig users={users} setUsers={setUsers} sucs={sucs}/>}
 {seccion==="acttypes"&&<ActTiposConfig/>}
 {seccion==="asignaciones"&&<ActAsigConfig users={users} sucs={sucs}/>}
+{seccion==="fidelizacion"&&<FidelizacionConfig sucs={sucs}/>}
+{seccion==="giftcards"&&<GiftCardAdmin sucs={sucs}/>}
 {seccion==="cats"&&<div>
   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12,marginBottom:24}}>
     {cats.map((c,idx)=><Card key={idx} xtra={{padding:14}}>
@@ -5500,4 +5509,658 @@ return <div>
     </Card>
   </div>}
 </div>;
+}// ── FidelizacionConfig (superadmin: crear/gestionar programas y recompensas) ──
+function FidelizacionConfig({sucs}){
+  const [progs,setProgs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [modalProg,setModalProg]=useState(null);
+  const [modalReward,setModalReward]=useState(null);
+  const [err,setErr]=useState("");
+  const [expandedProg,setExpandedProg]=useState(null);
+  const [rewards,setRewards]=useState({});
+
+  useEffect(()=>{loadProgs();},[]);
+
+  async function loadProgs(){
+    setLoading(true);
+    try{const p=await supaGet("loyalty_programs","?select=*&order=created_at.asc");setProgs(p);}
+    catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  async function loadRewards(progId){
+    const r=await supaGet("loyalty_rewards","?program_id=eq."+progId+"&order=created_at.asc");
+    setRewards(p=>({...p,[progId]:r}));
+  }
+  async function toggleExpand(progId){
+    if(expandedProg===progId){setExpandedProg(null);return;}
+    setExpandedProg(progId);await loadRewards(progId);
+  }
+  async function saveProg(){
+    setErr("");
+    const{id,nombre,tipo,config,activo,sucursales}=modalProg;
+    if(!nombre.trim()){setErr("Nombre es requerido");return;}
+    try{
+      if(id){
+        await supaPatch("loyalty_programs","?id=eq."+id,{nombre,tipo,config,activo,sucursales});
+        setProgs(p=>p.map(x=>x.id===id?{...x,nombre,tipo,config,activo,sucursales}:x));
+      }else{
+        const[created]=await supaPost("loyalty_programs",{nombre,tipo,config,activo:true,imagen_url:"",sucursales:sucursales||[]});
+        setProgs(p=>[...p,created]);
+      }
+      setModalProg(null);
+    }catch(e){setErr(e.message);}
+  }
+  async function toggleActivo(prog){
+    await supaPatch("loyalty_programs","?id=eq."+prog.id,{activo:!prog.activo});
+    setProgs(p=>p.map(x=>x.id===prog.id?{...x,activo:!prog.activo}:x));
+  }
+  async function saveReward(){
+    setErr("");
+    const{progId,id,nombre,descripcion,costo}=modalReward;
+    if(!nombre.trim()){setErr("Nombre requerido");return;}
+    if(!costo||isNaN(costo)){setErr("Costo inválido");return;}
+    try{
+      if(id){
+        await supaPatch("loyalty_rewards","?id=eq."+id,{nombre,descripcion,costo:parseInt(costo)});
+        setRewards(p=>({...p,[progId]:p[progId].map(x=>x.id===id?{...x,nombre,descripcion,costo:parseInt(costo)}:x)}));
+      }else{
+        const[r]=await supaPost("loyalty_rewards",{program_id:progId,nombre,descripcion,costo:parseInt(costo),activo:true,imagen_url:""});
+        setRewards(p=>({...p,[progId]:[...(p[progId]||[]),r]}));
+      }
+      setModalReward(null);
+    }catch(e){setErr(e.message);}
+  }
+  async function deleteReward(progId,rId){
+    if(!confirm("¿Eliminar recompensa?"))return;
+    await supaDelete("loyalty_rewards","?id=eq."+rId);
+    setRewards(p=>({...p,[progId]:(p[progId]||[]).filter(x=>x.id!==rId)}));
+  }
+
+  return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:ACC,letterSpacing:1}}>PROGRAMAS DE FIDELIZACIÓN</div>
+      <Btn onClick={()=>setModalProg({nombre:"",tipo:"sellos",config:{sellos_max:10,puntos_por_peso:1},activo:true,sucursales:[]})}>+ Nuevo Programa</Btn>
+    </div>
+    {err&&<div style={{background:RED+"18",color:RED,padding:"8px 12px",borderRadius:8,marginBottom:12,fontSize:12}}>{err}</div>}
+    {loading?<div style={{color:MUT,fontSize:13}}>Cargando...</div>
+    :progs.length===0?<Card><div style={{textAlign:"center",color:MUT,padding:32}}>No hay programas. Crea el primero.</div></Card>
+    :progs.map(prog=><Card key={prog.id} xtra={{marginBottom:12,padding:0}}>
+      <div style={{padding:"14px 20px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:140}}>
+          <div style={{fontWeight:600,fontSize:15}}>{prog.nombre}</div>
+          <div style={{fontSize:12,color:MUT,marginTop:2}}>
+            {prog.tipo==="sellos"?"🎟 Sellos":"⭐ Puntos"} · {prog.activo?<span style={{color:GRN}}>Activo</span>:<span style={{color:RED}}>Inactivo</span>}
+          </div>
+          {prog.tipo==="sellos"&&<div style={{fontSize:11,color:MUT}}>Meta: {prog.config?.sellos_max||10} sellos</div>}
+          {prog.tipo==="puntos"&&<div style={{fontSize:11,color:MUT}}>Ratio: {prog.config?.puntos_por_peso||1} pts/$1</div>}
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <Btn s="sm" v="ghost" onClick={()=>toggleExpand(prog.id)}>{expandedProg===prog.id?"▲ Ocultar":"▼ Recompensas"}</Btn>
+          <Btn s="sm" v="ghost" onClick={()=>setModalProg({...prog})}>✏️ Editar</Btn>
+          <Btn s="sm" v="ghost" xtra={{color:prog.activo?RED:GRN,borderColor:prog.activo?RED:GRN}} onClick={()=>toggleActivo(prog)}>{prog.activo?"Pausar":"Activar"}</Btn>
+        </div>
+      </div>
+      {expandedProg===prog.id&&<div style={{borderTop:b1(BRD),padding:"12px 20px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:12,color:MUT,fontWeight:600}}>RECOMPENSAS</div>
+          <Btn s="sm" onClick={()=>setModalReward({progId:prog.id,nombre:"",descripcion:"",costo:prog.tipo==="sellos"?(prog.config?.sellos_max||10):100})}>+ Agregar</Btn>
+        </div>
+        {!(rewards[prog.id]||[]).length&&<div style={{color:MUT,fontSize:12}}>Sin recompensas aún.</div>}
+        {(rewards[prog.id]||[]).map(r=><div key={r.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:b1(BRD)}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:500}}>{r.nombre}</div>
+            <div style={{fontSize:12,color:MUT}}>{r.descripcion} · {prog.tipo==="sellos"?r.costo+" sellos":r.costo+" pts"}</div>
+          </div>
+          <Btn s="sm" v="ghost" onClick={()=>setModalReward({progId:prog.id,...r})}>✏️</Btn>
+          <Btn s="sm" v="ghost" xtra={{color:RED,borderColor:RED}} onClick={()=>deleteReward(prog.id,r.id)}>🗑</Btn>
+        </div>)}
+      </div>}
+    </Card>)}
+    {modalProg&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:480,width:"100%",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:16}}>{modalProg.id?"EDITAR PROGRAMA":"NUEVO PROGRAMA"}</div>
+        {err&&<div style={{background:RED+"18",color:RED,fontSize:12,padding:"6px 10px",borderRadius:6,marginBottom:10}}>{err}</div>}
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>NOMBRE</div>
+          <input value={modalProg.nombre} onChange={e=>setModalProg(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}} placeholder="Ej: Tarjeta de Sellos Borgers"/>
+        </label>
+        {!modalProg.id&&<label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>TIPO</div>
+          <select value={modalProg.tipo} onChange={e=>setModalProg(p=>({...p,tipo:e.target.value}))} style={{width:"100%"}}>
+            <option value="sellos">🎟 Sellos (estilo Devotio)</option>
+            <option value="puntos">⭐ Puntos (por monto de compra)</option>
+          </select>
+        </label>}
+        {modalProg.tipo==="sellos"&&<label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>SELLOS PARA COMPLETAR TARJETA</div>
+          <input type="number" value={modalProg.config?.sellos_max||10} onChange={e=>setModalProg(p=>({...p,config:{...p.config,sellos_max:parseInt(e.target.value)}}))} style={{width:"100%"}}/>
+        </label>}
+        {modalProg.tipo==="puntos"&&<label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>PUNTOS POR $1 DE COMPRA</div>
+          <input type="number" step="0.1" value={modalProg.config?.puntos_por_peso||1} onChange={e=>setModalProg(p=>({...p,config:{...p.config,puntos_por_peso:parseFloat(e.target.value)}}))} style={{width:"100%"}}/>
+        </label>}
+        <div style={{display:"flex",gap:10,marginTop:4}}>
+          <Btn v="ghost" xtra={{flex:1}} onClick={()=>{setModalProg(null);setErr("");}}>Cancelar</Btn>
+          <Btn xtra={{flex:2}} onClick={saveProg}>{modalProg.id?"Guardar Cambios":"Crear Programa"}</Btn>
+        </div>
+      </Card>
+    </div>}
+    {modalReward&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:420,width:"100%"}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:16}}>{modalReward.id?"EDITAR RECOMPENSA":"NUEVA RECOMPENSA"}</div>
+        {err&&<div style={{background:RED+"18",color:RED,fontSize:12,padding:"6px 10px",borderRadius:6,marginBottom:10}}>{err}</div>}
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>NOMBRE</div>
+          <input value={modalReward.nombre} onChange={e=>setModalReward(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}} placeholder="Ej: Borger gratis"/>
+        </label>
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>DESCRIPCIÓN (opcional)</div>
+          <input value={modalReward.descripcion||""} onChange={e=>setModalReward(p=>({...p,descripcion:e.target.value}))} style={{width:"100%"}}/>
+        </label>
+        <label style={{display:"block",marginBottom:16}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>COSTO ({progs.find(x=>x.id===modalReward.progId)?.tipo==="sellos"?"SELLOS":"PUNTOS"})</div>
+          <input type="number" value={modalReward.costo} onChange={e=>setModalReward(p=>({...p,costo:e.target.value}))} style={{width:"100%"}}/>
+        </label>
+        <div style={{display:"flex",gap:10}}>
+          <Btn v="ghost" xtra={{flex:1}} onClick={()=>{setModalReward(null);setErr("");}}>Cancelar</Btn>
+          <Btn xtra={{flex:2}} onClick={saveReward}>{modalReward.id?"Guardar":"Agregar"}</Btn>
+        </div>
+      </Card>
+    </div>}
+  </div>;
+}
+// ── GiftCardAdmin (admin: crear/gestionar gift cards) ─────────────────────────
+function GiftCardAdmin({sucs}){
+  const [cards,setCards]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(null);
+  const [err,setErr]=useState("");
+  const [search,setSearch]=useState("");
+
+  useEffect(()=>{loadCards();},[]);
+
+  async function loadCards(){
+    setLoading(true);
+    try{const c=await supaGet("gift_cards","?select=*&order=created_at.desc&limit=200");setCards(c);}
+    catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  async function createCard(){
+    setErr("");
+    const{monto,nombre,telefono,dias}=modal;
+    if(!monto||isNaN(monto)||parseFloat(monto)<=0){setErr("Monto inválido");return;}
+    const code=genToken(8).toUpperCase();
+    const expires=dias&&parseInt(dias)>0?new Date(Date.now()+parseInt(dias)*86400000).toISOString().split("T")[0]:null;
+    try{
+      const[c]=await supaPost("gift_cards",{code,amount:parseFloat(monto),balance:parseFloat(monto),sold_to_name:nombre||null,sold_to_phone:telefono||null,status:"active",expires_at:expires});
+      setCards(p=>[c,...p]);setModal(null);
+    }catch(e){setErr(e.message);}
+  }
+  async function cancelCard(c){
+    if(!confirm("¿Cancelar gift card "+c.code+"?"))return;
+    await supaPatch("gift_cards","?id=eq."+c.id,{status:"cancelled"});
+    setCards(p=>p.map(x=>x.id===c.id?{...x,status:"cancelled"}:x));
+  }
+
+  const filt=cards.filter(c=>!search||(c.code+(c.sold_to_name||"")+(c.sold_to_phone||"")).toLowerCase().includes(search.toLowerCase()));
+
+  return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:ACC,letterSpacing:1}}>GIFT CARDS</div>
+      <Btn onClick={()=>setModal({monto:"",nombre:"",telefono:"",dias:"365"})}>+ Nueva Gift Card</Btn>
+    </div>
+    {err&&<div style={{background:RED+"18",color:RED,padding:"8px 12px",borderRadius:8,marginBottom:12,fontSize:12}}>{err}</div>}
+    <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por código, nombre o teléfono..." style={{width:"100%",marginBottom:16}}/>
+    {loading?<div style={{color:MUT,fontSize:13}}>Cargando...</div>
+    :<Card xtra={{padding:0}}>
+      <div style={{padding:"12px 20px",borderBottom:b1(BRD),display:"grid",gridTemplateColumns:"130px 1fr 90px 90px 100px",gap:8,fontSize:11,color:MUT,fontWeight:600}}>
+        <span>CÓDIGO</span><span>CLIENTE</span><span>VALOR</span><span>SALDO</span><span>ESTADO</span>
+      </div>
+      {filt.length===0&&<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>Sin resultados.</div>}
+      {filt.map(c=><div key={c.id} style={{padding:"12px 20px",borderBottom:b1(BRD),display:"grid",gridTemplateColumns:"130px 1fr 90px 90px 100px",gap:8,alignItems:"center"}}>
+        <div style={{fontFamily:"'DM Mono'",fontSize:13,fontWeight:600,color:ACC}}>{c.code}</div>
+        <div style={{fontSize:13}}>
+          <div>{c.sold_to_name||"—"}</div>
+          <div style={{fontSize:11,color:MUT}}>{c.sold_to_phone||""}</div>
+        </div>
+        <div style={{fontSize:13}}>${parseFloat(c.amount).toFixed(2)}</div>
+        <div style={{fontSize:13,color:parseFloat(c.balance)>0?GRN:MUT}}>${parseFloat(c.balance).toFixed(2)}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <Bdg c={c.status==="active"?"green":c.status==="used"?"muted":"red"}>{c.status==="active"?"Activa":c.status==="used"?"Usada":"Cancelada"}</Bdg>
+          {c.status==="active"&&<button onClick={()=>cancelCard(c)} style={{fontSize:10,background:"transparent",border:"none",color:RED,cursor:"pointer",textAlign:"left",padding:0}}>Cancelar</button>}
+        </div>
+      </div>)}
+    </Card>}
+    {modal&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:400,width:"100%"}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:16}}>NUEVA GIFT CARD</div>
+        {err&&<div style={{background:RED+"18",color:RED,fontSize:12,padding:"6px 10px",borderRadius:6,marginBottom:10}}>{err}</div>}
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>MONTO ($)</div>
+          <input type="number" value={modal.monto} onChange={e=>setModal(p=>({...p,monto:e.target.value}))} style={{width:"100%"}} placeholder="25.00"/>
+        </label>
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>NOMBRE DEL DESTINATARIO (opcional)</div>
+          <input value={modal.nombre} onChange={e=>setModal(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}}/>
+        </label>
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>TELÉFONO (opcional)</div>
+          <input value={modal.telefono} onChange={e=>setModal(p=>({...p,telefono:e.target.value}))} style={{width:"100%"}} type="tel"/>
+        </label>
+        <label style={{display:"block",marginBottom:16}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>VALIDEZ (días desde hoy)</div>
+          <input type="number" value={modal.dias} onChange={e=>setModal(p=>({...p,dias:e.target.value}))} style={{width:"100%"}}/>
+        </label>
+        <div style={{display:"flex",gap:10}}>
+          <Btn v="ghost" xtra={{flex:1}} onClick={()=>{setModal(null);setErr("");}}>Cancelar</Btn>
+          <Btn xtra={{flex:2}} onClick={createCard}>Crear Gift Card</Btn>
+        </div>
+      </Card>
+    </div>}
+  </div>;
+}
+// ── FidelizacionScanner (tab para staff: escanear QR, aplicar sellos/puntos) ──
+function FidelizacionScanner({userActivo,sucs}){
+  const [progs,setProgs]=useState([]);
+  const [selProg,setSelProg]=useState(null);
+  const [scanning,setScanning]=useState(false);
+  const [result,setResult]=useState(null);
+  const [manualVal,setManualVal]=useState("");
+  const [monto,setMonto]=useState("");
+  const [msg,setMsg]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const videoRef=useRef(null);
+  const streamRef=useRef(null);
+  const scanRef=useRef(null);
+  const [gcTab,setGcTab]=useState("sellos");
+  const [gcCode,setGcCode]=useState("");
+  const [gcData,setGcData]=useState(null);
+  const [gcMonto,setGcMonto]=useState("");
+
+  useEffect(()=>{
+    supaGet("loyalty_programs","?select=*&activo=eq.true&order=nombre").then(p=>{setProgs(p);if(p.length>0)setSelProg(p[0]);}).catch(()=>{});
+    return()=>stopScan();
+  },[]);
+
+  async function startScan(){
+    setScanning(true);setMsg(null);
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      streamRef.current=stream;
+      if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+      if(!("BarcodeDetector" in window)){setMsg({t:"err",s:"BarcodeDetector no disponible en este navegador."});stopScan();return;}
+      const bd=new BarcodeDetector({formats:["qr_code"]});
+      scanRef.current=setInterval(async()=>{
+        if(!videoRef.current)return;
+        try{
+          const barcodes=await bd.detect(videoRef.current);
+          if(barcodes.length>0){
+            clearInterval(scanRef.current);stopScan();
+            const raw=barcodes[0].rawValue;
+            const m=raw.match(/\/c\/([a-z0-9]+)$/);
+            await lookupCustomer(m?m[1]:raw);
+          }
+        }catch(e){}
+      },400);
+    }catch(e){setMsg({t:"err",s:e.message});setScanning(false);}
+  }
+  function stopScan(){
+    clearInterval(scanRef.current);
+    if(streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;}
+    setScanning(false);
+  }
+  async function lookupCustomer(token){
+    setLoading(true);setMsg(null);setResult(null);
+    try{
+      const[cust]=await supaGet("loyalty_customers","?token=eq."+token);
+      if(!cust){setMsg({t:"err",s:"Cliente no encontrado."});setLoading(false);return;}
+      let cards=await supaGet("loyalty_cards","?customer_id=eq."+cust.id+(selProg?"&program_id=eq."+selProg.id:""));
+      let card=cards[0];
+      if(!card&&selProg){[card]=await supaPost("loyalty_cards",{customer_id:cust.id,program_id:selProg.id,sellos:0,puntos:0});}
+      setResult({customer:cust,card});
+    }catch(e){setMsg({t:"err",s:e.message});}
+    setLoading(false);
+  }
+  async function manualSearch(){
+    if(!manualVal.trim())return;
+    setLoading(true);setMsg(null);setResult(null);
+    try{
+      const q="?or=(email.eq."+encodeURIComponent(manualVal.trim())+",telefono.eq."+encodeURIComponent(manualVal.trim())+")";
+      const custs=await supaGet("loyalty_customers",q);
+      if(!custs.length){setMsg({t:"err",s:"Cliente no encontrado."});setLoading(false);return;}
+      await lookupCustomer(custs[0].token);
+    }catch(e){setMsg({t:"err",s:e.message});setLoading(false);}
+  }
+  async function aplicarSello(){
+    if(!result||!selProg)return;
+    setLoading(true);
+    const{customer,card}=result;
+    const max=selProg.config?.sellos_max||10;
+    const nuevos=Math.min((card.sellos||0)+1,max);
+    try{
+      await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:nuevos});
+      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"sello",valor:1,descripcion:"Sello aplicado",staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
+      setResult(p=>({...p,card:{...p.card,sellos:nuevos}}));
+      setMsg({t:"ok",s:nuevos>=max?"🎉 ¡Tarjeta completa! El cliente puede canjear su recompensa.":"✅ Sello aplicado. "+nuevos+"/"+max});
+    }catch(e){setMsg({t:"err",s:e.message});}
+    setLoading(false);
+  }
+  async function aplicarPuntos(){
+    if(!result||!selProg||!monto||isNaN(monto))return;
+    setLoading(true);
+    const{customer,card}=result;
+    const ratio=selProg.config?.puntos_por_peso||1;
+    const pts=Math.round(parseFloat(monto)*ratio);
+    const nuevos=(card.puntos||0)+pts;
+    try{
+      await supaPatch("loyalty_cards","?id=eq."+card.id,{puntos:nuevos});
+      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"puntos",valor:pts,descripcion:"Compra $"+monto,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
+      setResult(p=>({...p,card:{...p.card,puntos:nuevos}}));
+      setMsg({t:"ok",s:"✅ +"+pts+" puntos. Total: "+nuevos+" pts"});setMonto("");
+    }catch(e){setMsg({t:"err",s:e.message});}
+    setLoading(false);
+  }
+  async function buscarGiftCard(){
+    if(!gcCode.trim())return;
+    setLoading(true);setGcData(null);setMsg(null);
+    try{
+      const[gc]=await supaGet("gift_cards","?code=eq."+gcCode.trim().toUpperCase());
+      if(!gc){setMsg({t:"err",s:"Gift card no encontrada."});setLoading(false);return;}
+      setGcData(gc);
+    }catch(e){setMsg({t:"err",s:e.message});}
+    setLoading(false);
+  }
+  async function usarGiftCard(){
+    if(!gcData||!gcMonto||isNaN(gcMonto))return;
+    const uso=parseFloat(gcMonto);
+    if(uso<=0||uso>parseFloat(gcData.balance)){setMsg({t:"err",s:"Monto inválido o mayor al saldo."});return;}
+    setLoading(true);
+    const nuevoSaldo=parseFloat(gcData.balance)-uso;
+    const nuevoStatus=nuevoSaldo<=0?"used":"active";
+    try{
+      await supaPatch("gift_cards","?id=eq."+gcData.id,{balance:nuevoSaldo,status:nuevoStatus});
+      await supaPost("gift_card_transactions",{gift_card_id:gcData.id,tipo:"uso",monto:uso,descripcion:"Pago en sucursal",staff_id:userActivo?.id||null});
+      setGcData(p=>({...p,balance:nuevoSaldo,status:nuevoStatus}));
+      setMsg({t:"ok",s:"✅ Cobrado $"+uso.toFixed(2)+". Saldo restante: $"+nuevoSaldo.toFixed(2)});setGcMonto("");
+    }catch(e){setMsg({t:"err",s:e.message});}
+    setLoading(false);
+  }
+
+  return<div style={{maxWidth:640}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:ACC,letterSpacing:2,marginBottom:20}}>FIDELIZACIÓN</div>
+    <div style={{display:"flex",gap:8,marginBottom:20}}>
+      {[["sellos","🎯 Tarjetas Fidelización"],["giftcard","🎁 Gift Cards"]].map(([id,l])=><button key={id} onClick={()=>{setGcTab(id);setMsg(null);}} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(gcTab===id?ACC:BRD),background:gcTab===id?ACC+"18":"transparent",color:gcTab===id?ACC:MUT}}>{l}</button>)}
+    </div>
+
+    {gcTab==="sellos"&&<>
+      {progs.length>1&&<div style={{marginBottom:16}}>
+        <div style={{fontSize:11,color:MUT,marginBottom:6}}>PROGRAMA</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {progs.map(p=><button key={p.id} onClick={()=>{setSelProg(p);setResult(null);setMsg(null);}} style={{padding:"6px 14px",borderRadius:8,fontSize:12,cursor:"pointer",border:b1(selProg?.id===p.id?ACC:BRD),background:selProg?.id===p.id?ACC+"18":"transparent",color:selProg?.id===p.id?ACC:MUT}}>{p.nombre}</button>)}
+        </div>
+      </div>}
+      <Card xtra={{marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Buscar cliente</div>
+        {!scanning&&<>
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
+            <input value={manualVal} onChange={e=>setManualVal(e.target.value)} placeholder="Email o teléfono del cliente" style={{flex:1}} onKeyDown={e=>e.key==="Enter"&&manualSearch()}/>
+            <Btn s="sm" onClick={manualSearch}>Buscar</Btn>
+          </div>
+          <Btn v="ghost" xtra={{width:"100%"}} onClick={startScan}>📷 Escanear QR del cliente</Btn>
+        </>}
+        {scanning&&<>
+          <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:b1(ACC),marginBottom:10}}>
+            <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:240,objectFit:"cover",display:"block"}}/>
+          </div>
+          <Btn v="ghost" xtra={{width:"100%"}} onClick={stopScan}>Cancelar escaneo</Btn>
+        </>}
+      </Card>
+      {loading&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Cargando...</div>}
+      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":RED+"18",color:msg.t==="ok"?GRN:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
+      {result&&selProg&&<Card>
+        <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>{result.customer.nombre}</div>
+        <div style={{fontSize:12,color:MUT,marginBottom:16}}>{result.customer.email||""} {result.customer.telefono||""}</div>
+        {selProg.tipo==="sellos"&&<>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+            {Array.from({length:selProg.config?.sellos_max||10}).map((_,i)=><div key={i} style={{width:40,height:40,borderRadius:8,border:b1(i<(result.card?.sellos||0)?ACC:BRD),background:i<(result.card?.sellos||0)?ACC+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{i<(result.card?.sellos||0)?"🎟":"○"}</div>)}
+          </div>
+          <div style={{fontSize:12,color:MUT,marginBottom:12}}>{result.card?.sellos||0}/{selProg.config?.sellos_max||10} sellos</div>
+          <Btn xtra={{width:"100%",opacity:loading?0.4:1}} onClick={aplicarSello} disabled={loading}>+ Agregar Sello</Btn>
+        </>}
+        {selProg.tipo==="puntos"&&<>
+          <div style={{fontSize:28,fontWeight:700,color:ACC,marginBottom:4}}>{result.card?.puntos||0}<span style={{fontSize:14,color:MUT,marginLeft:6}}>puntos</span></div>
+          <div style={{fontSize:12,color:MUT,marginBottom:12}}>{selProg.config?.puntos_por_peso||1} pts por $1 de compra</div>
+          <div style={{display:"flex",gap:8}}>
+            <input type="number" value={monto} onChange={e=>setMonto(e.target.value)} placeholder="Monto de compra $" style={{flex:1}}/>
+            <Btn onClick={aplicarPuntos} disabled={loading||!monto}>+ Puntos</Btn>
+          </div>
+        </>}
+      </Card>}
+    </>}
+
+    {gcTab==="giftcard"&&<>
+      <Card xtra={{marginBottom:16}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Buscar Gift Card por código</div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={gcCode} onChange={e=>setGcCode(e.target.value.toUpperCase())} placeholder="Ej: AB3F9X2K" style={{flex:1,fontFamily:"'DM Mono'"}} onKeyDown={e=>e.key==="Enter"&&buscarGiftCard()}/>
+          <Btn s="sm" onClick={buscarGiftCard}>Buscar</Btn>
+        </div>
+      </Card>
+      {loading&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Cargando...</div>}
+      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":RED+"18",color:msg.t==="ok"?GRN:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
+      {gcData&&<Card>
+        <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:ACC,marginBottom:4}}>{gcData.code}</div>
+        <div style={{fontSize:12,color:MUT,marginBottom:12}}>{gcData.sold_to_name||"Sin destinatario"}{gcData.expires_at?" · Vence: "+gcData.expires_at:""}</div>
+        <div style={{fontSize:32,fontWeight:700,color:gcData.status==="active"?GRN:MUT,marginBottom:4}}>${parseFloat(gcData.balance).toFixed(2)}<span style={{fontSize:12,color:MUT,marginLeft:8}}>saldo disponible</span></div>
+        <Bdg c={gcData.status==="active"?"green":gcData.status==="used"?"muted":"red"}>{gcData.status==="active"?"Activa":gcData.status==="used"?"Usada":"Cancelada"}</Bdg>
+        {gcData.status==="active"&&parseFloat(gcData.balance)>0&&<div style={{display:"flex",gap:8,marginTop:16}}>
+          <input type="number" value={gcMonto} onChange={e=>setGcMonto(e.target.value)} placeholder="Monto a cobrar $" style={{flex:1}} max={gcData.balance}/>
+          <Btn onClick={usarGiftCard} disabled={loading||!gcMonto}>Cobrar</Btn>
+        </div>}
+      </Card>}
+    </>}
+  </div>;
+}
+// ── CustomerPortal (público: /c/TOKEN — tarjeta del cliente) ──────────────────
+function CustomerPortal({token}){
+  const [customer,setCustomer]=useState(null);
+  const [cards,setCards]=useState([]);
+  const [progs,setProgs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [err,setErr]=useState("");
+  const [selCard,setSelCard]=useState(null);
+  const [txns,setTxns]=useState([]);
+
+  useEffect(()=>{if(token)load();},[token]);
+
+  async function load(){
+    try{
+      const[cust]=await supaGet("loyalty_customers","?token=eq."+token);
+      if(!cust){setErr("Tarjeta no encontrada.");setLoading(false);return;}
+      setCustomer(cust);
+      const[cs,ps]=await Promise.all([supaGet("loyalty_cards","?customer_id=eq."+cust.id),supaGet("loyalty_programs","?activo=eq.true")]);
+      setCards(cs);setProgs(ps);if(cs.length>0)setSelCard(cs[0]);
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  useEffect(()=>{
+    if(!selCard)return;
+    supaGet("loyalty_transactions","?card_id=eq."+selCard.id+"&order=created_at.desc&limit=20").then(setTxns).catch(()=>{});
+  },[selCard?.id]);
+
+  if(loading)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}><style>{globalCss}</style><div style={{fontFamily:"'Bebas Neue'",fontSize:48,color:ACC,letterSpacing:4}}>BORGERS</div><div style={{color:MUT,fontSize:13}}>Cargando...</div></div>;
+  if(err)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center"}}><style>{globalCss}</style><div style={{textAlign:"center"}}><div style={{fontFamily:"'Bebas Neue'",fontSize:48,color:ACC,letterSpacing:4,marginBottom:16}}>BORGERS</div><div style={{color:RED,fontSize:14}}>{err}</div></div></div>;
+
+  const prog=progs.find(p=>selCard?.program_id===p.id);
+  const qr=qrImgUrl(APP_URL+"/c/"+token);
+
+  return<div style={{minHeight:"100vh",background:BG,color:TXT,paddingBottom:60}}>
+    <style>{globalCss}</style>
+    <div style={{background:SRF,borderBottom:b1(BRD),padding:"16px 20px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:32,color:ACC,letterSpacing:3}}>BORGERS</div>
+      <div style={{flex:1}}/>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontSize:14,fontWeight:600}}>{customer.nombre}</div>
+        <div style={{fontSize:11,color:MUT}}>Miembro desde {new Date(customer.created_at).getFullYear()}</div>
+      </div>
+    </div>
+    <div style={{maxWidth:480,margin:"0 auto",padding:"20px 16px"}}>
+      <Card xtra={{textAlign:"center",marginBottom:20}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:13,color:MUT,letterSpacing:1,marginBottom:12}}>TU CÓDIGO QR</div>
+        <img src={qr} alt="QR" style={{width:180,height:180,borderRadius:8}}/>
+        <div style={{fontFamily:"'DM Mono'",fontSize:11,color:MUT,marginTop:8}}>{token}</div>
+        <div style={{fontSize:12,color:MUT,marginTop:4}}>Muestra este QR al cajero para acumular sellos o puntos</div>
+      </Card>
+      {cards.length>1&&<div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {cards.map(c=>{const p=progs.find(x=>x.id===c.program_id);return<button key={c.id} onClick={()=>setSelCard(c)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,cursor:"pointer",border:b1(selCard?.id===c.id?ACC:BRD),background:selCard?.id===c.id?ACC+"18":"transparent",color:selCard?.id===c.id?ACC:MUT}}>{p?.nombre||"Programa"}</button>;})}
+      </div>}
+      {selCard&&prog&&<Card xtra={{marginBottom:16}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:12}}>{prog.nombre}</div>
+        {prog.tipo==="sellos"&&<>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+            {Array.from({length:prog.config?.sellos_max||10}).map((_,i)=><div key={i} style={{width:36,height:36,borderRadius:6,border:b1(i<(selCard.sellos||0)?ACC:BRD),background:i<(selCard.sellos||0)?ACC+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{i<(selCard.sellos||0)?"🎟":"○"}</div>)}
+          </div>
+          <div style={{fontSize:13,color:MUT}}>{selCard.sellos||0} de {prog.config?.sellos_max||10} sellos</div>
+          {(selCard.sellos||0)>=(prog.config?.sellos_max||10)&&<div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:GRN+"18",color:GRN,fontSize:13}}>🎉 ¡Tarjeta completa! Visítanos para canjear tu recompensa.</div>}
+        </>}
+        {prog.tipo==="puntos"&&<>
+          <div style={{fontSize:36,fontWeight:700,color:ACC,marginBottom:4}}>{selCard.puntos||0}</div>
+          <div style={{fontSize:12,color:MUT}}>puntos acumulados</div>
+        </>}
+      </Card>}
+      {txns.length>0&&<div>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:MUT,letterSpacing:1,marginBottom:10}}>HISTORIAL RECIENTE</div>
+        {txns.map(t=><div key={t.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:b1(BRD),fontSize:13}}>
+          <div style={{color:MUT,fontSize:12}}>{new Date(t.created_at).toLocaleDateString("es-EC")}</div>
+          <div style={{flex:1,paddingLeft:12}}>{t.descripcion||t.tipo}</div>
+          <div style={{color:t.tipo==="canje"?RED:GRN}}>{t.tipo==="sello"?"+1 sello":t.tipo==="puntos"?"+"+t.valor+" pts":t.tipo==="canje"?"-"+t.valor+" pts":""}</div>
+        </div>)}
+      </div>}
+    </div>
+  </div>;
+}
+// ── GiftCardActivate (público: /g/CODE — ver gift card) ───────────────────────
+function GiftCardActivate({code}){
+  const [card,setCard]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [err,setErr]=useState("");
+
+  useEffect(()=>{
+    supaGet("gift_cards","?code=eq."+code.toUpperCase())
+      .then(([c])=>{if(!c)setErr("Gift card no encontrada.");else setCard(c);})
+      .catch(e=>setErr(e.message))
+      .finally(()=>setLoading(false));
+  },[code]);
+
+  if(loading)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center"}}><style>{globalCss}</style><div style={{color:MUT,fontSize:14}}>Cargando...</div></div>;
+
+  return<div style={{minHeight:"100vh",background:BG,color:TXT,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <style>{globalCss}</style>
+    <Card xtra={{maxWidth:380,width:"100%",textAlign:"center"}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:40,color:ACC,letterSpacing:3,marginBottom:16}}>BORGERS</div>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:20}}>🎁 GIFT CARD</div>
+      {err?<div style={{color:RED,padding:16}}>{err}</div>:<>
+        <div style={{fontFamily:"'DM Mono'",fontSize:28,fontWeight:700,color:ACC,marginBottom:4}}>{card.code}</div>
+        <div style={{fontSize:40,fontWeight:700,color:card.status==="active"?GRN:MUT,margin:"16px 0"}}>${parseFloat(card.balance).toFixed(2)}</div>
+        <div style={{fontSize:13,color:MUT,marginBottom:4}}>Saldo disponible</div>
+        {card.sold_to_name&&<div style={{fontSize:13,color:MUT,marginBottom:4}}>Para: {card.sold_to_name}</div>}
+        {card.expires_at&&<div style={{fontSize:12,color:MUT,marginBottom:12}}>Válida hasta: {card.expires_at}</div>}
+        <div style={{marginTop:12,padding:"10px 0",borderRadius:8,background:card.status==="active"?GRN+"18":RED+"18",color:card.status==="active"?GRN:RED,fontSize:14,fontWeight:600}}>
+          {card.status==="active"?"✅ Gift Card Activa":card.status==="used"?"Gift Card Usada":"Gift Card Cancelada"}
+        </div>
+        {card.status==="active"&&<div style={{fontSize:12,color:MUT,marginTop:12}}>Presenta esta pantalla al cajero para utilizar tu gift card</div>}
+      </>}
+    </Card>
+  </div>;
+}
+// ── CustomerRegister (público: /join/PROGRAM_ID — registro al programa) ───────
+function CustomerRegister({programId}){
+  const [prog,setProg]=useState(null);
+  const [form,setForm]=useState({nombre:"",email:"",telefono:"",fecha_nacimiento:""});
+  const [done,setDone]=useState(null);
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [progErr,setProgErr]=useState("");
+
+  useEffect(()=>{
+    supaGet("loyalty_programs","?id=eq."+programId+"&activo=eq.true")
+      .then(([p])=>{if(!p)setProgErr("Programa no encontrado o inactivo.");else setProg(p);})
+      .catch(e=>setProgErr(e.message));
+  },[programId]);
+
+  async function register(){
+    if(!form.nombre.trim()){setErr("Nombre es requerido");return;}
+    if(!form.email.trim()&&!form.telefono.trim()){setErr("Ingresa email o teléfono");return;}
+    setLoading(true);setErr("");
+    try{
+      let cust;
+      if(form.email.trim()){
+        const[ex]=await supaGet("loyalty_customers","?email=eq."+encodeURIComponent(form.email.trim()));
+        cust=ex;
+      }
+      if(!cust&&form.telefono.trim()){
+        const[ex]=await supaGet("loyalty_customers","?telefono=eq."+encodeURIComponent(form.telefono.trim()));
+        cust=ex;
+      }
+      if(!cust){
+        const token=genToken(16);
+        [cust]=await supaPost("loyalty_customers",{nombre:form.nombre.trim(),email:form.email.trim()||null,telefono:form.telefono.trim()||null,fecha_nacimiento:form.fecha_nacimiento||null,token});
+      }
+      let[card]=await supaGet("loyalty_cards","?customer_id=eq."+cust.id+"&program_id=eq."+programId);
+      if(!card)[card]=await supaPost("loyalty_cards",{customer_id:cust.id,program_id:programId,sellos:0,puntos:0});
+      setDone({token:cust.token});
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+
+  if(done)return<div style={{minHeight:"100vh",background:BG,color:TXT,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <style>{globalCss}</style>
+    <Card xtra={{maxWidth:380,width:"100%",textAlign:"center"}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:40,color:ACC,letterSpacing:3,marginBottom:16}}>BORGERS</div>
+      <div style={{fontSize:48,marginBottom:12}}>🎉</div>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:GRN,letterSpacing:1,marginBottom:8}}>¡REGISTRO EXITOSO!</div>
+      <div style={{fontSize:13,color:MUT,marginBottom:20}}>Ya eres parte de {prog?.nombre||"nuestra familia"}</div>
+      <img src={qrImgUrl(APP_URL+"/c/"+done.token)} alt="QR" style={{width:180,height:180,borderRadius:8,marginBottom:12}}/>
+      <div style={{fontSize:12,color:MUT,marginBottom:20}}>Guarda este QR — muéstralo al cajero en tu próxima visita</div>
+      <a href={APP_URL+"/c/"+done.token} style={{display:"block",padding:"12px 0",background:ACC,color:"#000",borderRadius:8,fontSize:14,fontWeight:700,textDecoration:"none"}}>Ver mi tarjeta</a>
+    </Card>
+  </div>;
+
+  return<div style={{minHeight:"100vh",background:BG,color:TXT,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <style>{globalCss}</style>
+    <Card xtra={{maxWidth:400,width:"100%"}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:40,color:ACC,letterSpacing:3,marginBottom:4,textAlign:"center"}}>BORGERS</div>
+      {progErr&&<div style={{color:RED,textAlign:"center",padding:16}}>{progErr}</div>}
+      {prog&&<>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:4,textAlign:"center"}}>{prog.nombre}</div>
+        <div style={{fontSize:12,color:MUT,textAlign:"center",marginBottom:24}}>{prog.tipo==="sellos"?"Tarjeta de "+prog.config?.sellos_max+" sellos":"Programa de puntos"}</div>
+        {err&&<div style={{background:RED+"18",color:RED,padding:"8px 12px",borderRadius:8,marginBottom:12,fontSize:12}}>{err}</div>}
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>NOMBRE COMPLETO *</div>
+          <input value={form.nombre} onChange={e=>setForm(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}} placeholder="Juan Pérez"/>
+        </label>
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>EMAIL</div>
+          <input type="email" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))} style={{width:"100%"}} placeholder="juan@email.com"/>
+        </label>
+        <label style={{display:"block",marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>TELÉFONO</div>
+          <input type="tel" value={form.telefono} onChange={e=>setForm(p=>({...p,telefono:e.target.value}))} style={{width:"100%"}} placeholder="0999999999"/>
+        </label>
+        <label style={{display:"block",marginBottom:20}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>FECHA DE NACIMIENTO (opcional — sorpresa de cumpleaños)</div>
+          <input type="date" value={form.fecha_nacimiento} onChange={e=>setForm(p=>({...p,fecha_nacimiento:e.target.value}))} style={{width:"100%"}}/>
+        </label>
+        <Btn xtra={{width:"100%",opacity:loading?0.5:1}} onClick={register} disabled={loading}>{loading?"Registrando...":"UNIRME AL PROGRAMA"}</Btn>
+        <div style={{fontSize:11,color:MUT,textAlign:"center",marginTop:12}}>Al unirte aceptas recibir comunicaciones de BORGERS</div>
+      </>}
+    </Card>
+  </div>;
+}
+// ── PublicLoyaltyPage (entry point para rutas públicas de fidelización) ────────
+export function PublicLoyaltyPage({type,param}){
+  if(type==="c")return<CustomerPortal token={param}/>;
+  if(type==="g")return<GiftCardActivate code={param}/>;
+  if(type==="join")return<CustomerRegister programId={param}/>;
+  return<div style={{minHeight:"100vh",background:"#0F0E0C",display:"flex",alignItems:"center",justifyContent:"center",color:"#E84040",fontFamily:"sans-serif"}}>Página no encontrada</div>;
 }
