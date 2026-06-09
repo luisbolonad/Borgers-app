@@ -5515,6 +5515,8 @@ function FidelizacionConfig({sucs}){
   const [loading,setLoading]=useState(true);
   const [modalProg,setModalProg]=useState(null);
   const [modalReward,setModalReward]=useState(null);
+  const [shareProgModal,setShareProgModal]=useState(null);
+  const [copiedProg,setCopiedProg]=useState(false);
   const [err,setErr]=useState("");
   const [expandedProg,setExpandedProg]=useState(null);
   const [rewards,setRewards]=useState({});
@@ -5596,6 +5598,7 @@ function FidelizacionConfig({sucs}){
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <Btn s="sm" v="ghost" onClick={()=>toggleExpand(prog.id)}>{expandedProg===prog.id?"▲ Ocultar":"▼ Recompensas"}</Btn>
+          <Btn s="sm" v="ghost" xtra={{color:BLU,borderColor:BLU}} onClick={()=>setShareProgModal(prog)}>🔗 Link registro</Btn>
           <Btn s="sm" v="ghost" onClick={()=>setModalProg({...prog})}>✏️ Editar</Btn>
           <Btn s="sm" v="ghost" xtra={{color:prog.activo?RED:GRN,borderColor:prog.activo?RED:GRN}} onClick={()=>toggleActivo(prog)}>{prog.activo?"Pausar":"Activar"}</Btn>
         </div>
@@ -5667,6 +5670,20 @@ function FidelizacionConfig({sucs}){
         </div>
       </Card>
     </div>}
+    {shareProgModal&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:420,width:"100%",textAlign:"center"}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:4}}>🔗 LINK DE REGISTRO</div>
+        <div style={{fontSize:13,color:MUT,marginBottom:16}}>{shareProgModal.nombre}</div>
+        <img src={qrImgUrl(APP_URL+"/join/"+shareProgModal.id)} alt="QR" style={{width:180,height:180,borderRadius:8,marginBottom:12}}/>
+        <div style={{fontSize:12,color:MUT,marginBottom:16}}>Imprime este QR en el local o comparte el link para que los clientes se registren</div>
+        <div style={{background:FNT,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{flex:1,fontSize:11,color:MUT,wordBreak:"break-all",textAlign:"left",fontFamily:"'DM Mono'"}}>{APP_URL+"/join/"+shareProgModal.id}</div>
+          <button onClick={()=>{navigator.clipboard.writeText(APP_URL+"/join/"+shareProgModal.id).then(()=>{setCopiedProg(true);setTimeout(()=>setCopiedProg(false),2000);}).catch(()=>{});}} style={{background:copiedProg?GRN+"22":"transparent",color:copiedProg?GRN:MUT,border:"none",cursor:"pointer",fontSize:11,padding:"4px 8px",borderRadius:6,whiteSpace:"nowrap"}}>{copiedProg?"✅ Copiado":"Copiar"}</button>
+        </div>
+        <a href={"https://wa.me/?text="+encodeURIComponent("🎯 Únete a "+shareProgModal.nombre+" de BORGERS y acumula "+( shareProgModal.tipo==="sellos"?"sellos":"puntos")+" en cada visita!\n\nRegístrate aquí: "+APP_URL+"/join/"+shareProgModal.id)} target="_blank" rel="noreferrer" style={{display:"block",padding:"10px 0",background:"#25D366",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none",marginBottom:10}}>📲 Compartir por WhatsApp</a>
+        <Btn v="ghost" xtra={{width:"100%"}} onClick={()=>setShareProgModal(null)}>Cerrar</Btn>
+      </Card>
+    </div>}
   </div>;
 }
 // ── GiftCardAdmin (admin: crear/gestionar gift cards) ─────────────────────────
@@ -5674,6 +5691,8 @@ function GiftCardAdmin({sucs}){
   const [cards,setCards]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(null);
+  const [shareCard,setShareCard]=useState(null);
+  const [copied,setCopied]=useState(false);
   const [err,setErr]=useState("");
   const [search,setSearch]=useState("");
 
@@ -5693,9 +5712,10 @@ function GiftCardAdmin({sucs}){
     const expires=dias&&parseInt(dias)>0?new Date(Date.now()+parseInt(dias)*86400000).toISOString().split("T")[0]:null;
     try{
       const[c]=await supaPost("gift_cards",{code,amount:parseFloat(monto),balance:parseFloat(monto),sold_to_name:nombre||null,sold_to_phone:telefono||null,status:"active",expires_at:expires});
-      setCards(p=>[c,...p]);setModal(null);
+      setCards(p=>[c,...p]);setModal(null);setShareCard(c);
     }catch(e){setErr(e.message);}
   }
+  function copyLink(url){navigator.clipboard.writeText(url).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);}).catch(()=>{});}
   async function cancelCard(c){
     if(!confirm("¿Cancelar gift card "+c.code+"?"))return;
     await supaPatch("gift_cards","?id=eq."+c.id,{status:"cancelled"});
@@ -5727,6 +5747,7 @@ function GiftCardAdmin({sucs}){
         <div style={{fontSize:13,color:parseFloat(c.balance)>0?GRN:MUT}}>${parseFloat(c.balance).toFixed(2)}</div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
           <Bdg c={c.status==="active"?"green":c.status==="used"?"muted":"red"}>{c.status==="active"?"Activa":c.status==="used"?"Usada":"Cancelada"}</Bdg>
+          <button onClick={()=>setShareCard(c)} style={{fontSize:10,background:"transparent",border:"none",color:BLU,cursor:"pointer",textAlign:"left",padding:0}}>🔗 Compartir</button>
           {c.status==="active"&&<button onClick={()=>cancelCard(c)} style={{fontSize:10,background:"transparent",border:"none",color:RED,cursor:"pointer",textAlign:"left",padding:0}}>Cancelar</button>}
         </div>
       </div>)}
@@ -5755,6 +5776,21 @@ function GiftCardAdmin({sucs}){
           <Btn v="ghost" xtra={{flex:1}} onClick={()=>{setModal(null);setErr("");}}>Cancelar</Btn>
           <Btn xtra={{flex:2}} onClick={createCard}>Crear Gift Card</Btn>
         </div>
+      </Card>
+    </div>}
+    {shareCard&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:400,width:"100%",textAlign:"center"}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:4}}>🎁 GIFT CARD CREADA</div>
+        <div style={{fontFamily:"'DM Mono'",fontSize:24,fontWeight:700,color:ACC,marginBottom:4}}>{shareCard.code}</div>
+        <div style={{fontSize:13,color:MUT,marginBottom:16}}>${parseFloat(shareCard.amount).toFixed(2)} · {shareCard.sold_to_name||"Sin destinatario"}</div>
+        <img src={qrImgUrl(APP_URL+"/g/"+shareCard.code)} alt="QR" style={{width:160,height:160,borderRadius:8,marginBottom:12}}/>
+        <div style={{fontSize:11,color:MUT,marginBottom:16}}>El cliente puede escanear este QR o abrir el link</div>
+        <div style={{background:FNT,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{flex:1,fontSize:11,color:MUT,wordBreak:"break-all",textAlign:"left",fontFamily:"'DM Mono'"}}>{APP_URL+"/g/"+shareCard.code}</div>
+          <button onClick={()=>copyLink(APP_URL+"/g/"+shareCard.code)} style={{background:copied?GRN+"22":"transparent",color:copied?GRN:MUT,border:"none",cursor:"pointer",fontSize:11,padding:"4px 8px",borderRadius:6,whiteSpace:"nowrap"}}>{copied?"✅ Copiado":"Copiar"}</button>
+        </div>
+        <a href={"https://wa.me/?text="+encodeURIComponent("🎁 Tu Gift Card BORGERS\n\nCódigo: "+shareCard.code+"\nSaldo: $"+parseFloat(shareCard.amount).toFixed(2)+"\n\nAbre tu gift card: "+APP_URL+"/g/"+shareCard.code)} target="_blank" rel="noreferrer" style={{display:"block",padding:"10px 0",background:"#25D366",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none",marginBottom:10}}>📲 Enviar por WhatsApp</a>
+        <Btn v="ghost" xtra={{width:"100%"}} onClick={()=>setShareCard(null)}>Cerrar</Btn>
       </Card>
     </div>}
   </div>;
