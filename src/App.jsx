@@ -6260,6 +6260,7 @@ function CustomerPortal({token}){
   const [customer,setCustomer]=useState(null);
   const [cards,setCards]=useState([]);
   const [progs,setProgs]=useState([]);
+  const [rewards,setRewards]=useState([]);
   const [loading,setLoading]=useState(true);
   const [err,setErr]=useState("");
   const [selCard,setSelCard]=useState(null);
@@ -6279,57 +6280,126 @@ function CustomerPortal({token}){
   }
   useEffect(()=>{
     if(!selCard)return;
-    supaGet("loyalty_transactions","?card_id=eq."+selCard.id+"&order=created_at.desc&limit=20").then(setTxns).catch(()=>{});
+    Promise.all([
+      supaGet("loyalty_transactions","?card_id=eq."+selCard.id+"&order=created_at.desc&limit=15"),
+      supaGet("loyalty_rewards","?program_id=eq."+selCard.program_id+"&activo=eq.true&order=costo.asc")
+    ]).then(([t,r])=>{setTxns(t);setRewards(r);}).catch(()=>{});
   },[selCard?.id]);
 
-  if(loading)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}><style>{globalCss}</style><div style={{fontFamily:"'Bebas Neue'",fontSize:48,color:ACC,letterSpacing:4}}>BORGERS</div><div style={{color:MUT,fontSize:13}}>Cargando...</div></div>;
-  if(err)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center"}}><style>{globalCss}</style><div style={{textAlign:"center"}}><div style={{fontFamily:"'Bebas Neue'",fontSize:48,color:ACC,letterSpacing:4,marginBottom:16}}>BORGERS</div><div style={{color:RED,fontSize:14}}>{err}</div></div></div>;
+  const relDate=d=>{const diff=(Date.now()-new Date(d).getTime())/1000;if(diff<3600)return"hace "+Math.round(diff/60)+"m";if(diff<86400)return"hace "+Math.round(diff/3600)+"h";if(diff<604800)return"hace "+Math.round(diff/86400)+" días";return new Date(d).toLocaleDateString("es-EC",{day:"2-digit",month:"short"});};
+  const txnIcon=t=>t==="sello"?"🍔":t==="puntos"?"⭐":t==="canje"?"🎁":"💳";
+
+  if(loading)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}><style>{globalCss}</style><div style={{fontFamily:"'Bebas Neue'",fontSize:52,color:ACC,letterSpacing:6}}>BORGERS</div><div style={{color:MUT,fontSize:13,letterSpacing:1}}>Cargando tu tarjeta...</div></div>;
+  if(err)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}><style>{globalCss}</style><div style={{textAlign:"center"}}><div style={{fontFamily:"'Bebas Neue'",fontSize:52,color:ACC,letterSpacing:6,marginBottom:20}}>BORGERS</div><div style={{color:RED,fontSize:14}}>{err}</div></div></div>;
 
   const prog=progs.find(p=>selCard?.program_id===p.id);
+  const sellos=selCard?.sellos||0;
+  const puntos=selCard?.puntos||0;
+  const max=prog?.config?.sellos_max||10;
   const qr=qrImgUrl(APP_URL+"/c/"+token);
+  const recompDisp=rewards.filter(r=>prog?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo);
+  const proxima=rewards.find(r=>prog?.tipo==="sellos"?r.costo>sellos:r.costo>puntos);
+  const stampSize=Math.min(Math.floor((Math.min(window.innerWidth,430)-44-(max-1)*8)/max),46);
 
   return<div style={{minHeight:"100vh",background:BG,color:TXT,paddingBottom:60}}>
     <style>{globalCss}</style>
-    <div style={{background:SRF,borderBottom:b1(BRD),padding:"16px 20px",display:"flex",alignItems:"center",gap:12}}>
-      <div style={{fontFamily:"'Bebas Neue'",fontSize:32,color:ACC,letterSpacing:3}}>BORGERS</div>
-      <div style={{flex:1}}/>
-      <div style={{textAlign:"right"}}>
-        <div style={{fontSize:14,fontWeight:600}}>{customer.nombre}</div>
-        <div style={{fontSize:11,color:MUT}}>Miembro desde {new Date(customer.created_at).getFullYear()}</div>
-      </div>
+
+    {/* ── Header ── */}
+    <div style={{background:"linear-gradient(180deg,#1E1A0E 0%,"+BG+" 100%)",padding:"28px 20px 22px",textAlign:"center",borderBottom:"1px solid "+ACC+"18"}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:46,color:ACC,letterSpacing:6,lineHeight:1,marginBottom:8}}>BORGERS</div>
+      <div style={{fontSize:15,fontWeight:600}}>Hola, {customer.nombre.split(" ")[0]}! 👋</div>
+      <div style={{fontSize:11,color:MUT,marginTop:4,letterSpacing:0.5}}>MIEMBRO DESDE {new Date(customer.created_at).getFullYear()}</div>
     </div>
-    <div style={{maxWidth:480,margin:"0 auto",padding:"20px 16px"}}>
-      <Card xtra={{textAlign:"center",marginBottom:20}}>
-        <div style={{fontFamily:"'Bebas Neue'",fontSize:13,color:MUT,letterSpacing:1,marginBottom:12}}>TU CÓDIGO QR</div>
-        <img src={qr} alt="QR" style={{width:180,height:180,borderRadius:8}}/>
-        <div style={{fontFamily:"'DM Mono'",fontSize:11,color:MUT,marginTop:8}}>{token}</div>
-        <div style={{fontSize:12,color:MUT,marginTop:4}}>Muestra este QR al cajero para acumular sellos o puntos</div>
-      </Card>
+
+    <div style={{maxWidth:430,margin:"0 auto",padding:"20px 16px"}}>
+
+      {/* ── Program tabs ── */}
       {cards.length>1&&<div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-        {cards.map(c=>{const p=progs.find(x=>x.id===c.program_id);return<button key={c.id} onClick={()=>setSelCard(c)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,cursor:"pointer",border:b1(selCard?.id===c.id?ACC:BRD),background:selCard?.id===c.id?ACC+"18":"transparent",color:selCard?.id===c.id?ACC:MUT}}>{p?.nombre||"Programa"}</button>;})}
+        {cards.map(c=>{const p=progs.find(x=>x.id===c.program_id);return<button key={c.id} onClick={()=>setSelCard(c)} style={{padding:"6px 16px",borderRadius:20,fontSize:12,cursor:"pointer",border:"1px solid "+(selCard?.id===c.id?ACC:BRD),background:selCard?.id===c.id?ACC+"18":"transparent",color:selCard?.id===c.id?ACC:MUT}}>{p?.nombre||"Programa"}</button>;})}
       </div>}
-      {selCard&&prog&&<Card xtra={{marginBottom:16}}>
-        <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:12}}>{prog.nombre}</div>
+
+      {/* ── Loyalty Card ── */}
+      {selCard&&prog&&<div style={{borderRadius:20,padding:"22px 22px 18px",background:"linear-gradient(135deg,#1E1B12 0%,#2C2416 60%,#1A1710 100%)",border:"1px solid "+ACC+"44",boxShadow:"0 8px 32px rgba(0,0,0,0.5),inset 0 1px 0 rgba(245,166,35,0.08)",position:"relative",overflow:"hidden",marginBottom:16}}>
+        <div style={{position:"absolute",top:"-30%",right:"-5%",width:"45%",height:"160%",background:"radial-gradient(ellipse,rgba(245,166,35,0.07) 0%,transparent 70%)",pointerEvents:"none"}}/>
+        {/* Top row */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}}>
+          <div style={{fontFamily:"'Bebas Neue'",fontSize:22,color:ACC,letterSpacing:3}}>BORGERS</div>
+          <div style={{fontSize:9,color:ACC+"BB",border:"1px solid "+ACC+"3A",padding:"3px 10px",borderRadius:20,letterSpacing:1.5,fontWeight:600}}>{prog.nombre.toUpperCase()}</div>
+        </div>
+        {/* Stamps */}
         {prog.tipo==="sellos"&&<>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-            {Array.from({length:prog.config?.sellos_max||10}).map((_,i)=><div key={i} style={{width:36,height:36,borderRadius:6,border:b1(i<(selCard.sellos||0)?ACC:BRD),background:i<(selCard.sellos||0)?ACC+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{i<(selCard.sellos||0)?"🎟":"○"}</div>)}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+            {Array.from({length:max}).map((_,i)=><div key={i} style={{width:stampSize,height:stampSize,borderRadius:10,border:"2px solid "+(i<sellos?ACC:ACC+"28"),background:i<sellos?ACC+"1A":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:i<sellos?Math.round(stampSize*0.52):Math.round(stampSize*0.38),transition:"all .2s"}}>{i<sellos?"🍔":<span style={{color:ACC+"33"}}>○</span>}</div>)}
           </div>
-          <div style={{fontSize:13,color:MUT}}>{selCard.sellos||0} de {prog.config?.sellos_max||10} sellos</div>
-          {(selCard.sellos||0)>=(prog.config?.sellos_max||10)&&<div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:GRN+"18",color:GRN,fontSize:13}}>🎉 ¡Tarjeta completa! Visítanos para canjear tu recompensa.</div>}
+          <div style={{fontSize:11,color:MUT,marginBottom:14,letterSpacing:0.3}}>
+            {sellos<max?<><span style={{color:ACC,fontWeight:700}}>{sellos}</span><span style={{color:MUT}}> / {max} sellos</span></>:<span style={{color:GRN,fontWeight:700}}>🎉 ¡Tarjeta completa!</span>}
+          </div>
         </>}
-        {prog.tipo==="puntos"&&<>
-          <div style={{fontSize:36,fontWeight:700,color:ACC,marginBottom:4}}>{selCard.puntos||0}</div>
-          <div style={{fontSize:12,color:MUT}}>puntos acumulados</div>
-        </>}
-      </Card>}
-      {txns.length>0&&<div>
-        <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:MUT,letterSpacing:1,marginBottom:10}}>HISTORIAL RECIENTE</div>
-        {txns.map(t=><div key={t.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:b1(BRD),fontSize:13}}>
-          <div style={{color:MUT,fontSize:12}}>{new Date(t.created_at).toLocaleDateString("es-EC")}</div>
-          <div style={{flex:1,paddingLeft:12}}>{t.descripcion||t.tipo}</div>
-          <div style={{color:t.tipo==="canje"?RED:GRN}}>{t.tipo==="sello"?"+1 sello":t.tipo==="puntos"?"+"+t.valor+" pts":t.tipo==="canje"?"-"+t.valor+" pts":""}</div>
-        </div>)}
+        {/* Points */}
+        {prog.tipo==="puntos"&&<div style={{marginBottom:14}}>
+          <div style={{fontSize:48,fontWeight:800,color:ACC,lineHeight:1}}>{puntos}</div>
+          <div style={{fontSize:11,color:MUT,marginTop:4,letterSpacing:0.5}}>PUNTOS ACUMULADOS</div>
+        </div>}
+        {/* Card footer */}
+        <div style={{borderTop:"1px solid "+ACC+"18",paddingTop:14,display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:TXT+"BB",letterSpacing:0.5}}>{customer.nombre.toUpperCase()}</div>
+            <div style={{fontSize:9,color:MUT,letterSpacing:1,marginTop:2}}>SOCIO BORGERS · {new Date(customer.created_at).getFullYear()}</div>
+          </div>
+          <div style={{fontSize:20}}>🍔</div>
+        </div>
       </div>}
+
+      {/* ── Recompensas disponibles ── */}
+      {recompDisp.length>0&&<div style={{marginBottom:16,padding:"14px 16px",borderRadius:14,background:GRN+"10",border:"1px solid "+GRN+"30"}}>
+        <div style={{fontSize:11,color:GRN,fontWeight:700,letterSpacing:1,marginBottom:10}}>🎁 RECOMPENSAS DISPONIBLES</div>
+        {recompDisp.map(r=><div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+GRN+"18",fontSize:13}}>
+          <div>
+            <div style={{fontWeight:500}}>{r.nombre}</div>
+            {r.descripcion&&<div style={{fontSize:11,color:MUT}}>{r.descripcion}</div>}
+          </div>
+          <div style={{fontSize:11,color:GRN,fontWeight:600,marginLeft:8,whiteSpace:"nowrap"}}>✓ Disponible</div>
+        </div>)}
+        <div style={{fontSize:11,color:GRN+"88",marginTop:10}}>Muestra tu QR al cajero para canjear</div>
+      </div>}
+
+      {/* ── Próxima recompensa ── */}
+      {proxima&&recompDisp.length===0&&prog?.tipo==="sellos"&&<div style={{marginBottom:16,padding:"14px 16px",borderRadius:14,background:CRD,border:"1px solid "+BRD}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:12,fontWeight:600}}>Próxima recompensa</div>
+          <div style={{fontSize:11,color:ACC}}>{proxima.nombre}</div>
+        </div>
+        <div style={{height:6,borderRadius:3,background:BRD,overflow:"hidden",marginBottom:6}}>
+          <div style={{height:"100%",width:(sellos/proxima.costo*100)+"%",background:ACC,borderRadius:3,transition:"width .5s"}}/>
+        </div>
+        <div style={{fontSize:11,color:MUT}}>{sellos}/{proxima.costo} sellos · faltan {proxima.costo-sellos} más</div>
+      </div>}
+
+      {/* ── QR Code ── */}
+      <div style={{background:"#FFFFFF",borderRadius:20,padding:"20px 20px 16px",textAlign:"center",marginBottom:20,boxShadow:"0 4px 24px rgba(0,0,0,0.4)"}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:2,color:"#888",marginBottom:14}}>TU CÓDIGO PERSONAL</div>
+        <img src={qr} alt="QR" style={{width:200,height:200,display:"block",margin:"0 auto 12px",borderRadius:4}}/>
+        <div style={{fontSize:10,color:"#bbb",fontFamily:"'DM Mono'",letterSpacing:1,marginBottom:6}}>{token}</div>
+        <div style={{fontSize:12,color:"#888"}}>Muéstralo al cajero para acumular sellos</div>
+      </div>
+
+      {/* ── Historial ── */}
+      {txns.length>0&&<div>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:MUT,letterSpacing:2,marginBottom:12}}>HISTORIAL RECIENTE</div>
+        <div style={{borderRadius:14,overflow:"hidden",border:"1px solid "+BRD}}>
+          {txns.map((t,i)=><div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderBottom:i<txns.length-1?"1px solid "+BRD:"none",background:i%2===0?CRD:"transparent"}}>
+            <div style={{fontSize:20,minWidth:26}}>{txnIcon(t.tipo)}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:500}}>{t.descripcion||t.tipo}</div>
+              <div style={{fontSize:10,color:MUT,marginTop:1}}>{relDate(t.created_at)}</div>
+            </div>
+            <div style={{fontSize:12,fontWeight:600,color:t.tipo==="canje"?ACC:t.tipo==="sello"||t.tipo==="puntos"?GRN:MUT}}>
+              {t.tipo==="sello"?"+1 🎟":t.tipo==="puntos"?"+"+t.valor+" ⭐":t.tipo==="canje"?"✓ Canjeado":""}
+            </div>
+          </div>)}
+        </div>
+      </div>}
+
     </div>
   </div>;
 }
