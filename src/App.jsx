@@ -5513,15 +5513,17 @@ return <div>
 }
 // ── StampSlot (sello individual con soporte de imágenes personalizadas) ──────
 function StampSlot({filled,isReward,size=40,config={}}){
+  const [imgFailed,setImgFailed]=useState(false);
   const r=Math.round(size*0.22);
   const base={width:size,height:size,borderRadius:r,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0};
   const key=isReward?(filled?"img_recompensa_usada":"img_recompensa"):(filled?"img_sello_lleno":"img_sello_vacio");
   const url=config[key];
-  if(url)return<div style={base}><img src={url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:r}}/></div>;
   const fs=Math.round(size*0.50);
-  return<div style={{...base,border:"2px solid "+(filled?(isReward?ACC:ACC):(isReward?ACC+"44":BRD)),background:filled?(isReward?ACC+"28":ACC+"18"):"transparent",fontSize:fs}}>
+  const fallback=<div style={{...base,border:"2px solid "+(filled?(isReward?ACC:ACC):(isReward?ACC+"44":BRD)),background:filled?(isReward?ACC+"28":ACC+"18"):"transparent",fontSize:fs}}>
     {filled?(isReward?"🎁":"🍔"):(isReward?<span style={{color:ACC+"44",fontSize:Math.round(size*0.40)}}>★</span>:<span style={{color:BRD,fontSize:Math.round(size*0.36)}}>○</span>)}
   </div>;
+  if(url&&!imgFailed)return<div style={base}><img src={url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:r}} onError={()=>setImgFailed(true)}/></div>;
+  return fallback;
 }
 // ── FidelizacionConfig (superadmin: crear/gestionar programas y recompensas) ──
 function FidelizacionConfig({sucs}){
