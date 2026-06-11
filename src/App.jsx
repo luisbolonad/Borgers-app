@@ -5821,6 +5821,7 @@ function FidelizacionScanner({userActivo,sucs}){
   const [consumoInput,setConsumoInput]=useState("");
   // Canje modal
   const [canjeModal,setCanjeModal]=useState(null);
+  const [canjeadosIds,setCanjeadosIds]=useState([]);
 
   useEffect(()=>{
     supaGet("loyalty_programs","?select=*&activo=eq.true&order=nombre").then(p=>{setProgs(p);if(p.length>0)setSelProg(p[0]);}).catch(()=>{});
@@ -5870,7 +5871,7 @@ function FidelizacionScanner({userActivo,sucs}){
     setScanning(false);
   }
   async function lookupCustomer(token){
-    setLoading(true);setMsg(null);setResult(null);
+    setLoading(true);setMsg(null);setResult(null);setCanjeadosIds([]);
     try{
       const[cust]=await supaGet("loyalty_customers","?token=eq."+token);
       if(!cust){setMsg({t:"err",s:"Cliente no encontrado."});setLoading(false);return;}
@@ -5931,12 +5932,12 @@ function FidelizacionScanner({userActivo,sucs}){
     try{
       await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:reward.costo,descripcion:"Canje: "+reward.nombre,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
       if(esMaxima){
-        // Recompensa máxima: reiniciar tarjeta
         await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:0,puntos:0});
         setResult(p=>({...p,card:{...p.card,sellos:0,puntos:0}}));
+        setCanjeadosIds([]);
         setMsg({t:"ok",s:"🎉 ¡Recompensa máxima canjeada! "+reward.nombre+" · Tarjeta reiniciada."});
       }else{
-        // Recompensa intermedia: no descontar sellos, solo registrar
+        setCanjeadosIds(p=>[...p,reward.id]);
         setMsg({t:"ok",s:"🎁 ¡Recompensa canjeada! "+reward.nombre});
       }
     }catch(e){setMsg({t:"err",s:e.message});}
@@ -5971,7 +5972,7 @@ function FidelizacionScanner({userActivo,sucs}){
   const sellos=result?.card?.sellos||0;
   const puntos=result?.card?.puntos||0;
   const max=selProg?.config?.sellos_max||10;
-  const recompensasDisponibles=rewards.filter(r=>selProg?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo);
+  const recompensasDisponibles=rewards.filter(r=>(selProg?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo)&&!canjeadosIds.includes(r.id));
   const msgBar=m=><div style={{background:m.t==="ok"?GRN+"18":m.t==="warn"?ACC+"18":RED+"18",color:m.t==="ok"?GRN:m.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{m.s}</div>;
   const videoPanel=<>
     <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:b1(ACC),marginBottom:10}}>
@@ -5984,7 +5985,7 @@ function FidelizacionScanner({userActivo,sucs}){
   return<div style={{maxWidth:640}}>
     <div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:ACC,letterSpacing:2,marginBottom:20}}>FIDELIZACIÓN</div>
     <div style={{display:"flex",gap:8,marginBottom:20}}>
-      {[["sellos","🎯 Tarjetas Fidelización"],["giftcard","🎁 Gift Cards"]].map(([id,l])=><button key={id} onClick={()=>{setGcTab(id);setMsg(null);stopScan();}} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(gcTab===id?ACC:BRD),background:gcTab===id?ACC+"18":"transparent",color:gcTab===id?ACC:MUT}}>{l}</button>)}
+      {[["sellos","🎯 Tarjetas"],["giftcard","🎁 Gift Cards"],["clientes","👥 Clientes"]].map(([id,l])=><button key={id} onClick={()=>{setGcTab(id);setMsg(null);stopScan();}} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(gcTab===id?ACC:BRD),background:gcTab===id?ACC+"18":"transparent",color:gcTab===id?ACC:MUT}}>{l}</button>)}
     </div>
 
     {gcTab==="sellos"&&<>
@@ -6066,6 +6067,8 @@ function FidelizacionScanner({userActivo,sucs}){
       </Card>}
     </>}
 
+    {gcTab==="clientes"&&<FidelizacionClientes/>}
+
     {/* Modal: monto de consumo antes de sellar */}
     {consumoModal&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <Card xtra={{maxWidth:360,width:"100%"}}>
@@ -6096,6 +6099,160 @@ function FidelizacionScanner({userActivo,sucs}){
         </div>
       </Card>
     </div>}
+  </div>;
+}
+// ── FidelizacionClientes (CRM: registro de clientes con tarjetas e historial) ──
+function FidelizacionClientes(){
+  const [clientes,setClientes]=useState([]);
+  const [progs,setProgs]=useState([]);
+  const [search,setSearch]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [selCliente,setSelCliente]=useState(null);
+  const [clienteCards,setClienteCards]=useState([]);
+  const [clienteTxns,setClienteTxns]=useState([]);
+  const [loadingDetail,setLoadingDetail]=useState(false);
+  const [editModal,setEditModal]=useState(false);
+  const [editForm,setEditForm]=useState({});
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState(null);
+
+  useEffect(()=>{
+    Promise.all([
+      supaGet("loyalty_customers","?select=*&order=created_at.desc"),
+      supaGet("loyalty_programs","?select=*")
+    ]).then(([c,p])=>{setClientes(c);setProgs(p);}).catch(()=>{}).finally(()=>setLoading(false));
+  },[]);
+
+  async function abrirCliente(c){
+    setSelCliente(c);
+    setMsg(null);
+    setEditForm({nombre:c.nombre||"",telefono:c.telefono||"",email:c.email||"",fecha_nacimiento:c.fecha_nacimiento||""});
+    setLoadingDetail(true);
+    try{
+      const[cards,txns]=await Promise.all([
+        supaGet("loyalty_cards","?customer_id=eq."+c.id),
+        supaGet("loyalty_transactions","?customer_id=eq."+c.id+"&order=created_at.desc&limit=40")
+      ]);
+      setClienteCards(cards);setClienteTxns(txns);
+    }catch(e){}
+    setLoadingDetail(false);
+  }
+
+  async function guardarCliente(){
+    setSaving(true);setMsg(null);
+    try{
+      await supaPatch("loyalty_customers","?id=eq."+selCliente.id,editForm);
+      setClientes(p=>p.map(c=>c.id===selCliente.id?{...c,...editForm}:c));
+      setSelCliente(p=>({...p,...editForm}));
+      setMsg({t:"ok",s:"Datos actualizados."});setEditModal(false);
+    }catch(e){setMsg({t:"err",s:e.message});}
+    setSaving(false);
+  }
+
+  const msgBar=m=><div style={{background:m.t==="ok"?GRN+"18":RED+"18",color:m.t==="ok"?GRN:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{m.s}</div>;
+  const progNombre=pid=>progs.find(p=>p.id===pid)?.nombre||"Programa";
+  const fmt=d=>d?new Date(d).toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"}):"";
+  const filt=clientes.filter(c=>!search.trim()||(c.nombre+" "+(c.email||"")+" "+(c.telefono||"")).toLowerCase().includes(search.toLowerCase()));
+
+  if(selCliente)return<div style={{maxWidth:700}}>
+    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+      <button onClick={()=>{setSelCliente(null);setMsg(null);}} style={{background:"transparent",border:"none",cursor:"pointer",color:ACC,fontSize:20,padding:0}}>←</button>
+      <div>
+        <div style={{fontWeight:700,fontSize:18}}>{selCliente.nombre}</div>
+        <div style={{fontSize:12,color:MUT}}>{selCliente.email||""}{selCliente.email&&selCliente.telefono?" · ":""}{selCliente.telefono||""}</div>
+      </div>
+      <Btn s="sm" v="ghost" xtra={{marginLeft:"auto"}} onClick={()=>setEditModal(true)}>✏️ Editar</Btn>
+    </div>
+
+    {msg&&msgBar(msg)}
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:20}}>
+      {[
+        ["Registro",fmt(selCliente.created_at)],
+        ["Nacimiento",selCliente.fecha_nacimiento?fmt(selCliente.fecha_nacimiento):"—"],
+        ["Tarjetas activas",clienteCards.length],
+        ["Transacciones",clienteTxns.length]
+      ].map(([k,v])=><Card key={k} xtra={{padding:"10px 14px"}}>
+        <div style={{fontSize:10,color:MUT,marginBottom:3}}>{k.toUpperCase()}</div>
+        <div style={{fontSize:14,fontWeight:600}}>{v}</div>
+      </Card>)}
+    </div>
+
+    {loadingDetail&&<div style={{color:MUT,fontSize:13,padding:20,textAlign:"center"}}>Cargando...</div>}
+
+    {!loadingDetail&&clienteCards.length>0&&<Card xtra={{marginBottom:16}}>
+      <div style={{fontWeight:600,fontSize:13,marginBottom:12}}>TARJETAS ACTIVAS</div>
+      {clienteCards.map(card=>{
+        const prog=progs.find(p=>p.id===card.program_id);
+        const max=prog?.config?.sellos_max||10;
+        return<div key={card.id} style={{paddingBottom:12,marginBottom:12,borderBottom:b1(BRD)}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:13,fontWeight:600}}>{prog?.nombre||"Programa"}</div>
+            <Bdg c={prog?.tipo==="sellos"?"accent":"green"}>{prog?.tipo==="sellos"?"Sellos":"Puntos"}</Bdg>
+          </div>
+          {prog?.tipo==="sellos"&&<>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:4}}>
+              {Array.from({length:max}).map((_,i)=><div key={i} style={{width:28,height:28,borderRadius:6,border:b1(i<(card.sellos||0)?ACC:BRD),background:i<(card.sellos||0)?ACC+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>{i<(card.sellos||0)?"🎟":"○"}</div>)}
+            </div>
+            <div style={{fontSize:11,color:MUT}}>{card.sellos||0}/{max} sellos</div>
+          </>}
+          {prog?.tipo==="puntos"&&<div style={{fontSize:20,fontWeight:700,color:ACC}}>{card.puntos||0}<span style={{fontSize:11,color:MUT,marginLeft:4}}>puntos</span></div>}
+        </div>;
+      })}
+    </Card>}
+
+    {!loadingDetail&&clienteTxns.length>0&&<Card>
+      <div style={{fontWeight:600,fontSize:13,marginBottom:12}}>HISTORIAL ({clienteTxns.length})</div>
+      <div style={{maxHeight:320,overflowY:"auto"}}>
+        {clienteTxns.map(t=>{
+          const ic=t.tipo==="sello"?"🎟":t.tipo==="puntos"?"⭐":t.tipo==="canje"?"🎁":t.tipo==="uso"?"💳":"•";
+          return<div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"8px 0",borderBottom:b1(BRD),gap:8}}>
+            <div style={{fontSize:16,minWidth:20}}>{ic}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:500}}>{t.descripcion||t.tipo}</div>
+              <div style={{fontSize:10,color:MUT}}>{progNombre(clienteCards.find(c=>c.id===t.card_id)?.program_id)}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:11,color:t.tipo==="canje"?ACC:t.tipo==="sello"||t.tipo==="puntos"?GRN:MUT}}>{t.tipo==="canje"||t.tipo==="uso"?"-":"+"}  {t.valor} {t.tipo==="sello"?"sel":t.tipo==="puntos"?"pts":""}</div>
+              <div style={{fontSize:10,color:MUT}}>{fmt(t.created_at)}</div>
+            </div>
+          </div>;
+        })}
+      </div>
+    </Card>}
+
+    {editModal&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:400,width:"100%"}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:16}}>EDITAR CLIENTE</div>
+        {[["Nombre completo","nombre","text"],["Teléfono","telefono","tel"],["Email","email","email"],["Fecha de nacimiento","fecha_nacimiento","date"]].map(([label,key,type])=><div key={key} style={{marginBottom:12}}>
+          <div style={{fontSize:11,color:MUT,marginBottom:4}}>{label.toUpperCase()}</div>
+          <input type={type} value={editForm[key]||""} onChange={e=>setEditForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%",boxSizing:"border-box"}}/>
+        </div>)}
+        <div style={{display:"flex",gap:10,marginTop:8}}>
+          <Btn v="ghost" xtra={{flex:1}} onClick={()=>setEditModal(false)}>Cancelar</Btn>
+          <Btn xtra={{flex:2}} onClick={guardarCliente} disabled={saving}>{saving?"Guardando...":"Guardar cambios"}</Btn>
+        </div>
+      </Card>
+    </div>}
+  </div>;
+
+  return<div style={{maxWidth:700}}>
+    <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center"}}>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre, email o teléfono..." style={{flex:1}}/>
+      <div style={{fontSize:12,color:MUT,whiteSpace:"nowrap"}}>{filt.length} clientes</div>
+    </div>
+    {loading&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:30}}>Cargando clientes...</div>}
+    {!loading&&filt.length===0&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:30}}>No se encontraron clientes.</div>}
+    {!loading&&filt.map(c=><div key={c.id} onClick={()=>abrirCliente(c)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",borderRadius:10,border:b1(BRD),marginBottom:8,cursor:"pointer",background:BG,transition:"border-color .15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=ACC} onMouseLeave={e=>e.currentTarget.style.borderColor=BRD}>
+      <div>
+        <div style={{fontWeight:600,fontSize:14}}>{c.nombre}</div>
+        <div style={{fontSize:11,color:MUT,marginTop:2}}>{c.email||""}{c.email&&c.telefono?" · ":""}{c.telefono||""}</div>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontSize:11,color:MUT}}>Registro {fmt(c.created_at)}</div>
+        <div style={{fontSize:11,color:ACC,marginTop:2}}>Ver detalle →</div>
+      </div>
+    </div>)}
   </div>;
 }
 // ── CustomerPortal (público: /c/TOKEN — tarjeta del cliente) ──────────────────
