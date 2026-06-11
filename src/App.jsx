@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import jsQR from "jsqr";
 // ── Supabase config ──────────────────────────────────────────────────────────
 const SUPA_URL = "https://paqgselmbbtndgmbtbym.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhcWdzZWxtYmJ0bmRnbWJ0YnltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjMxODEsImV4cCI6MjA5MDk5OTE4MX0.l_T4xe-Q85kIWblq9OM3mudQftyaD3tzONFZ35q34Zs";
@@ -5800,7 +5801,9 @@ function FidelizacionScanner({userActivo,sucs}){
   const [progs,setProgs]=useState([]);
   const [selProg,setSelProg]=useState(null);
   const [scanning,setScanning]=useState(false);
+  const [scanTarget,setScanTarget]=useState("loyalty"); // "loyalty" | "giftcard"
   const [result,setResult]=useState(null);
+  const [rewards,setRewards]=useState([]);
   const [manualVal,setManualVal]=useState("");
   const [monto,setMonto]=useState("");
   const [msg,setMsg]=useState(null);
@@ -5808,40 +5811,51 @@ function FidelizacionScanner({userActivo,sucs}){
   const videoRef=useRef(null);
   const streamRef=useRef(null);
   const scanRef=useRef(null);
+  const canvasRef=useRef(document.createElement("canvas"));
   const [gcTab,setGcTab]=useState("sellos");
   const [gcCode,setGcCode]=useState("");
   const [gcData,setGcData]=useState(null);
   const [gcMonto,setGcMonto]=useState("");
+  // Monto consumo modal (antes de sellar)
+  const [consumoModal,setConsumoModal]=useState(false);
+  const [consumoInput,setConsumoInput]=useState("");
+  // Canje modal
+  const [canjeModal,setCanjeModal]=useState(null);
 
   useEffect(()=>{
     supaGet("loyalty_programs","?select=*&activo=eq.true&order=nombre").then(p=>{setProgs(p);if(p.length>0)setSelProg(p[0]);}).catch(()=>{});
     return()=>stopScan();
   },[]);
 
-  async function startScan(){
-    if(!("BarcodeDetector" in window)){
-      setMsg({t:"warn",s:"⚠️ Tu navegador no soporta escaneo QR. Usa Chrome en Android o Chrome en PC. También puedes buscar por email o teléfono."});
-      return;
-    }
-    setScanning(true);setMsg(null);
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-      streamRef.current=stream;
-      if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
-      const bd=new BarcodeDetector({formats:["qr_code"]});
-      scanRef.current=setInterval(async()=>{
-        if(!videoRef.current)return;
-        try{
-          const barcodes=await bd.detect(videoRef.current);
-          if(barcodes.length>0){
+  // Cargar recompensas cuando cambia el programa seleccionado
+  useEffect(()=>{
+    if(selProg)supaGet("loyalty_rewards","?program_id=eq."+selProg.id+"&activo=eq.true&order=costo.asc").then(setRewards).catch(()=>{});
+  },[selProg?.id]);
+
+  function startScan(target){
+    setScanTarget(target);setScanning(true);setMsg(null);
+    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+      .then(stream=>{
+        streamRef.current=stream;
+        if(videoRef.current){videoRef.current.srcObject=stream;videoRef.current.play();}
+        const canvas=canvasRef.current;
+        const ctx=canvas.getContext("2d");
+        scanRef.current=setInterval(()=>{
+          const v=videoRef.current;
+          if(!v||v.readyState<2||!v.videoWidth)return;
+          canvas.width=v.videoWidth;canvas.height=v.videoHeight;
+          ctx.drawImage(v,0,0);
+          const imgData=ctx.getImageData(0,0,canvas.width,canvas.height);
+          const code=jsQR(imgData.data,imgData.width,imgData.height,{inversionAttempts:"dontInvert"});
+          if(code){
             clearInterval(scanRef.current);stopScan();
-            const raw=barcodes[0].rawValue;
-            const m=raw.match(/\/c\/([a-z0-9]+)$/);
-            await lookupCustomer(m?m[1]:raw);
+            const raw=code.data;
+            if(target==="loyalty"){const m=raw.match(/\/c\/([a-z0-9]+)$/);lookupCustomer(m?m[1]:raw);}
+            else{const m=raw.match(/\/g\/([A-Z0-9]+)$/);const gc=(m?m[1]:raw).toUpperCase();setGcCode(gc);buscarGiftCardCodigo(gc);}
           }
-        }catch(e){}
-      },400);
-    }catch(e){setMsg({t:"err",s:e.message});setScanning(false);}
+        },300);
+      })
+      .catch(e=>{setMsg({t:"err",s:e.message});setScanning(false);});
   }
   function stopScan(){
     clearInterval(scanRef.current);
@@ -5870,15 +5884,18 @@ function FidelizacionScanner({userActivo,sucs}){
       await lookupCustomer(custs[0].token);
     }catch(e){setMsg({t:"err",s:e.message});setLoading(false);}
   }
-  async function aplicarSello(){
+  function pedirConsumoSello(){setConsumoInput("");setConsumoModal(true);}
+  async function confirmarSello(){
+    setConsumoModal(false);
     if(!result||!selProg)return;
     setLoading(true);
     const{customer,card}=result;
     const max=selProg.config?.sellos_max||10;
     const nuevos=Math.min((card.sellos||0)+1,max);
+    const desc=consumoInput?"Consumo $"+consumoInput:"Sello aplicado";
     try{
       await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:nuevos});
-      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"sello",valor:1,descripcion:"Sello aplicado",staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
+      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"sello",valor:1,descripcion:desc,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
       setResult(p=>({...p,card:{...p.card,sellos:nuevos}}));
       setMsg({t:"ok",s:nuevos>=max?"🎉 ¡Tarjeta completa! El cliente puede canjear su recompensa.":"✅ Sello aplicado. "+nuevos+"/"+max});
     }catch(e){setMsg({t:"err",s:e.message});}
@@ -5899,16 +5916,30 @@ function FidelizacionScanner({userActivo,sucs}){
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
   }
-  async function buscarGiftCard(){
-    if(!gcCode.trim())return;
+  async function canjearRecompensa(reward){
+    if(!result)return;
+    setCanjeModal(null);setLoading(true);
+    const{customer,card}=result;
+    const campo=selProg.tipo==="sellos"?"sellos":"puntos";
+    const nuevo=(card[campo]||0)-reward.costo;
+    try{
+      await supaPatch("loyalty_cards","?id=eq."+card.id,{[campo]:Math.max(0,nuevo)});
+      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:reward.costo,descripcion:"Canje: "+reward.nombre,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
+      setResult(p=>({...p,card:{...p.card,[campo]:Math.max(0,nuevo)}}));
+      setMsg({t:"ok",s:"🎁 ¡Recompensa canjeada! "+reward.nombre});
+    }catch(e){setMsg({t:"err",s:e.message});}
+    setLoading(false);
+  }
+  async function buscarGiftCardCodigo(code){
     setLoading(true);setGcData(null);setMsg(null);
     try{
-      const[gc]=await supaGet("gift_cards","?code=eq."+gcCode.trim().toUpperCase());
+      const[gc]=await supaGet("gift_cards","?code=eq."+code);
       if(!gc){setMsg({t:"err",s:"Gift card no encontrada."});setLoading(false);return;}
       setGcData(gc);
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
   }
+  async function buscarGiftCard(){buscarGiftCardCodigo(gcCode.trim().toUpperCase());}
   async function usarGiftCard(){
     if(!gcData||!gcMonto||isNaN(gcMonto))return;
     const uso=parseFloat(gcMonto);
@@ -5925,10 +5956,23 @@ function FidelizacionScanner({userActivo,sucs}){
     setLoading(false);
   }
 
+  const sellos=result?.card?.sellos||0;
+  const puntos=result?.card?.puntos||0;
+  const max=selProg?.config?.sellos_max||10;
+  const recompensasDisponibles=rewards.filter(r=>selProg?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo);
+  const msgBar=m=><div style={{background:m.t==="ok"?GRN+"18":m.t==="warn"?ACC+"18":RED+"18",color:m.t==="ok"?GRN:m.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{m.s}</div>;
+  const videoPanel=<>
+    <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:b1(ACC),marginBottom:10}}>
+      <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:240,objectFit:"cover",display:"block"}}/>
+      <div style={{position:"absolute",bottom:8,left:0,right:0,textAlign:"center",fontSize:11,color:"#fff",textShadow:"0 1px 3px #000"}}>Apunta la cámara al código QR</div>
+    </div>
+    <Btn v="ghost" xtra={{width:"100%"}} onClick={stopScan}>Cancelar escaneo</Btn>
+  </>;
+
   return<div style={{maxWidth:640}}>
     <div style={{fontFamily:"'Bebas Neue'",fontSize:24,color:ACC,letterSpacing:2,marginBottom:20}}>FIDELIZACIÓN</div>
     <div style={{display:"flex",gap:8,marginBottom:20}}>
-      {[["sellos","🎯 Tarjetas Fidelización"],["giftcard","🎁 Gift Cards"]].map(([id,l])=><button key={id} onClick={()=>{setGcTab(id);setMsg(null);}} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(gcTab===id?ACC:BRD),background:gcTab===id?ACC+"18":"transparent",color:gcTab===id?ACC:MUT}}>{l}</button>)}
+      {[["sellos","🎯 Tarjetas Fidelización"],["giftcard","🎁 Gift Cards"]].map(([id,l])=><button key={id} onClick={()=>{setGcTab(id);setMsg(null);stopScan();}} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(gcTab===id?ACC:BRD),background:gcTab===id?ACC+"18":"transparent",color:gcTab===id?ACC:MUT}}>{l}</button>)}
     </div>
 
     {gcTab==="sellos"&&<>
@@ -5945,52 +5989,63 @@ function FidelizacionScanner({userActivo,sucs}){
             <input value={manualVal} onChange={e=>setManualVal(e.target.value)} placeholder="Email o teléfono del cliente" style={{flex:1}} onKeyDown={e=>e.key==="Enter"&&manualSearch()}/>
             <Btn s="sm" onClick={manualSearch}>Buscar</Btn>
           </div>
-          <Btn v="ghost" xtra={{width:"100%"}} onClick={startScan}>📷 Escanear QR del cliente</Btn>
+          <Btn v="ghost" xtra={{width:"100%"}} onClick={()=>startScan("loyalty")}>📷 Escanear QR del cliente</Btn>
         </>}
-        {scanning&&<>
-          <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:b1(ACC),marginBottom:10}}>
-            <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:240,objectFit:"cover",display:"block"}}/>
-          </div>
-          <Btn v="ghost" xtra={{width:"100%"}} onClick={stopScan}>Cancelar escaneo</Btn>
-        </>}
+        {scanning&&scanTarget==="loyalty"&&videoPanel}
       </Card>
       {loading&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Cargando...</div>}
-      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":msg.t==="warn"?ACC+"18":RED+"18",color:msg.t==="ok"?GRN:msg.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
+      {msg&&msgBar(msg)}
       {result&&selProg&&<Card>
         <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>{result.customer.nombre}</div>
         <div style={{fontSize:12,color:MUT,marginBottom:16}}>{result.customer.email||""} {result.customer.telefono||""}</div>
         {selProg.tipo==="sellos"&&<>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-            {Array.from({length:selProg.config?.sellos_max||10}).map((_,i)=><div key={i} style={{width:40,height:40,borderRadius:8,border:b1(i<(result.card?.sellos||0)?ACC:BRD),background:i<(result.card?.sellos||0)?ACC+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{i<(result.card?.sellos||0)?"🎟":"○"}</div>)}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+            {Array.from({length:max}).map((_,i)=><div key={i} style={{width:38,height:38,borderRadius:8,border:b1(i<sellos?ACC:BRD),background:i<sellos?ACC+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{i<sellos?"🎟":"○"}</div>)}
           </div>
-          <div style={{fontSize:12,color:MUT,marginBottom:12}}>{result.card?.sellos||0}/{selProg.config?.sellos_max||10} sellos</div>
-          <Btn xtra={{width:"100%",opacity:loading?0.4:1}} onClick={aplicarSello} disabled={loading}>+ Agregar Sello</Btn>
+          <div style={{fontSize:12,color:MUT,marginBottom:14}}>{sellos}/{max} sellos</div>
+          <Btn xtra={{width:"100%",marginBottom:recompensasDisponibles.length?8:0,opacity:loading?0.4:1}} onClick={pedirConsumoSello} disabled={loading||sellos>=max}>+ Agregar Sello</Btn>
+          {sellos>=max&&<div style={{padding:"8px 12px",borderRadius:8,background:GRN+"18",color:GRN,fontSize:13,marginBottom:8,textAlign:"center"}}>🎉 ¡Tarjeta completa! Canjea una recompensa abajo</div>}
         </>}
         {selProg.tipo==="puntos"&&<>
-          <div style={{fontSize:28,fontWeight:700,color:ACC,marginBottom:4}}>{result.card?.puntos||0}<span style={{fontSize:14,color:MUT,marginLeft:6}}>puntos</span></div>
+          <div style={{fontSize:32,fontWeight:700,color:ACC,marginBottom:4}}>{puntos}<span style={{fontSize:14,color:MUT,marginLeft:6}}>puntos</span></div>
           <div style={{fontSize:12,color:MUT,marginBottom:12}}>{selProg.config?.puntos_por_peso||1} pts por $1 de compra</div>
-          <div style={{display:"flex",gap:8}}>
+          <div style={{display:"flex",gap:8,marginBottom:recompensasDisponibles.length?12:0}}>
             <input type="number" value={monto} onChange={e=>setMonto(e.target.value)} placeholder="Monto de compra $" style={{flex:1}}/>
             <Btn onClick={aplicarPuntos} disabled={loading||!monto}>+ Puntos</Btn>
           </div>
         </>}
+        {recompensasDisponibles.length>0&&<div style={{borderTop:b1(BRD),paddingTop:12,marginTop:4}}>
+          <div style={{fontSize:11,color:GRN,fontWeight:600,marginBottom:8}}>🎁 RECOMPENSAS DISPONIBLES</div>
+          {recompensasDisponibles.map(r=><div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:b1(BRD)}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:500}}>{r.nombre}</div>
+              {r.descripcion&&<div style={{fontSize:11,color:MUT}}>{r.descripcion}</div>}
+              <div style={{fontSize:11,color:ACC}}>{selProg.tipo==="sellos"?r.costo+" sellos":r.costo+" pts"}</div>
+            </div>
+            <Btn s="sm" v="success" onClick={()=>setCanjeModal(r)}>Canjear</Btn>
+          </div>)}
+        </div>}
       </Card>}
     </>}
 
     {gcTab==="giftcard"&&<>
       <Card xtra={{marginBottom:16}}>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Buscar Gift Card por código</div>
-        <div style={{display:"flex",gap:8}}>
-          <input value={gcCode} onChange={e=>setGcCode(e.target.value.toUpperCase())} placeholder="Ej: AB3F9X2K" style={{flex:1,fontFamily:"'DM Mono'"}} onKeyDown={e=>e.key==="Enter"&&buscarGiftCard()}/>
-          <Btn s="sm" onClick={buscarGiftCard}>Buscar</Btn>
-        </div>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Buscar Gift Card</div>
+        {!scanning&&<>
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
+            <input value={gcCode} onChange={e=>setGcCode(e.target.value.toUpperCase())} placeholder="Ej: AB3F9X2K" style={{flex:1,fontFamily:"'DM Mono'"}} onKeyDown={e=>e.key==="Enter"&&buscarGiftCard()}/>
+            <Btn s="sm" onClick={buscarGiftCard}>Buscar</Btn>
+          </div>
+          <Btn v="ghost" xtra={{width:"100%"}} onClick={()=>startScan("giftcard")}>📷 Escanear QR de Gift Card</Btn>
+        </>}
+        {scanning&&scanTarget==="giftcard"&&videoPanel}
       </Card>
       {loading&&<div style={{color:MUT,fontSize:13,textAlign:"center",padding:20}}>Cargando...</div>}
-      {msg&&<div style={{background:msg.t==="ok"?GRN+"18":msg.t==="warn"?ACC+"18":RED+"18",color:msg.t==="ok"?GRN:msg.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{msg.s}</div>}
+      {msg&&msgBar(msg)}
       {gcData&&<Card>
         <div style={{fontFamily:"'DM Mono'",fontSize:22,fontWeight:700,color:ACC,marginBottom:4}}>{gcData.code}</div>
         <div style={{fontSize:12,color:MUT,marginBottom:12}}>{gcData.sold_to_name||"Sin destinatario"}{gcData.expires_at?" · Vence: "+gcData.expires_at:""}</div>
-        <div style={{fontSize:32,fontWeight:700,color:gcData.status==="active"?GRN:MUT,marginBottom:4}}>${parseFloat(gcData.balance).toFixed(2)}<span style={{fontSize:12,color:MUT,marginLeft:8}}>saldo disponible</span></div>
+        <div style={{fontSize:32,fontWeight:700,color:gcData.status==="active"?GRN:MUT,marginBottom:8}}>${parseFloat(gcData.balance).toFixed(2)}<span style={{fontSize:12,color:MUT,marginLeft:8}}>saldo</span></div>
         <Bdg c={gcData.status==="active"?"green":gcData.status==="used"?"muted":"red"}>{gcData.status==="active"?"Activa":gcData.status==="used"?"Usada":"Cancelada"}</Bdg>
         {gcData.status==="active"&&parseFloat(gcData.balance)>0&&<div style={{display:"flex",gap:8,marginTop:16}}>
           <input type="number" value={gcMonto} onChange={e=>setGcMonto(e.target.value)} placeholder="Monto a cobrar $" style={{flex:1}} max={gcData.balance}/>
@@ -5998,6 +6053,37 @@ function FidelizacionScanner({userActivo,sucs}){
         </div>}
       </Card>}
     </>}
+
+    {/* Modal: monto de consumo antes de sellar */}
+    {consumoModal&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:360,width:"100%"}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:4}}>AGREGAR SELLO</div>
+        <div style={{fontSize:12,color:MUT,marginBottom:16}}>Ingresa el monto del consumo (opcional)</div>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}>
+          <span style={{fontSize:16,color:MUT}}>$</span>
+          <input type="number" value={consumoInput} onChange={e=>setConsumoInput(e.target.value)} placeholder="0.00" style={{flex:1,fontSize:18,fontFamily:"'DM Mono'"}} autoFocus onKeyDown={e=>e.key==="Enter"&&confirmarSello()}/>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <Btn v="ghost" xtra={{flex:1}} onClick={()=>setConsumoModal(false)}>Cancelar</Btn>
+          <Btn xtra={{flex:2}} onClick={confirmarSello}>🎟 Confirmar Sello</Btn>
+        </div>
+      </Card>
+    </div>}
+
+    {/* Modal: confirmar canje */}
+    {canjeModal&&<div style={{position:"fixed",inset:0,background:"#000C",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <Card xtra={{maxWidth:360,width:"100%",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>🎁</div>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:4}}>CANJEAR RECOMPENSA</div>
+        <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>{canjeModal.nombre}</div>
+        {canjeModal.descripcion&&<div style={{fontSize:12,color:MUT,marginBottom:8}}>{canjeModal.descripcion}</div>}
+        <div style={{fontSize:12,color:ACC,marginBottom:20}}>Costo: {selProg?.tipo==="sellos"?canjeModal.costo+" sellos":canjeModal.costo+" pts"}</div>
+        <div style={{display:"flex",gap:10}}>
+          <Btn v="ghost" xtra={{flex:1}} onClick={()=>setCanjeModal(null)}>Cancelar</Btn>
+          <Btn v="success" xtra={{flex:2}} onClick={()=>canjearRecompensa(canjeModal)}>Confirmar Canje</Btn>
+        </div>
+      </Card>
+    </div>}
   </div>;
 }
 // ── CustomerPortal (público: /c/TOKEN — tarjeta del cliente) ──────────────────
@@ -6100,14 +6186,17 @@ function GiftCardActivate({code}){
       <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:20}}>🎁 GIFT CARD</div>
       {err?<div style={{color:RED,padding:16}}>{err}</div>:<>
         <div style={{fontFamily:"'DM Mono'",fontSize:28,fontWeight:700,color:ACC,marginBottom:4}}>{card.code}</div>
-        <div style={{fontSize:40,fontWeight:700,color:card.status==="active"?GRN:MUT,margin:"16px 0"}}>${parseFloat(card.balance).toFixed(2)}</div>
+        <div style={{fontSize:40,fontWeight:700,color:card.status==="active"?GRN:MUT,margin:"12px 0"}}>${parseFloat(card.balance).toFixed(2)}</div>
         <div style={{fontSize:13,color:MUT,marginBottom:4}}>Saldo disponible</div>
         {card.sold_to_name&&<div style={{fontSize:13,color:MUT,marginBottom:4}}>Para: {card.sold_to_name}</div>}
         {card.expires_at&&<div style={{fontSize:12,color:MUT,marginBottom:12}}>Válida hasta: {card.expires_at}</div>}
-        <div style={{marginTop:12,padding:"10px 0",borderRadius:8,background:card.status==="active"?GRN+"18":RED+"18",color:card.status==="active"?GRN:RED,fontSize:14,fontWeight:600}}>
+        {card.status==="active"&&<>
+          <img src={qrImgUrl(APP_URL+"/g/"+card.code)} alt="QR" style={{width:180,height:180,borderRadius:8,margin:"12px auto",display:"block"}}/>
+          <div style={{fontSize:12,color:MUT,marginBottom:12}}>El cajero escanea este QR o ingresa el código</div>
+        </>}
+        <div style={{padding:"10px 0",borderRadius:8,background:card.status==="active"?GRN+"18":RED+"18",color:card.status==="active"?GRN:RED,fontSize:14,fontWeight:600}}>
           {card.status==="active"?"✅ Gift Card Activa":card.status==="used"?"Gift Card Usada":"Gift Card Cancelada"}
         </div>
-        {card.status==="active"&&<div style={{fontSize:12,color:MUT,marginTop:12}}>Presenta esta pantalla al cajero para utilizar tu gift card</div>}
       </>}
     </Card>
   </div>;
