@@ -6151,7 +6151,7 @@ function FidelizacionClientes(){
 
   const msgBar=m=><div style={{background:m.t==="ok"?GRN+"18":RED+"18",color:m.t==="ok"?GRN:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{m.s}</div>;
   const progNombre=pid=>progs.find(p=>p.id===pid)?.nombre||"Programa";
-  const fmt=d=>d?new Date(d).toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"}):"";
+  const fmt=d=>{if(!d)return"";const dt=/^\d{4}-\d{2}-\d{2}$/.test(String(d))?new Date(String(d)+"T12:00:00"):new Date(d);return dt.toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"});};
   const filt=clientes.filter(c=>!search.trim()||(c.nombre+" "+(c.email||"")+" "+(c.telefono||"")).toLowerCase().includes(search.toLowerCase()));
 
   if(selCliente)return<div style={{maxWidth:700}}>
