@@ -5510,7 +5510,20 @@ return <div>
     </Card>
   </div>}
 </div>;
-}// ── FidelizacionConfig (superadmin: crear/gestionar programas y recompensas) ──
+}
+// ── StampSlot (sello individual con soporte de imágenes personalizadas) ──────
+function StampSlot({filled,isReward,size=40,config={}}){
+  const r=Math.round(size*0.22);
+  const base={width:size,height:size,borderRadius:r,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0};
+  const key=isReward?(filled?"img_recompensa_usada":"img_recompensa"):(filled?"img_sello_lleno":"img_sello_vacio");
+  const url=config[key];
+  if(url)return<div style={base}><img src={url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:r}}/></div>;
+  const fs=Math.round(size*0.50);
+  return<div style={{...base,border:"2px solid "+(filled?(isReward?ACC:ACC):(isReward?ACC+"44":BRD)),background:filled?(isReward?ACC+"28":ACC+"18"):"transparent",fontSize:fs}}>
+    {filled?(isReward?"🎁":"🍔"):(isReward?<span style={{color:ACC+"44",fontSize:Math.round(size*0.40)}}>★</span>:<span style={{color:BRD,fontSize:Math.round(size*0.36)}}>○</span>)}
+  </div>;
+}
+// ── FidelizacionConfig (superadmin: crear/gestionar programas y recompensas) ──
 function FidelizacionConfig({sucs}){
   const [progs,setProgs]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -5643,6 +5656,29 @@ function FidelizacionConfig({sucs}){
           <div style={{fontSize:11,color:MUT,marginBottom:4}}>PUNTOS POR $1 DE COMPRA</div>
           <input type="number" step="0.1" value={modalProg.config?.puntos_por_peso||1} onChange={e=>setModalProg(p=>({...p,config:{...p.config,puntos_por_peso:parseFloat(e.target.value)}}))} style={{width:"100%"}}/>
         </label>}
+        <div style={{borderTop:b1(BRD),paddingTop:14,marginTop:4,marginBottom:14}}>
+          <div style={{fontSize:11,color:ACC,fontWeight:600,letterSpacing:1,marginBottom:12}}>🎨 DISEÑO DE TARJETA</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <label style={{display:"block"}}>
+              <div style={{fontSize:10,color:MUT,marginBottom:4}}>COLOR TARJETA (hex)</div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input type="color" value={modalProg.config?.color_card||"#1E1B12"} onChange={e=>setModalProg(p=>({...p,config:{...p.config,color_card:e.target.value}}))} style={{width:36,height:32,padding:2,cursor:"pointer",borderRadius:4}}/>
+                <input value={modalProg.config?.color_card||""} onChange={e=>setModalProg(p=>({...p,config:{...p.config,color_card:e.target.value}}))} placeholder="#1E1B12" style={{flex:1,fontSize:12}}/>
+              </div>
+            </label>
+            <label style={{display:"block"}}>
+              <div style={{fontSize:10,color:MUT,marginBottom:4}}>URL LOGO</div>
+              <input value={modalProg.config?.logo_url||""} onChange={e=>setModalProg(p=>({...p,config:{...p.config,logo_url:e.target.value}}))} placeholder="https://..." style={{width:"100%",fontSize:12}}/>
+            </label>
+          </div>
+          {[["img_sello_vacio","🔘 Sello vacío (URL imagen)"],["img_sello_lleno","🍔 Sello lleno (URL imagen)"],["img_recompensa","★ Recompensa disponible (URL imagen)"],["img_recompensa_usada","✅ Recompensa alcanzada/usada (URL imagen)"]].map(([key,label])=><label key={key} style={{display:"block",marginBottom:8}}>
+            <div style={{fontSize:10,color:MUT,marginBottom:3}}>{label.toUpperCase()}</div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              {modalProg.config?.[key]&&<img src={modalProg.config[key]} alt="" style={{width:32,height:32,borderRadius:6,objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"}/>}
+              <input value={modalProg.config?.[key]||""} onChange={e=>setModalProg(p=>({...p,config:{...p.config,[key]:e.target.value}}))} placeholder="https://..." style={{flex:1,fontSize:12}}/>
+            </div>
+          </label>)}
+        </div>
         <div style={{display:"flex",gap:10,marginTop:4}}>
           <Btn v="ghost" xtra={{flex:1}} onClick={()=>{setModalProg(null);setErr("");}}>Cancelar</Btn>
           <Btn xtra={{flex:2}} onClick={saveProg}>{modalProg.id?"Guardar Cambios":"Crear Programa"}</Btn>
@@ -6022,7 +6058,7 @@ function FidelizacionScanner({userActivo,sucs}){
         <div style={{fontSize:12,color:MUT,marginBottom:16}}>{result.customer.email||""} {result.customer.telefono||""}</div>
         {selProg.tipo==="sellos"&&<>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-            {Array.from({length:max}).map((_,i)=><div key={i} style={{width:38,height:38,borderRadius:8,border:b1(i<sellos?ACC:BRD),background:i<sellos?ACC+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{i<sellos?"🎟":"○"}</div>)}
+            {Array.from({length:max}).map((_,i)=>{const isR=rewards.some(r=>r.costo===i+1);return<StampSlot key={i} filled={i<sellos} isReward={isR} size={38} config={selProg.config||{}}/>;})}
           </div>
           <div style={{fontSize:12,color:MUT,marginBottom:14}}>{sellos}/{max} sellos</div>
           <Btn xtra={{width:"100%",marginBottom:recompensasDisponibles.length?8:0,opacity:loading?0.4:1}} onClick={pedirConsumoSello} disabled={loading||sellos>=max}>+ Agregar Sello</Btn>
@@ -6322,8 +6358,10 @@ function CustomerPortal({token}){
     <style>{globalCss}</style>
 
     {/* ── Header ── */}
-    <div style={{background:"linear-gradient(180deg,#1E1A0E 0%,"+BG+" 100%)",padding:"28px 20px 22px",textAlign:"center",borderBottom:"1px solid "+ACC+"18"}}>
-      <div style={{fontFamily:"'Bebas Neue'",fontSize:46,color:ACC,letterSpacing:6,lineHeight:1,marginBottom:8}}>BORGERS</div>
+    <div style={{background:"linear-gradient(180deg,"+(prog?.config?.color_card||"#1E1A0E")+" 0%,"+BG+" 100%)",padding:"28px 20px 22px",textAlign:"center",borderBottom:"1px solid "+ACC+"18"}}>
+      {prog?.config?.logo_url
+        ?<img src={prog.config.logo_url} alt="Logo" style={{height:56,maxWidth:220,objectFit:"contain",marginBottom:8}} onError={e=>e.target.style.display="none"}/>
+        :<div style={{fontFamily:"'Bebas Neue'",fontSize:46,color:ACC,letterSpacing:6,lineHeight:1,marginBottom:8}}>BORGERS</div>}
       <div style={{fontSize:15,fontWeight:600}}>Hola, {customer.nombre.split(" ")[0]}! 👋</div>
       <div style={{fontSize:11,color:MUT,marginTop:4,letterSpacing:0.5}}>MIEMBRO DESDE {new Date(customer.created_at).getFullYear()}</div>
     </div>
@@ -6336,17 +6374,19 @@ function CustomerPortal({token}){
       </div>}
 
       {/* ── Loyalty Card ── */}
-      {selCard&&prog&&<div style={{borderRadius:20,padding:"22px 22px 18px",background:"linear-gradient(135deg,#1E1B12 0%,#2C2416 60%,#1A1710 100%)",border:"1px solid "+ACC+"44",boxShadow:"0 8px 32px rgba(0,0,0,0.5),inset 0 1px 0 rgba(245,166,35,0.08)",position:"relative",overflow:"hidden",marginBottom:16}}>
+      {selCard&&prog&&<div style={{borderRadius:20,padding:"22px 22px 18px",background:prog.config?.color_card?"linear-gradient(135deg,"+prog.config.color_card+" 0%,"+prog.config.color_card+"CC 100%)":" linear-gradient(135deg,#1E1B12 0%,#2C2416 60%,#1A1710 100%)",border:"1px solid "+ACC+"44",boxShadow:"0 8px 32px rgba(0,0,0,0.5),inset 0 1px 0 rgba(245,166,35,0.08)",position:"relative",overflow:"hidden",marginBottom:16}}>
         <div style={{position:"absolute",top:"-30%",right:"-5%",width:"45%",height:"160%",background:"radial-gradient(ellipse,rgba(245,166,35,0.07) 0%,transparent 70%)",pointerEvents:"none"}}/>
         {/* Top row */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}}>
-          <div style={{fontFamily:"'Bebas Neue'",fontSize:22,color:ACC,letterSpacing:3}}>BORGERS</div>
+          {prog.config?.logo_url
+            ?<img src={prog.config.logo_url} alt="Logo" style={{height:28,maxWidth:120,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
+            :<div style={{fontFamily:"'Bebas Neue'",fontSize:22,color:ACC,letterSpacing:3}}>BORGERS</div>}
           <div style={{fontSize:9,color:ACC+"BB",border:"1px solid "+ACC+"3A",padding:"3px 10px",borderRadius:20,letterSpacing:1.5,fontWeight:600}}>{prog.nombre.toUpperCase()}</div>
         </div>
         {/* Stamps */}
         {prog.tipo==="sellos"&&<>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
-            {Array.from({length:max}).map((_,i)=><div key={i} style={{width:stampSize,height:stampSize,borderRadius:10,border:"2px solid "+(i<sellos?ACC:ACC+"28"),background:i<sellos?ACC+"1A":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:i<sellos?Math.round(stampSize*0.52):Math.round(stampSize*0.38),transition:"all .2s"}}>{i<sellos?"🍔":<span style={{color:ACC+"33"}}>○</span>}</div>)}
+            {Array.from({length:max}).map((_,i)=>{const isR=rewards.some(r=>r.costo===i+1);return<StampSlot key={i} filled={i<sellos} isReward={isR} size={stampSize} config={prog.config||{}}/>;})}
           </div>
           <div style={{fontSize:11,color:MUT,marginBottom:14,letterSpacing:0.3}}>
             {sellos<max?<><span style={{color:ACC,fontWeight:700}}>{sellos}</span><span style={{color:MUT}}> / {max} sellos</span></>:<span style={{color:GRN,fontWeight:700}}>🎉 ¡Tarjeta completa!</span>}
@@ -6363,7 +6403,7 @@ function CustomerPortal({token}){
             <div style={{fontSize:12,fontWeight:600,color:TXT+"BB",letterSpacing:0.5}}>{customer.nombre.toUpperCase()}</div>
             <div style={{fontSize:9,color:MUT,letterSpacing:1,marginTop:2}}>SOCIO BORGERS · {new Date(customer.created_at).getFullYear()}</div>
           </div>
-          <div style={{fontSize:20}}>🍔</div>
+          {!prog.config?.logo_url&&<div style={{fontSize:20}}>🍔</div>}
         </div>
       </div>}
 
