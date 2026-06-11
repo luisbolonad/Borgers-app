@@ -5821,6 +5821,7 @@ function FidelizacionScanner({userActivo,sucs}){
   const [consumoInput,setConsumoInput]=useState("");
   // Canje modal
   const [canjeModal,setCanjeModal]=useState(null);
+  const [canjeInput,setCanjeInput]=useState("");
   const [canjeadosIds,setCanjeadosIds]=useState([]);
 
   useEffect(()=>{
@@ -5926,19 +5927,27 @@ function FidelizacionScanner({userActivo,sucs}){
   }
   async function canjearRecompensa(reward){
     if(!result)return;
+    const montoUsar=parseFloat(canjeInput);
+    if(isNaN(montoUsar)||montoUsar<=0)return;
     setCanjeModal(null);setLoading(true);
     const{customer,card}=result;
-    const esMaxima=selProg.tipo==="sellos"&&reward.costo>=(selProg.config?.sellos_max||10);
+    const esSellos=selProg.tipo==="sellos";
+    const esMaxima=esSellos&&reward.costo>=(selProg.config?.sellos_max||10);
     try{
-      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:reward.costo,descripcion:"Canje: "+reward.nombre,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
+      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:montoUsar,descripcion:"Canje: "+reward.nombre,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
       if(esMaxima){
         await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:0,puntos:0});
         setResult(p=>({...p,card:{...p.card,sellos:0,puntos:0}}));
         setCanjeadosIds([]);
         setMsg({t:"ok",s:"🎉 ¡Recompensa máxima canjeada! "+reward.nombre+" · Tarjeta reiniciada."});
-      }else{
+      }else if(esSellos){
         setCanjeadosIds(p=>[...p,reward.id]);
         setMsg({t:"ok",s:"🎁 ¡Recompensa canjeada! "+reward.nombre});
+      }else{
+        const nuevosPuntos=Math.max(0,parseFloat((puntos-montoUsar).toFixed(4)));
+        await supaPatch("loyalty_cards","?id=eq."+card.id,{puntos:nuevosPuntos});
+        setResult(p=>({...p,card:{...p.card,puntos:nuevosPuntos}}));
+        setMsg({t:"ok",s:"🎁 ¡Canjeado! "+reward.nombre+" · "+montoUsar+" pts descontados · Saldo: "+nuevosPuntos+" pts"});
       }
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
@@ -5972,7 +5981,7 @@ function FidelizacionScanner({userActivo,sucs}){
   const sellos=result?.card?.sellos||0;
   const puntos=result?.card?.puntos||0;
   const max=selProg?.config?.sellos_max||10;
-  const recompensasDisponibles=rewards.filter(r=>(selProg?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo)&&!canjeadosIds.includes(r.id));
+  const recompensasDisponibles=rewards.filter(r=>selProg?.tipo==="sellos"?(sellos>=r.costo&&!canjeadosIds.includes(r.id)):(puntos>=r.costo));
   const msgBar=m=><div style={{background:m.t==="ok"?GRN+"18":m.t==="warn"?ACC+"18":RED+"18",color:m.t==="ok"?GRN:m.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{m.s}</div>;
   const videoPanel=<>
     <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:b1(ACC),marginBottom:10}}>
@@ -6035,7 +6044,7 @@ function FidelizacionScanner({userActivo,sucs}){
               {r.descripcion&&<div style={{fontSize:11,color:MUT}}>{r.descripcion}</div>}
               <div style={{fontSize:11,color:ACC}}>{selProg.tipo==="sellos"?r.costo+" sellos":r.costo+" pts"}</div>
             </div>
-            <Btn s="sm" v="success" onClick={()=>setCanjeModal(r)}>Canjear</Btn>
+            <Btn s="sm" v="success" onClick={()=>{setCanjeModal(r);setCanjeInput(String(r.costo));}}>Canjear</Btn>
           </div>)}
         </div>}
       </Card>}
@@ -6092,10 +6101,18 @@ function FidelizacionScanner({userActivo,sucs}){
         <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:4}}>CANJEAR RECOMPENSA</div>
         <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>{canjeModal.nombre}</div>
         {canjeModal.descripcion&&<div style={{fontSize:12,color:MUT,marginBottom:8}}>{canjeModal.descripcion}</div>}
-        <div style={{fontSize:12,color:ACC,marginBottom:20}}>Costo: {selProg?.tipo==="sellos"?canjeModal.costo+" sellos":canjeModal.costo+" pts"}</div>
-        <div style={{display:"flex",gap:10}}>
+        {selProg?.tipo==="puntos"?<>
+          <div style={{fontSize:12,color:MUT,marginBottom:10}}>Saldo actual: <span style={{color:ACC,fontWeight:700}}>{puntos} pts</span></div>
+          <div style={{fontSize:11,color:MUT,marginBottom:6,textAlign:"left"}}>PUNTOS A DESCONTAR</div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+            <input type="number" step="0.01" min="0.01" max={puntos} value={canjeInput} onChange={e=>setCanjeInput(e.target.value)} style={{flex:1,fontSize:18,fontFamily:"'DM Mono'",textAlign:"center"}} autoFocus onKeyDown={e=>e.key==="Enter"&&canjearRecompensa(canjeModal)}/>
+            <span style={{color:MUT,fontSize:13}}>pts</span>
+          </div>
+          {canjeInput&&!isNaN(parseFloat(canjeInput))&&<div style={{fontSize:11,color:MUT,marginBottom:16}}>Saldo restante: <span style={{color:GRN,fontWeight:600}}>{Math.max(0,parseFloat((puntos-parseFloat(canjeInput)).toFixed(4)))} pts</span></div>}
+        </>:<div style={{fontSize:12,color:ACC,marginBottom:20}}>Costo: {canjeModal.costo} sellos</div>}
+        <div style={{display:"flex",gap:10,marginTop:selProg?.tipo==="puntos"?0:4}}>
           <Btn v="ghost" xtra={{flex:1}} onClick={()=>setCanjeModal(null)}>Cancelar</Btn>
-          <Btn v="success" xtra={{flex:2}} onClick={()=>canjearRecompensa(canjeModal)}>Confirmar Canje</Btn>
+          <Btn v="success" xtra={{flex:2}} onClick={()=>canjearRecompensa(canjeModal)} disabled={selProg?.tipo==="puntos"&&(!canjeInput||isNaN(parseFloat(canjeInput))||parseFloat(canjeInput)<=0)}>Confirmar Canje</Btn>
         </div>
       </Card>
     </div>}
