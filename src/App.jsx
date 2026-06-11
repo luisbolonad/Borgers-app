@@ -5915,7 +5915,7 @@ function FidelizacionScanner({userActivo,sucs}){
     setLoading(true);
     const{customer,card}=result;
     const ratio=selProg.config?.puntos_por_peso||1;
-    const pts=Math.round(parseFloat(monto)*ratio);
+    const pts=parseFloat((parseFloat(monto)*ratio).toFixed(4));
     const nuevos=(card.puntos||0)+pts;
     try{
       await supaPatch("loyalty_cards","?id=eq."+card.id,{puntos:nuevos});
