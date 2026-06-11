@@ -5834,26 +5834,33 @@ function FidelizacionScanner({userActivo,sucs}){
 
   function startScan(target){
     setScanTarget(target);setScanning(true);setMsg(null);
-    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+    navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
       .then(stream=>{
         streamRef.current=stream;
-        if(videoRef.current){videoRef.current.srcObject=stream;videoRef.current.play();}
-        const canvas=canvasRef.current;
-        const ctx=canvas.getContext("2d");
-        scanRef.current=setInterval(()=>{
-          const v=videoRef.current;
-          if(!v||v.readyState<2||!v.videoWidth)return;
-          canvas.width=v.videoWidth;canvas.height=v.videoHeight;
-          ctx.drawImage(v,0,0);
-          const imgData=ctx.getImageData(0,0,canvas.width,canvas.height);
-          const code=jsQR(imgData.data,imgData.width,imgData.height,{inversionAttempts:"dontInvert"});
-          if(code){
-            clearInterval(scanRef.current);stopScan();
-            const raw=code.data;
-            if(target==="loyalty"){const m=raw.match(/\/c\/([a-z0-9]+)$/);lookupCustomer(m?m[1]:raw);}
-            else{const m=raw.match(/\/g\/([A-Z0-9]+)$/);const gc=(m?m[1]:raw).toUpperCase();setGcCode(gc);buscarGiftCardCodigo(gc);}
-          }
-        },300);
+        const v=videoRef.current;
+        if(!v){setScanning(false);return;}
+        v.srcObject=stream;
+        const beginLoop=()=>{
+          const canvas=document.createElement("canvas");
+          const ctx=canvas.getContext("2d",{willReadFrequently:true});
+          scanRef.current=setInterval(()=>{
+            if(!v||v.paused||v.ended||!v.videoWidth||!v.videoHeight)return;
+            canvas.width=v.videoWidth;canvas.height=v.videoHeight;
+            try{
+              ctx.drawImage(v,0,0);
+              const imgData=ctx.getImageData(0,0,canvas.width,canvas.height);
+              const code=jsQR(imgData.data,imgData.width,imgData.height,{inversionAttempts:"attemptBoth"});
+              if(code){
+                clearInterval(scanRef.current);stopScan();
+                const raw=code.data;
+                if(target==="loyalty"){const m=raw.match(/\/c\/([a-z0-9]+)$/);lookupCustomer(m?m[1]:raw);}
+                else{const m=raw.match(/\/g\/([A-Z0-9]+)$/);const gc=(m?m[1]:raw).toUpperCase();setGcCode(gc);buscarGiftCardCodigo(gc);}
+              }
+            }catch(e){}
+          },250);
+        };
+        v.oncanplay=()=>{v.play().then(beginLoop).catch(e=>{setMsg({t:"err",s:e.message});setScanning(false);});};
+        v.load();
       })
       .catch(e=>{setMsg({t:"err",s:e.message});setScanning(false);});
   }
@@ -5920,13 +5927,18 @@ function FidelizacionScanner({userActivo,sucs}){
     if(!result)return;
     setCanjeModal(null);setLoading(true);
     const{customer,card}=result;
-    const campo=selProg.tipo==="sellos"?"sellos":"puntos";
-    const nuevo=(card[campo]||0)-reward.costo;
+    const esMaxima=selProg.tipo==="sellos"&&reward.costo>=(selProg.config?.sellos_max||10);
     try{
-      await supaPatch("loyalty_cards","?id=eq."+card.id,{[campo]:Math.max(0,nuevo)});
       await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:reward.costo,descripcion:"Canje: "+reward.nombre,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
-      setResult(p=>({...p,card:{...p.card,[campo]:Math.max(0,nuevo)}}));
-      setMsg({t:"ok",s:"🎁 ¡Recompensa canjeada! "+reward.nombre});
+      if(esMaxima){
+        // Recompensa máxima: reiniciar tarjeta
+        await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:0,puntos:0});
+        setResult(p=>({...p,card:{...p.card,sellos:0,puntos:0}}));
+        setMsg({t:"ok",s:"🎉 ¡Recompensa máxima canjeada! "+reward.nombre+" · Tarjeta reiniciada."});
+      }else{
+        // Recompensa intermedia: no descontar sellos, solo registrar
+        setMsg({t:"ok",s:"🎁 ¡Recompensa canjeada! "+reward.nombre});
+      }
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
   }
