@@ -6030,7 +6030,7 @@ function FidelizacionScanner({userActivo,sucs}){
     const esSellos=selProg.tipo==="sellos";
     const esMaxima=esSellos&&reward.costo>=(selProg.config?.sellos_max||10);
     try{
-      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:montoUsar,descripcion:"Canje: "+reward.nombre,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
+      await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:montoUsar,descripcion:"Canje: "+reward.nombre,recompensa_id:reward.id,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
       if(esMaxima){
         await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:0,puntos:0});
         setResult(p=>({...p,card:{...p.card,sellos:0,puntos:0}}));
@@ -6412,8 +6412,9 @@ function CustomerPortal({token}){
   const qr=qrImgUrl(APP_URL+"/c/"+token);
   // Ciclos completos = veces que se canjeó la recompensa máxima
   const maxReward=rewards.find(r=>r.costo>=max);
-  const ciclosCompletos=txns.filter(t=>t.tipo==="canje"&&maxReward&&t.descripcion==="Canje: "+maxReward.nombre).length;
-  const usadaEsteCiclo=r=>txns.filter(t=>t.tipo==="canje"&&t.descripcion==="Canje: "+r.nombre).length>ciclosCompletos;
+  const matchCanje=(t,r)=>t.tipo==="canje"&&(t.recompensa_id?t.recompensa_id===r.id:t.descripcion?.trim().toLowerCase()==="canje: "+r.nombre.trim().toLowerCase());
+  const ciclosCompletos=maxReward?txns.filter(t=>matchCanje(t,maxReward)).length:0;
+  const usadaEsteCiclo=r=>txns.filter(t=>matchCanje(t,r)).length>ciclosCompletos;
   const recompDisp=rewards.filter(r=>(prog?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo)&&(prog?.tipo==="sellos"?!usadaEsteCiclo(r):true));
   const proxima=rewards.find(r=>prog?.tipo==="sellos"?r.costo>sellos:r.costo>puntos);
   const stampSize=Math.min(Math.floor((Math.min(window.innerWidth,430)-44-(max-1)*8)/max),46);
