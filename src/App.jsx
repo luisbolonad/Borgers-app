@@ -6394,7 +6394,7 @@ function CustomerPortal({token}){
   useEffect(()=>{
     if(!selCard)return;
     Promise.all([
-      supaGet("loyalty_transactions","?card_id=eq."+selCard.id+"&order=created_at.desc&limit=15"),
+      supaGet("loyalty_transactions","?card_id=eq."+selCard.id+"&order=created_at.desc&limit=200"),
       supaGet("loyalty_rewards","?program_id=eq."+selCard.program_id+"&activo=eq.true&order=costo.asc")
     ]).then(([t,r])=>{setTxns(t);setRewards(r);}).catch(()=>{});
   },[selCard?.id]);
@@ -6410,7 +6410,11 @@ function CustomerPortal({token}){
   const puntos=selCard?.puntos||0;
   const max=prog?.config?.sellos_max||10;
   const qr=qrImgUrl(APP_URL+"/c/"+token);
-  const recompDisp=rewards.filter(r=>prog?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo);
+  // Ciclos completos = veces que se canjeó la recompensa máxima
+  const maxReward=rewards.find(r=>r.costo>=max);
+  const ciclosCompletos=txns.filter(t=>t.tipo==="canje"&&maxReward&&t.descripcion==="Canje: "+maxReward.nombre).length;
+  const usadaEsteCiclo=r=>txns.filter(t=>t.tipo==="canje"&&t.descripcion==="Canje: "+r.nombre).length>ciclosCompletos;
+  const recompDisp=rewards.filter(r=>(prog?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo)&&(prog?.tipo==="sellos"?!usadaEsteCiclo(r):true));
   const proxima=rewards.find(r=>prog?.tipo==="sellos"?r.costo>sellos:r.costo>puntos);
   const stampSize=Math.min(Math.floor((Math.min(window.innerWidth,430)-44-(max-1)*8)/max),46);
 
