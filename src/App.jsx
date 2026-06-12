@@ -5101,8 +5101,6 @@ function getComplianceRows(a,fecha){
 return <div>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2,marginBottom:4}}>ACTIVIDADES</h1>
 <p style={{color:MUT,fontSize:13,marginBottom:20}}>{userActivo.nombre} · {userActivo.sucursal||"Sin sucursal"}</p>
-{/* Alerta de vencidas para admins */}
-{esAdmin&&vencidas.length===0&&repRecs.length>=0&&null}
 <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
   {(!esAdmin?[["tareas","📋 Mis Tareas"],["libre","➕ Nueva Actividad"]]:
     [["reporte","📊 Reporte"],["tareas","📋 Mis Tareas"],["libre","➕ Nueva Actividad"]]).map(([id,l])=>{
