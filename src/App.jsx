@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import jsQR from "jsqr";
+import { requestNotificationPermission, messaging, onMessage } from "./firebase";
 // ── Supabase config ──────────────────────────────────────────────────────────
 const SUPA_URL = "https://paqgselmbbtndgmbtbym.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhcWdzZWxtYmJ0bmRnbWJ0YnltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjMxODEsImV4cCI6MjA5MDk5OTE4MX0.l_T4xe-Q85kIWblq9OM3mudQftyaD3tzONFZ35q34Zs";
@@ -445,6 +446,25 @@ const[ventas,setVentas]=useState([]);
 const[ivaRate,setIvaRate]=useState(0.15);
 const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(null);
+// Solicitar permiso de notificaciones y guardar token FCM al hacer login
+useEffect(()=>{
+  if(!userActivo)return;
+  requestNotificationPermission(userActivo.id).then(token=>{
+    if(!token)return;
+    // Upsert del token en Supabase
+    fetch(SUPA_URL+"/rest/v1/push_tokens",{
+      method:"POST",
+      headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
+    }).catch(()=>{});
+  });
+  // Manejar notificaciones mientras la app está abierta
+  const unsub=onMessage(messaging,payload=>{
+    const{title,body}=payload.notification||{};
+    if(title&&Notification.permission==="granted")new Notification(title,{body,icon:"/favicon.png"});
+  });
+  return unsub;
+},[userActivo?.id]);
 // Cargar datos desde Supabase al iniciar
 useEffect(()=>{
 async function cargarDatos(){
