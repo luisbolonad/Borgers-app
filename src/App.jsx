@@ -5512,12 +5512,14 @@ return <div>
 </div>;
 }
 // ── StampSlot (sello individual con soporte de imágenes personalizadas) ──────
-function StampSlot({filled,isReward,size=40,config={}}){
+function StampSlot({filled,isReward,reward,size=40,config={}}){
   const [imgFailed,setImgFailed]=useState(false);
   const r=Math.round(size*0.22);
   const base={width:size,height:size,borderRadius:r,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0};
-  const key=isReward?(filled?"img_recompensa_usada":"img_recompensa"):(filled?"img_sello_lleno":"img_sello_vacio");
-  const url=config[key];
+  // Per-reward images take priority; fall back to program-level config
+  const url=isReward
+    ?(filled?(reward?.img_usada||config.img_recompensa_usada):(reward?.img_disponible||config.img_recompensa))
+    :(filled?config.img_sello_lleno:config.img_sello_vacio);
   const fs=Math.round(size*0.50);
   const fallback=<div style={{...base,border:"2px solid "+(filled?(isReward?ACC:ACC):(isReward?ACC+"44":BRD)),background:filled?(isReward?ACC+"28":ACC+"18"):"transparent",fontSize:fs}}>
     {filled?(isReward?"🎁":"🍔"):(isReward?<span style={{color:ACC+"44",fontSize:Math.round(size*0.40)}}>★</span>:<span style={{color:BRD,fontSize:Math.round(size*0.36)}}>○</span>)}
@@ -5574,15 +5576,16 @@ function FidelizacionConfig({sucs}){
   }
   async function saveReward(){
     setErr("");
-    const{progId,id,nombre,descripcion,costo}=modalReward;
+    const{progId,id,nombre,descripcion,costo,img_disponible,img_usada}=modalReward;
     if(!nombre.trim()){setErr("Nombre requerido");return;}
     if(!costo||isNaN(costo)){setErr("Costo inválido");return;}
+    const campos={nombre,descripcion,costo:parseFloat(costo),img_disponible:img_disponible||null,img_usada:img_usada||null};
     try{
       if(id){
-        await supaPatch("loyalty_rewards","?id=eq."+id,{nombre,descripcion,costo:parseInt(costo)});
-        setRewards(p=>({...p,[progId]:p[progId].map(x=>x.id===id?{...x,nombre,descripcion,costo:parseInt(costo)}:x)}));
+        await supaPatch("loyalty_rewards","?id=eq."+id,campos);
+        setRewards(p=>({...p,[progId]:p[progId].map(x=>x.id===id?{...x,...campos}:x)}));
       }else{
-        const[r]=await supaPost("loyalty_rewards",{program_id:progId,nombre,descripcion,costo:parseInt(costo),activo:true,imagen_url:""});
+        const[r]=await supaPost("loyalty_rewards",{program_id:progId,...campos,activo:true});
         setRewards(p=>({...p,[progId]:[...(p[progId]||[]),r]}));
       }
       setModalReward(null);
@@ -5673,7 +5676,7 @@ function FidelizacionConfig({sucs}){
               <input value={modalProg.config?.logo_url||""} onChange={e=>setModalProg(p=>({...p,config:{...p.config,logo_url:e.target.value}}))} placeholder="https://..." style={{width:"100%",fontSize:12}}/>
             </label>
           </div>
-          {[["img_sello_vacio","🔘 Sello vacío (URL imagen)"],["img_sello_lleno","🍔 Sello lleno (URL imagen)"],["img_recompensa","★ Recompensa disponible (URL imagen)"],["img_recompensa_usada","✅ Recompensa alcanzada/usada (URL imagen)"]].map(([key,label])=><label key={key} style={{display:"block",marginBottom:8}}>
+          {[["img_sello_vacio","🔘 Sello vacío (URL imagen)"],["img_sello_lleno","🍔 Sello lleno (URL imagen)"],["img_recompensa","★ Recompensa disponible — general (URL imagen)"],["img_recompensa_usada","✅ Recompensa alcanzada — general (URL imagen)"],["img_corner","🔲 Imagen esquina inf. derecha (URL imagen)"]].map(([key,label])=><label key={key} style={{display:"block",marginBottom:8}}>
             <div style={{fontSize:10,color:MUT,marginBottom:3}}>{label.toUpperCase()}</div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               {modalProg.config?.[key]&&<img src={modalProg.config[key]} alt="" style={{width:32,height:32,borderRadius:6,objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"}/>}
@@ -5699,10 +5702,20 @@ function FidelizacionConfig({sucs}){
           <div style={{fontSize:11,color:MUT,marginBottom:4}}>DESCRIPCIÓN (opcional)</div>
           <input value={modalReward.descripcion||""} onChange={e=>setModalReward(p=>({...p,descripcion:e.target.value}))} style={{width:"100%"}}/>
         </label>
-        <label style={{display:"block",marginBottom:16}}>
+        <label style={{display:"block",marginBottom:12}}>
           <div style={{fontSize:11,color:MUT,marginBottom:4}}>COSTO ({progs.find(x=>x.id===modalReward.progId)?.tipo==="sellos"?"SELLOS":"PUNTOS"})</div>
           <input type="number" value={modalReward.costo} onChange={e=>setModalReward(p=>({...p,costo:e.target.value}))} style={{width:"100%"}}/>
         </label>
+        <div style={{borderTop:b1(BRD),paddingTop:12,marginBottom:12}}>
+          <div style={{fontSize:11,color:ACC,fontWeight:600,letterSpacing:1,marginBottom:10}}>🎨 IMÁGENES DE ESTA RECOMPENSA</div>
+          {[["img_disponible","★ Imagen recompensa disponible (no alcanzada aún)"],["img_usada","✅ Imagen recompensa alcanzada/usada"]].map(([key,label])=><label key={key} style={{display:"block",marginBottom:10}}>
+            <div style={{fontSize:10,color:MUT,marginBottom:3}}>{label.toUpperCase()}</div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              {modalReward[key]&&<img src={modalReward[key]} alt="" style={{width:32,height:32,borderRadius:6,objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"}/>}
+              <input value={modalReward[key]||""} onChange={e=>setModalReward(p=>({...p,[key]:e.target.value}))} placeholder="https://i.imgur.com/..." style={{flex:1,fontSize:12}}/>
+            </div>
+          </label>)}
+        </div>
         <div style={{display:"flex",gap:10}}>
           <Btn v="ghost" xtra={{flex:1}} onClick={()=>{setModalReward(null);setErr("");}}>Cancelar</Btn>
           <Btn xtra={{flex:2}} onClick={saveReward}>{modalReward.id?"Guardar":"Agregar"}</Btn>
@@ -5734,8 +5747,23 @@ function GiftCardAdmin({sucs}){
   const [copied,setCopied]=useState(false);
   const [err,setErr]=useState("");
   const [search,setSearch]=useState("");
+  const [gcDesign,setGcDesign]=useState({});
+  const [designSaving,setDesignSaving]=useState(false);
+  const [designMsg,setDesignMsg]=useState(null);
 
-  useEffect(()=>{loadCards();},[]);
+  useEffect(()=>{
+    loadCards();
+    supaGet("global_config","?key=eq.giftcard_design").then(([r])=>{if(r)setGcDesign(r.value||{});}).catch(()=>{});
+  },[]);
+
+  async function saveGcDesign(){
+    setDesignSaving(true);setDesignMsg(null);
+    try{
+      await supaPatch("global_config","?key=eq.giftcard_design",{value:gcDesign});
+      setDesignMsg({t:"ok",s:"Diseño guardado."});
+    }catch(e){setDesignMsg({t:"err",s:e.message});}
+    setDesignSaving(false);
+  }
 
   async function loadCards(){
     setLoading(true);
@@ -5764,6 +5792,36 @@ function GiftCardAdmin({sucs}){
   const filt=cards.filter(c=>!search||(c.code+(c.sold_to_name||"")+(c.sold_to_phone||"")).toLowerCase().includes(search.toLowerCase()));
 
   return<div>
+    {/* ── Diseño de Gift Cards ── */}
+    <Card xtra={{marginBottom:20}}>
+      <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:14}}>🎨 DISEÑO DE GIFT CARDS</div>
+      {designMsg&&<div style={{background:designMsg.t==="ok"?GRN+"18":RED+"18",color:designMsg.t==="ok"?GRN:RED,padding:"6px 10px",borderRadius:6,marginBottom:10,fontSize:12}}>{designMsg.s}</div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        <label style={{display:"block"}}>
+          <div style={{fontSize:10,color:MUT,marginBottom:4}}>COLOR FONDO (hex)</div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <input type="color" value={gcDesign.color_bg||"#0F0E0C"} onChange={e=>setGcDesign(p=>({...p,color_bg:e.target.value}))} style={{width:36,height:32,padding:2,cursor:"pointer",borderRadius:4}}/>
+            <input value={gcDesign.color_bg||""} onChange={e=>setGcDesign(p=>({...p,color_bg:e.target.value}))} placeholder="#0F0E0C" style={{flex:1,fontSize:12}}/>
+          </div>
+        </label>
+        <label style={{display:"block"}}>
+          <div style={{fontSize:10,color:MUT,marginBottom:4}}>COLOR ACENTO (hex)</div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <input type="color" value={gcDesign.color_accent||"#F5A623"} onChange={e=>setGcDesign(p=>({...p,color_accent:e.target.value}))} style={{width:36,height:32,padding:2,cursor:"pointer",borderRadius:4}}/>
+            <input value={gcDesign.color_accent||""} onChange={e=>setGcDesign(p=>({...p,color_accent:e.target.value}))} placeholder="#F5A623" style={{flex:1,fontSize:12}}/>
+          </div>
+        </label>
+      </div>
+      {[["logo_url","🏷 Logo URL"],["bg_img_url","🖼 Imagen de fondo URL"]].map(([key,label])=><label key={key} style={{display:"block",marginBottom:10}}>
+        <div style={{fontSize:10,color:MUT,marginBottom:3}}>{label.toUpperCase()}</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          {gcDesign[key]&&<img src={gcDesign[key]} alt="" style={{width:32,height:32,borderRadius:6,objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"}/>}
+          <input value={gcDesign[key]||""} onChange={e=>setGcDesign(p=>({...p,[key]:e.target.value}))} placeholder="https://i.imgur.com/..." style={{flex:1,fontSize:12}}/>
+        </div>
+      </label>)}
+      <Btn s="sm" xtra={{marginTop:4}} onClick={saveGcDesign} disabled={designSaving}>{designSaving?"Guardando...":"Guardar diseño"}</Btn>
+    </Card>
+
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
       <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:ACC,letterSpacing:1}}>GIFT CARDS</div>
       <Btn onClick={()=>setModal({monto:"",nombre:"",telefono:"",dias:"365"})}>+ Nueva Gift Card</Btn>
@@ -6060,7 +6118,7 @@ function FidelizacionScanner({userActivo,sucs}){
         <div style={{fontSize:12,color:MUT,marginBottom:16}}>{result.customer.email||""} {result.customer.telefono||""}</div>
         {selProg.tipo==="sellos"&&<>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-            {Array.from({length:max}).map((_,i)=>{const isR=rewards.some(r=>r.costo===i+1);return<StampSlot key={i} filled={i<sellos} isReward={isR} size={38} config={selProg.config||{}}/>;})}
+            {Array.from({length:max}).map((_,i)=>{const rw=rewards.find(r=>r.costo===i+1);return<StampSlot key={i} filled={i<sellos} isReward={!!rw} reward={rw} size={38} config={selProg.config||{}}/>;})}
           </div>
           <div style={{fontSize:12,color:MUT,marginBottom:14}}>{sellos}/{max} sellos</div>
           <Btn xtra={{width:"100%",marginBottom:recompensasDisponibles.length?8:0,opacity:loading?0.4:1}} onClick={pedirConsumoSello} disabled={loading||sellos>=max}>+ Agregar Sello</Btn>
@@ -6388,7 +6446,7 @@ function CustomerPortal({token}){
         {/* Stamps */}
         {prog.tipo==="sellos"&&<>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
-            {Array.from({length:max}).map((_,i)=>{const isR=rewards.some(r=>r.costo===i+1);return<StampSlot key={i} filled={i<sellos} isReward={isR} size={stampSize} config={prog.config||{}}/>;})}
+            {Array.from({length:max}).map((_,i)=>{const rw=rewards.find(r=>r.costo===i+1);return<StampSlot key={i} filled={i<sellos} isReward={!!rw} reward={rw} size={stampSize} config={prog.config||{}}/>;})}
           </div>
           <div style={{fontSize:11,color:MUT,marginBottom:14,letterSpacing:0.3}}>
             {sellos<max?<><span style={{color:ACC,fontWeight:700}}>{sellos}</span><span style={{color:MUT}}> / {max} sellos</span></>:<span style={{color:GRN,fontWeight:700}}>🎉 ¡Tarjeta completa!</span>}
@@ -6405,7 +6463,9 @@ function CustomerPortal({token}){
             <div style={{fontSize:12,fontWeight:600,color:TXT+"BB",letterSpacing:0.5}}>{customer.nombre.toUpperCase()}</div>
             <div style={{fontSize:9,color:MUT,letterSpacing:1,marginTop:2}}>SOCIO BORGERS · {new Date(customer.created_at).getFullYear()}</div>
           </div>
-          {!prog.config?.logo_url&&<div style={{fontSize:20}}>🍔</div>}
+          {prog.config?.img_corner
+            ?<img src={prog.config.img_corner} alt="" style={{height:34,width:34,objectFit:"contain",flexShrink:0,borderRadius:6}} onError={e=>e.target.style.display="none"}/>
+            :(!prog.config?.logo_url&&<div style={{fontSize:20}}>🍔</div>)}
         </div>
       </div>}
 
@@ -6465,38 +6525,52 @@ function CustomerPortal({token}){
 // ── GiftCardActivate (público: /g/CODE — ver gift card) ───────────────────────
 function GiftCardActivate({code}){
   const [card,setCard]=useState(null);
+  const [design,setDesign]=useState({});
   const [loading,setLoading]=useState(true);
   const [err,setErr]=useState("");
 
   useEffect(()=>{
-    supaGet("gift_cards","?code=eq."+code.toUpperCase())
-      .then(([c])=>{if(!c)setErr("Gift card no encontrada.");else setCard(c);})
-      .catch(e=>setErr(e.message))
-      .finally(()=>setLoading(false));
+    Promise.all([
+      supaGet("gift_cards","?code=eq."+code.toUpperCase()),
+      supaGet("global_config","?key=eq.giftcard_design")
+    ]).then(([[c],[d]])=>{
+      if(!c)setErr("Gift card no encontrada.");else setCard(c);
+      if(d)setDesign(d.value||{});
+    }).catch(e=>setErr(e.message)).finally(()=>setLoading(false));
   },[code]);
 
-  if(loading)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center"}}><style>{globalCss}</style><div style={{color:MUT,fontSize:14}}>Cargando...</div></div>;
+  const bgColor=design.color_bg||BG;
+  const accentColor=design.color_accent||ACC;
 
-  return<div style={{minHeight:"100vh",background:BG,color:TXT,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+  if(loading)return<div style={{minHeight:"100vh",background:bgColor,display:"flex",alignItems:"center",justifyContent:"center"}}><style>{globalCss}</style><div style={{color:MUT,fontSize:14}}>Cargando...</div></div>;
+
+  return<div style={{minHeight:"100vh",background:bgColor,color:TXT,display:"flex",alignItems:"center",justifyContent:"center",padding:20,position:"relative",overflow:"hidden"}}>
     <style>{globalCss}</style>
-    <Card xtra={{maxWidth:380,width:"100%",textAlign:"center"}}>
-      <div style={{fontFamily:"'Bebas Neue'",fontSize:40,color:ACC,letterSpacing:3,marginBottom:16}}>BORGERS</div>
-      <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:20}}>🎁 GIFT CARD</div>
-      {err?<div style={{color:RED,padding:16}}>{err}</div>:<>
-        <div style={{fontFamily:"'DM Mono'",fontSize:28,fontWeight:700,color:ACC,marginBottom:4}}>{card.code}</div>
-        <div style={{fontSize:40,fontWeight:700,color:card.status==="active"?GRN:MUT,margin:"12px 0"}}>${parseFloat(card.balance).toFixed(2)}</div>
-        <div style={{fontSize:13,color:MUT,marginBottom:4}}>Saldo disponible</div>
-        {card.sold_to_name&&<div style={{fontSize:13,color:MUT,marginBottom:4}}>Para: {card.sold_to_name}</div>}
-        {card.expires_at&&<div style={{fontSize:12,color:MUT,marginBottom:12}}>Válida hasta: {card.expires_at}</div>}
-        {card.status==="active"&&<>
-          <img src={qrImgUrl(APP_URL+"/g/"+card.code)} alt="QR" style={{width:180,height:180,borderRadius:8,margin:"12px auto",display:"block"}}/>
-          <div style={{fontSize:12,color:MUT,marginBottom:12}}>El cajero escanea este QR o ingresa el código</div>
+    {design.bg_img_url&&<div style={{position:"fixed",inset:0,backgroundImage:"url("+design.bg_img_url+")",backgroundSize:"cover",backgroundPosition:"center",opacity:0.15,pointerEvents:"none"}}/>}
+    <div style={{position:"relative",zIndex:1,maxWidth:380,width:"100%"}}>
+      <Card xtra={{textAlign:"center",border:"1px solid "+accentColor+"44"}}>
+        {design.logo_url
+          ?<img src={design.logo_url} alt="Logo" style={{height:60,maxWidth:200,objectFit:"contain",margin:"0 auto 16px",display:"block"}} onError={e=>e.target.style.display="none"}/>
+          :<div style={{fontFamily:"'Bebas Neue'",fontSize:40,color:accentColor,letterSpacing:3,marginBottom:16}}>BORGERS</div>}
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:18,letterSpacing:1,marginBottom:20,color:accentColor}}>🎁 GIFT CARD</div>
+        {err?<div style={{color:RED,padding:16}}>{err}</div>:<>
+          <div style={{fontFamily:"'DM Mono'",fontSize:28,fontWeight:700,color:accentColor,marginBottom:4}}>{card.code}</div>
+          <div style={{fontSize:40,fontWeight:700,color:card.status==="active"?GRN:MUT,margin:"12px 0"}}>${parseFloat(card.balance).toFixed(2)}</div>
+          <div style={{fontSize:13,color:MUT,marginBottom:4}}>Saldo disponible</div>
+          {card.sold_to_name&&<div style={{fontSize:13,color:MUT,marginBottom:4}}>Para: {card.sold_to_name}</div>}
+          {card.expires_at&&<div style={{fontSize:12,color:MUT,marginBottom:12}}>Válida hasta: {card.expires_at}</div>}
+          {card.status==="active"&&<>
+            <div style={{background:"#fff",borderRadius:12,padding:12,display:"inline-block",margin:"12px auto",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
+              <img src={qrImgUrl(APP_URL+"/g/"+card.code)} alt="QR" style={{width:180,height:180,display:"block",borderRadius:4}}/>
+            </div>
+            <div style={{fontSize:12,color:MUT,marginBottom:12}}>El cajero escanea este QR o ingresa el código</div>
+          </>}
+          <div style={{padding:"10px 0",borderRadius:8,background:card.status==="active"?GRN+"18":RED+"18",color:card.status==="active"?GRN:RED,fontSize:14,fontWeight:600}}>
+            {card.status==="active"?"✅ Gift Card Activa":card.status==="used"?"Gift Card Usada":"Gift Card Cancelada"}
+          </div>
         </>}
-        <div style={{padding:"10px 0",borderRadius:8,background:card.status==="active"?GRN+"18":RED+"18",color:card.status==="active"?GRN:RED,fontSize:14,fontWeight:600}}>
-          {card.status==="active"?"✅ Gift Card Activa":card.status==="used"?"Gift Card Usada":"Gift Card Cancelada"}
-        </div>
-      </>}
-    </Card>
+      </Card>
+    </div>
   </div>;
 }
 // ── CustomerRegister (público: /join/PROGRAM_ID — registro al programa) ───────
