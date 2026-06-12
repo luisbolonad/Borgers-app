@@ -5975,6 +5975,16 @@ function FidelizacionScanner({userActivo,sucs}){
       let cards=await supaGet("loyalty_cards","?customer_id=eq."+cust.id+(selProg?"&program_id=eq."+selProg.id:""));
       let card=cards[0];
       if(!card&&selProg){[card]=await supaPost("loyalty_cards",{customer_id:cust.id,program_id:selProg.id,sellos:0,puntos:0});}
+      // Pre-cargar qué recompensas ya fueron canjeadas en el ciclo actual
+      if(card&&selProg?.tipo==="sellos"&&rewards.length){
+        const txns=await supaGet("loyalty_transactions","?card_id=eq."+card.id+"&order=created_at.desc&limit=100");
+        const max=selProg.config?.sellos_max||10;
+        const maxR=rewards.find(r=>r.costo>=max);
+        const mc=(t,r)=>t.tipo==="canje"&&(t.recompensa_id?t.recompensa_id===r.id:t.descripcion?.trim().toLowerCase()==="canje: "+r.nombre.trim().toLowerCase());
+        const ciclos=maxR?txns.filter(t=>mc(t,maxR)).length:0;
+        const usados=rewards.filter(r=>r.costo<max&&txns.filter(t=>mc(t,r)).length>ciclos).map(r=>r.id);
+        setCanjeadosIds(usados);
+      }
       setResult({customer:cust,card});
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
