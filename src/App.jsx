@@ -5975,16 +5975,6 @@ function FidelizacionScanner({userActivo,sucs}){
       let cards=await supaGet("loyalty_cards","?customer_id=eq."+cust.id+(selProg?"&program_id=eq."+selProg.id:""));
       let card=cards[0];
       if(!card&&selProg){[card]=await supaPost("loyalty_cards",{customer_id:cust.id,program_id:selProg.id,sellos:0,puntos:0});}
-      // Pre-cargar qué recompensas ya fueron canjeadas en el ciclo actual
-      if(card&&selProg?.tipo==="sellos"&&rewards.length){
-        const txns=await supaGet("loyalty_transactions","?card_id=eq."+card.id+"&order=created_at.desc&limit=100");
-        const max=selProg.config?.sellos_max||10;
-        const maxR=rewards.find(r=>r.costo>=max);
-        const mc=(t,r)=>t.tipo==="canje"&&(t.recompensa_id?t.recompensa_id===r.id:t.descripcion?.trim().toLowerCase()==="canje: "+r.nombre.trim().toLowerCase());
-        const ciclos=maxR?txns.filter(t=>mc(t,maxR)).length:0;
-        const usados=rewards.filter(r=>r.costo<max&&txns.filter(t=>mc(t,r)).length>ciclos).map(r=>r.id);
-        setCanjeadosIds(usados);
-      }
       setResult({customer:cust,card});
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
@@ -6042,12 +6032,13 @@ function FidelizacionScanner({userActivo,sucs}){
     try{
       await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"canje",valor:montoUsar,descripcion:"Canje: "+reward.nombre,recompensa_id:reward.id,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
       if(esMaxima){
-        await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:0,puntos:0});
-        setResult(p=>({...p,card:{...p.card,sellos:0,puntos:0}}));
-        setCanjeadosIds([]);
+        await supaPatch("loyalty_cards","?id=eq."+card.id,{sellos:0,puntos:0,canjeados_ciclo:[]});
+        setResult(p=>({...p,card:{...p.card,sellos:0,puntos:0,canjeados_ciclo:[]}}));
         setMsg({t:"ok",s:"🎉 ¡Recompensa máxima canjeada! "+reward.nombre+" · Tarjeta reiniciada."});
       }else if(esSellos){
-        setCanjeadosIds(p=>[...p,reward.id]);
+        const nuevoCiclo=[...(card.canjeados_ciclo||[]),reward.id];
+        await supaPatch("loyalty_cards","?id=eq."+card.id,{canjeados_ciclo:nuevoCiclo});
+        setResult(p=>({...p,card:{...p.card,canjeados_ciclo:nuevoCiclo}}));
         setMsg({t:"ok",s:"🎁 ¡Recompensa canjeada! "+reward.nombre});
       }else{
         const nuevosPuntos=Math.max(0,parseFloat((puntos-montoUsar).toFixed(4)));
@@ -6087,7 +6078,7 @@ function FidelizacionScanner({userActivo,sucs}){
   const sellos=result?.card?.sellos||0;
   const puntos=result?.card?.puntos||0;
   const max=selProg?.config?.sellos_max||10;
-  const recompensasDisponibles=rewards.filter(r=>selProg?.tipo==="sellos"?(sellos>=r.costo&&!canjeadosIds.includes(r.id)):(puntos>=r.costo));
+  const recompensasDisponibles=rewards.filter(r=>selProg?.tipo==="sellos"?(sellos>=r.costo&&!(result?.card?.canjeados_ciclo||[]).includes(r.id)):(puntos>=r.costo));
   const msgBar=m=><div style={{background:m.t==="ok"?GRN+"18":m.t==="warn"?ACC+"18":RED+"18",color:m.t==="ok"?GRN:m.t==="warn"?ACC:RED,padding:"10px 14px",borderRadius:8,marginBottom:12,fontSize:13}}>{m.s}</div>;
   const videoPanel=<>
     <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:b1(ACC),marginBottom:10}}>
@@ -6421,11 +6412,7 @@ function CustomerPortal({token}){
   const max=prog?.config?.sellos_max||10;
   const qr=qrImgUrl(APP_URL+"/c/"+token);
   // Ciclos completos = veces que se canjeó la recompensa máxima
-  const maxReward=rewards.find(r=>r.costo>=max);
-  const matchCanje=(t,r)=>t.tipo==="canje"&&(t.recompensa_id?t.recompensa_id===r.id:t.descripcion?.trim().toLowerCase()==="canje: "+r.nombre.trim().toLowerCase());
-  const ciclosCompletos=maxReward?txns.filter(t=>matchCanje(t,maxReward)).length:0;
-  const usadaEsteCiclo=r=>txns.filter(t=>matchCanje(t,r)).length>ciclosCompletos;
-  const recompDisp=rewards.filter(r=>(prog?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo)&&(prog?.tipo==="sellos"?!usadaEsteCiclo(r):true));
+  const recompDisp=rewards.filter(r=>(prog?.tipo==="sellos"?sellos>=r.costo:puntos>=r.costo)&&(prog?.tipo==="sellos"?!(selCard?.canjeados_ciclo||[]).includes(r.id):true));
   const proxima=rewards.find(r=>prog?.tipo==="sellos"?r.costo>sellos:r.costo>puntos);
   const stampSize=Math.min(Math.floor((Math.min(window.innerWidth,430)-44-(max-1)*8)/max),46);
 
