@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getMessaging, getToken, onMessage } from "firebase/messaging";
+import { getMessaging, getToken, onMessage as fbOnMessage } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCa3uBxgNYxlvrVC3c9SBC6aacoYLbJ034",
@@ -13,19 +13,35 @@ const firebaseConfig = {
 
 const VAPID_KEY = "BI3v9cWEBIw9y4BrfReYMsVquYReJpJj6b9sqUO4TDIFs3BvXnv4WcvHAGZeizfiJWUDmHpTPhhkkUIsWDpTWdI";
 
-const app = initializeApp(firebaseConfig);
-export const messaging = getMessaging(app);
+let messaging = null;
+try {
+  const app = initializeApp(firebaseConfig);
+  if ("serviceWorker" in navigator && "Notification" in window) {
+    messaging = getMessaging(app);
+  }
+} catch (e) {
+  console.warn("Firebase messaging no disponible:", e.message);
+}
 
-export async function requestNotificationPermission(userId) {
+export { messaging };
+
+export async function requestNotificationPermission() {
   try {
+    if (!("Notification" in window)) return null;
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
-    const token = await getToken(messaging, { vapidKey: VAPID_KEY });
+    if (!messaging) return null;
+    const sw = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: sw });
     return token;
   } catch (e) {
-    console.error("Error obteniendo token FCM:", e);
+    console.error("Error FCM:", e.message);
     return null;
   }
 }
 
-export { onMessage };
+export function onMessage(msg, callback) {
+  if (!msg) return () => {};
+  try { return fbOnMessage(msg, callback); }
+  catch (e) { return () => {}; }
+}

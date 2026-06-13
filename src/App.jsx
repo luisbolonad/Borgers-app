@@ -446,7 +446,7 @@ const[ventas,setVentas]=useState([]);
 const[ivaRate,setIvaRate]=useState(0.15);
 const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(null);
-const[notifStatus,setNotifStatus]=useState(typeof Notification!=="undefined"?Notification.permission:"unsupported");
+const[notifStatus,setNotifStatus]=useState(()=>"Notification" in window?Notification.permission:"unsupported");
 async function activarNotificaciones(){
   const token=await requestNotificationPermission(userActivo?.id);
   if(!token){setNotifStatus(Notification.permission);return;}
