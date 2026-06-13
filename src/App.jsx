@@ -446,19 +446,20 @@ const[ventas,setVentas]=useState([]);
 const[ivaRate,setIvaRate]=useState(0.15);
 const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(null);
-// Solicitar permiso de notificaciones y guardar token FCM al hacer login
+const[notifStatus,setNotifStatus]=useState(typeof Notification!=="undefined"?Notification.permission:"unsupported");
+async function activarNotificaciones(){
+  const token=await requestNotificationPermission(userActivo?.id);
+  if(!token){setNotifStatus(Notification.permission);return;}
+  setNotifStatus("granted");
+  fetch(SUPA_URL+"/rest/v1/push_tokens",{
+    method:"POST",
+    headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+    body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
+  }).catch(()=>{});
+}
+// Manejar notificaciones con la app abierta
 useEffect(()=>{
   if(!userActivo)return;
-  requestNotificationPermission(userActivo.id).then(token=>{
-    if(!token)return;
-    // Upsert del token en Supabase
-    fetch(SUPA_URL+"/rest/v1/push_tokens",{
-      method:"POST",
-      headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
-      body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
-    }).catch(()=>{});
-  });
-  // Manejar notificaciones mientras la app está abierta
   const unsub=onMessage(messaging,payload=>{
     const{title,body}=payload.notification||{};
     if(title&&Notification.permission==="granted")new Notification(title,{body,icon:"/favicon.png"});
@@ -596,6 +597,11 @@ return <>
   </button>
 </div>
 <div style={{marginLeft:menuAbierto?220:56,flex:1,padding:28,minWidth:0,transition:"margin-left 0.2s ease"}}>
+{notifStatus!=="granted"&&notifStatus!=="unsupported"&&notifStatus!=="denied"&&<div style={{background:ACC+"18",border:"1px solid "+ACC+"44",borderRadius:10,padding:"10px 16px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+  <div style={{fontSize:13,color:TXT}}>🔔 <strong>Activa las notificaciones</strong> para recibir avisos de tus actividades</div>
+  <button onClick={activarNotificaciones} style={{background:ACC,color:"#000",border:"none",borderRadius:8,padding:"7px 18px",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>Activar ahora</button>
+</div>}
+{notifStatus==="denied"&&<div style={{background:RED+"18",border:"1px solid "+RED+"44",borderRadius:10,padding:"10px 16px",marginBottom:20,fontSize:12,color:MUT}}>🔕 Notificaciones bloqueadas — actívalas en Configuración de tu celular</div>}
 {tab==="inicio"&&<Inicio userActivo={userActivo} setTab={setTab} tabs={T}/>
 }{tab==="dash"&&<Dash {...sh} puede={puede}/>}
 {tab==="inv"&&<Inv {...sh} puede={puede}/>}
