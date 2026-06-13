@@ -4663,7 +4663,7 @@ function toggleDia(n){setForm(p=>({...p,dias_semana:p.dias_semana.includes(n)?p.
 function agregarTurno(){setForm(p=>({...p,horas_limite:[...p.horas_limite,"08:00"]}));}
 function quitarTurno(i){setForm(p=>({...p,horas_limite:p.horas_limite.filter((_,j)=>j!==i)}));}
 function editarTurno(i,v){setForm(p=>({...p,horas_limite:p.horas_limite.map((h,j)=>j===i?v:h)}));}
-const personalUsers=users.filter(u=>["personal","staff_suc","caja_eventos"].includes(u.rol)&&u.activo);
+const personalUsers=users.filter(u=>["personal","staff_suc","caja_eventos","admin_suc"].includes(u.rol)&&u.activo);
 // Compatibilidad: si tiene hora_limite vieja, usarla como primer turno
 function getSlotsAsig(a){
   if((a.horas_limite||[]).length>0)return a.horas_limite;
