@@ -445,7 +445,11 @@ const[manualArticulos,setManualArticulos]=useState([]);
 const[ventas,setVentas]=useState([]);
 const[ivaRate,setIvaRate]=useState(0.15);
 const[users,setUsers]=useState(iUSERS);
-const[userActivo,setUserActivo]=useState(null);
+const[userActivo,setUserActivo]=useState(()=>{
+  try{const s=localStorage.getItem("borgers_user");return s?JSON.parse(s):null;}catch{return null;}
+});
+function loginUser(u){setUserActivo(u);try{localStorage.setItem("borgers_user",JSON.stringify(u));}catch{}}
+function logoutUser(){setUserActivo(null);try{localStorage.removeItem("borgers_user");}catch{}}
 const[notifStatus,setNotifStatus]=useState(()=>"Notification" in window?Notification.permission:"unsupported");
 async function activarNotificaciones(){
   const token=await requestNotificationPermission(userActivo?.id);
@@ -558,10 +562,10 @@ if(cargando) return <div style={{minHeight:"100vh",background:BG,display:"flex",
 <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
   </div>;
 // Login gate — después de todos los hooks
-if(!userActivo) return <Login users={users} onLogin={setUserActivo}/>;
+if(!userActivo) return <Login users={users} onLogin={loginUser}/>;
 // Onboarding gate — personal sin onboarding completado
 if(userActivo.rol==="personal"&&!userActivo.onboarding_completo)
-  return <Onboarding userActivo={userActivo} onComplete={u=>{setUserActivo(u);setUsers(p=>p.map(x=>x.id===u.id?u:x));}}/>;
+  return <Onboarding userActivo={userActivo} onComplete={u=>{loginUser(u);setUsers(p=>p.map(x=>x.id===u.id?u:x));}}/>;
 return <>
 <style>{globalCss}</style>
 {userActivo&&<Watermark nombre={userActivo.nombre}/>}
@@ -592,7 +596,7 @@ return <>
     <div style={{fontSize:12,fontWeight:600,color:TXT,whiteSpace:"nowrap"}}>{userActivo.nombre}</div>
     <div style={{fontSize:10,color:MUT,whiteSpace:"nowrap"}}>{userActivo.rol==="superadmin"?"Superadmin":userActivo.rol==="admin_suc"?"Admin · "+userActivo.sucursal:userActivo.rol==="staff_suc"?"Staff · "+userActivo.sucursal:userActivo.rol==="caja_eventos"?"Caja Eventos · "+(userActivo.sucursal||""):userActivo.rol==="personal"?"Personal · "+(userActivo.sucursal||""):userActivo.rol==="kiosko"?"Kiosko · "+(userActivo.sucursal||""):"Producción"}</div>
   </div>
-  <button onClick={()=>{setUserActivo(null);setTab("inicio");}} title="Cerrar sesión" style={{background:RED+"18",border:b1(RED+"44"),color:RED,cursor:"pointer",fontSize:11,fontWeight:600,borderRadius:12,padding:"4px 10px",whiteSpace:"nowrap",flexShrink:0}}>
+  <button onClick={()=>{logoutUser();setTab("inicio");}} title="Cerrar sesión" style={{background:RED+"18",border:b1(RED+"44"),color:RED,cursor:"pointer",fontSize:11,fontWeight:600,borderRadius:12,padding:"4px 10px",whiteSpace:"nowrap",flexShrink:0}}>
     Salir
   </button>
 </div>
