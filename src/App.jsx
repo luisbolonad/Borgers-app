@@ -448,19 +448,7 @@ const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(()=>{
   try{const s=localStorage.getItem("borgers_user");return s?JSON.parse(s):null;}catch{return null;}
 });
-async function loginUser(u){
-  setUserActivo(u);
-  try{localStorage.setItem("borgers_user",JSON.stringify(u));}catch{}
-  // Actualiza el token FCM para este usuario en cada login
-  const token=await requestNotificationPermission();
-  if(token){
-    fetch(SUPA_URL+"/rest/v1/push_tokens",{
-      method:"POST",
-      headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
-      body:JSON.stringify({user_id:String(u.id),sucursal:u.sucursal||null,token,updated_at:new Date().toISOString()})
-    }).catch(()=>{});
-  }
-}
+function loginUser(u){setUserActivo(u);try{localStorage.setItem("borgers_user",JSON.stringify(u));}catch{}}
 function logoutUser(){setUserActivo(null);try{localStorage.removeItem("borgers_user");}catch{}}
 const[notifStatus,setNotifStatus]=useState(()=>"Notification" in window?Notification.permission:"unsupported");
 async function activarNotificaciones(){
@@ -473,6 +461,19 @@ async function activarNotificaciones(){
     body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
   }).catch(()=>{});
 }
+// Sincronizar token FCM con el usuario activo (se ejecuta en cada login/cambio de usuario)
+useEffect(()=>{
+  if(!userActivo)return;
+  if(!("Notification" in window)||Notification.permission!=="granted")return;
+  getCurrentToken().then(token=>{
+    if(!token)return;
+    fetch(SUPA_URL+"/rest/v1/push_tokens",{
+      method:"POST",
+      headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
+    }).catch(()=>{});
+  });
+},[userActivo?.id]);
 // Manejar notificaciones con la app abierta
 useEffect(()=>{
   if(!userActivo)return;
