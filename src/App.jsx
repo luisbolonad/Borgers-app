@@ -458,9 +458,11 @@ async function activarNotificaciones(){
   if(!token){setNotifStatus(Notification.permission);return;}
   setNotifStatus("granted");
   try{localStorage.setItem("borgers_notif_"+userActivo.id,"true");}catch{}
+  const h={"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json"};
+  // Borra cualquier fila con este token (de cualquier usuario) y luego inserta limpio
+  await fetch(SUPA_URL+"/rest/v1/push_tokens?token=eq."+encodeURIComponent(token),{method:"DELETE",headers:h}).catch(()=>{});
   fetch(SUPA_URL+"/rest/v1/push_tokens",{
-    method:"POST",
-    headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+    method:"POST",headers:h,
     body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
   }).catch(()=>{});
 }
