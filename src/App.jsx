@@ -452,7 +452,7 @@ function loginUser(u){setUserActivo(u);try{localStorage.setItem("borgers_user",J
 function logoutUser(){setUserActivo(null);try{localStorage.removeItem("borgers_user");}catch{}}
 const[notifStatus,setNotifStatus]=useState(()=>"Notification" in window?Notification.permission:"unsupported");
 // true cuando este usuario ya registró su token en este dispositivo
-const notifActivadaParaUsuario=userActivo?localStorage.getItem("borgers_notif_"+userActivo.id)==="true":false;
+const notifActivadaParaUsuario=userActivo?localStorage.getItem("borgers_ntf2_"+userActivo.id)==="true":false;
 async function activarNotificaciones(){
   const token=await requestNotificationPermission();
   if(!token){setNotifStatus(Notification.permission);return;}
@@ -464,7 +464,7 @@ async function activarNotificaciones(){
   }).catch(()=>null);
   if(r&&r.ok){
     setNotifStatus("granted");
-    try{localStorage.setItem("borgers_notif_"+userActivo.id,"true");}catch{}
+    try{localStorage.setItem("borgers_ntf2_"+userActivo.id,"true");}catch{}
   }
 }
 // Manejar notificaciones con la app abierta
