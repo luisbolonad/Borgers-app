@@ -452,7 +452,7 @@ async function loginUser(u){
   setUserActivo(u);
   try{localStorage.setItem("borgers_user",JSON.stringify(u));}catch{}
   // Actualiza el token FCM para este usuario en cada login
-  const token=await getCurrentToken();
+  const token=await requestNotificationPermission();
   if(token){
     fetch(SUPA_URL+"/rest/v1/push_tokens",{
       method:"POST",
