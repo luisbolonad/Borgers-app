@@ -40,6 +40,17 @@ export async function requestNotificationPermission() {
   }
 }
 
+export async function getCurrentToken() {
+  if (!messaging) return null;
+  if (!("Notification" in window) || Notification.permission !== "granted") return null;
+  try {
+    const sw = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    return await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: sw });
+  } catch (e) {
+    return null;
+  }
+}
+
 export function onMessage(msg, callback) {
   if (!msg) return () => {};
   try { return fbOnMessage(msg, callback); }

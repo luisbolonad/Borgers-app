@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import jsQR from "jsqr";
-import { requestNotificationPermission, messaging, onMessage } from "./firebase";
+import { requestNotificationPermission, getCurrentToken, messaging, onMessage } from "./firebase";
 // ── Supabase config ──────────────────────────────────────────────────────────
 const SUPA_URL = "https://paqgselmbbtndgmbtbym.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhcWdzZWxtYmJ0bmRnbWJ0YnltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjMxODEsImV4cCI6MjA5MDk5OTE4MX0.l_T4xe-Q85kIWblq9OM3mudQftyaD3tzONFZ35q34Zs";
@@ -448,7 +448,19 @@ const[users,setUsers]=useState(iUSERS);
 const[userActivo,setUserActivo]=useState(()=>{
   try{const s=localStorage.getItem("borgers_user");return s?JSON.parse(s):null;}catch{return null;}
 });
-function loginUser(u){setUserActivo(u);try{localStorage.setItem("borgers_user",JSON.stringify(u));}catch{}}
+async function loginUser(u){
+  setUserActivo(u);
+  try{localStorage.setItem("borgers_user",JSON.stringify(u));}catch{}
+  // Actualiza el token FCM para este usuario en cada login
+  const token=await getCurrentToken();
+  if(token){
+    fetch(SUPA_URL+"/rest/v1/push_tokens",{
+      method:"POST",
+      headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify({user_id:String(u.id),sucursal:u.sucursal||null,token,updated_at:new Date().toISOString()})
+    }).catch(()=>{});
+  }
+}
 function logoutUser(){setUserActivo(null);try{localStorage.removeItem("borgers_user");}catch{}}
 const[notifStatus,setNotifStatus]=useState(()=>"Notification" in window?Notification.permission:"unsupported");
 async function activarNotificaciones(){
