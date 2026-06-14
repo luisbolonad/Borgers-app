@@ -451,29 +451,19 @@ const[userActivo,setUserActivo]=useState(()=>{
 function loginUser(u){setUserActivo(u);try{localStorage.setItem("borgers_user",JSON.stringify(u));}catch{}}
 function logoutUser(){setUserActivo(null);try{localStorage.removeItem("borgers_user");}catch{}}
 const[notifStatus,setNotifStatus]=useState(()=>"Notification" in window?Notification.permission:"unsupported");
+// true cuando este usuario ya registró su token en este dispositivo
+const notifActivadaParaUsuario=userActivo?localStorage.getItem("borgers_notif_"+userActivo.id)==="true":false;
 async function activarNotificaciones(){
-  const token=await requestNotificationPermission(userActivo?.id);
+  const token=await requestNotificationPermission();
   if(!token){setNotifStatus(Notification.permission);return;}
   setNotifStatus("granted");
+  try{localStorage.setItem("borgers_notif_"+userActivo.id,"true");}catch{}
   fetch(SUPA_URL+"/rest/v1/push_tokens",{
     method:"POST",
     headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
     body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
   }).catch(()=>{});
 }
-// Sincronizar token FCM con el usuario activo (se ejecuta en cada login/cambio de usuario)
-useEffect(()=>{
-  if(!userActivo)return;
-  if(!("Notification" in window)||Notification.permission!=="granted")return;
-  getCurrentToken().then(token=>{
-    if(!token)return;
-    fetch(SUPA_URL+"/rest/v1/push_tokens",{
-      method:"POST",
-      headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates"},
-      body:JSON.stringify({user_id:String(userActivo.id),sucursal:userActivo.sucursal||null,token,updated_at:new Date().toISOString()})
-    }).catch(()=>{});
-  });
-},[userActivo?.id]);
 // Manejar notificaciones con la app abierta
 useEffect(()=>{
   if(!userActivo)return;
@@ -614,7 +604,7 @@ return <>
   </button>
 </div>
 <div style={{marginLeft:menuAbierto?220:56,flex:1,padding:28,minWidth:0,transition:"margin-left 0.2s ease"}}>
-{notifStatus!=="granted"&&notifStatus!=="unsupported"&&notifStatus!=="denied"&&<div style={{background:ACC+"18",border:"1px solid "+ACC+"44",borderRadius:10,padding:"10px 16px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+{notifStatus!=="unsupported"&&notifStatus!=="denied"&&!notifActivadaParaUsuario&&<div style={{background:ACC+"18",border:"1px solid "+ACC+"44",borderRadius:10,padding:"10px 16px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
   <div style={{fontSize:13,color:TXT}}>🔔 <strong>Activa las notificaciones</strong> para recibir avisos de tus actividades</div>
   <button onClick={activarNotificaciones} style={{background:ACC,color:"#000",border:"none",borderRadius:8,padding:"7px 18px",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>Activar ahora</button>
 </div>}
