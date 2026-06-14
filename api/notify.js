@@ -1,18 +1,7 @@
-const admin = require("firebase-admin");
+const { getAccessToken, sendFCM, getServiceAccount } = require("./fcm");
 
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_KEY;
-
-if (!admin.apps.length) {
-  try {
-    const raw = process.env.FIREBASE_SERVICE_ACCOUNT || "{}";
-    const sa = JSON.parse(raw);
-    if (sa.private_key) sa.private_key = sa.private_key.replace(/\\n/g, "\n");
-    admin.initializeApp({ credential: admin.credential.cert(sa) });
-  } catch (e) {
-    console.error("[notify] Firebase init error:", e.message);
-  }
-}
 
 async function supaGet(table, query) {
   const r = await fetch(`${SUPA_URL}/rest/v1/${table}${query}`, {
@@ -34,7 +23,6 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Hora actual en Ecuador (UTC-5)
     const now = new Date(Date.now() - 5 * 60 * 60 * 1000);
     const ahoraMins = now.getUTCHours() * 60 + now.getUTCMinutes();
     const hoyNum = now.getUTCDay() === 0 ? 7 : now.getUTCDay();
@@ -77,6 +65,10 @@ module.exports = async function handler(req, res) {
     }
 
     const uniqueTokens = [...new Map(tokenRows.map(r => [r.token, r])).values()];
+    if (!uniqueTokens.length) return res.json({ sent: 0, pendientes: pendientes.length, tokens: 0 });
+
+    const sa = getServiceAccount();
+    const accessToken = await getAccessToken(sa);
 
     let sent = 0;
     for (const { token, user_id, sucursal } of uniqueTokens) {
@@ -85,27 +77,19 @@ module.exports = async function handler(req, res) {
       );
       if (!notif) continue;
       try {
-        await admin.messaging().send({
-          token,
-          notification: {
-            title: `⏰ En 10 min: ${notif.tipo_nombre}`,
-            body: `Límite: ${notif.hora} — Abre la app para registrar.`
-          },
-          android: { priority: "high" },
-          apns: { payload: { aps: { sound: "default" } } }
-        });
-        sent++;
-      } catch (e) {
-        console.error("[notify] FCM send error:", e.code, e.message);
-        if (e.code?.includes("invalid-registration-token") || e.code?.includes("not-registered")) {
+        const result = await sendFCM(accessToken, sa.project_id, token,
+          `⏰ En 10 min: ${notif.tipo_nombre}`,
+          `Límite: ${notif.hora} — Abre la app para registrar.`
+        );
+        if (result.name) sent++;
+        else if (result.error?.details?.includes("not-registered") || result.error?.details?.includes("invalid-registration-token")) {
           await supaDelete("push_tokens", `?token=eq.${encodeURIComponent(token)}`);
         }
-      }
+      } catch (e) {}
     }
 
     return res.json({ sent, total: uniqueTokens.length });
   } catch (e) {
-    console.error("[notify] handler error:", e.message);
     return res.status(500).json({ error: e.message });
   }
 };
