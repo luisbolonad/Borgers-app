@@ -148,6 +148,7 @@ ver_ce:         ["superadmin","caja_eventos"],
 ver_asist:      ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion","kiosko"],
 ver_act:        ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
 ver_fidel:      ["superadmin","admin_suc","staff_suc"],
+ver_comunicados:["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
 // Acciones
 editar_recetas: ["superadmin"],
 despacho:       ["superadmin","produccion"],
@@ -441,6 +442,7 @@ const[cierresCaja,setCierresCaja]=useState([]);
 // CREATE TABLE IF NOT EXISTS manual_temas (id bigserial PRIMARY KEY, titulo text NOT NULL, descripcion text DEFAULT '', icono text DEFAULT '📄', color text DEFAULT '#F5A623', orden int DEFAULT 0, roles_acceso text[] DEFAULT ARRAY['superadmin','admin_suc','staff_suc','produccion'], created_at timestamptz DEFAULT now());
 // CREATE TABLE IF NOT EXISTS manual_articulos (id bigserial PRIMARY KEY, tema_id bigint REFERENCES manual_temas(id) ON DELETE CASCADE, titulo text NOT NULL, contenido jsonb DEFAULT '[]', orden int DEFAULT 0, created_at timestamptz DEFAULT now());
 const[manualTemas,setManualTemas]=useState([]);
+const[comunicados,setComunicados]=useState([]);
 const[manualArticulos,setManualArticulos]=useState([]);
 const[ventas,setVentas]=useState([]);
 const[ivaRate,setIvaRate]=useState(0.15);
@@ -484,7 +486,7 @@ const[
 dbUsers,dbSucs,dbCatsInv,dbCatsVenta,dbCatsInvSuc,
 dbProvs,dbInv,dbRp,dbRv,dbReqs,
 dbInvSucs,dbRegs,dbVentas,dbMarcas,dbCierres,
-dbManualTemas,dbManualArticulos,dbConfig
+dbManualTemas,dbManualArticulos,dbConfig,dbComunicados
 ]=await Promise.all([
 supaGet("users","?select=*&order=created_at"),
 supaGet("sucursales","?select=*&order=nombre"),
@@ -504,6 +506,7 @@ supaGet("cierres_caja","?select=*&order=created_at.desc"),
 supaGet("manual_temas","?select=*&order=orden"),
 supaGet("manual_articulos","?select=*&order=orden"),
 supaGet("config_general","?select=*&limit=1"),
+supaGet("comunicados","?select=*&order=created_at.desc&limit=50"),
 ]);
 
     if(dbUsers.length>0) setUsers(dbUsers.map(u=>({...u,id:u.id})));
@@ -527,6 +530,7 @@ supaGet("config_general","?select=*&limit=1"),
     if(dbManualTemas.length>0) setManualTemas(dbManualTemas);
     if(dbManualArticulos.length>0) setManualArticulos(dbManualArticulos);
     if(dbConfig.length>0&&dbConfig[0].iva_rate!=null) setIvaRate(parseFloat(dbConfig[0].iva_rate));
+    if(Array.isArray(dbComunicados)) setComunicados(dbComunicados);
   }catch(err){
     console.error("Error cargando datos:",err);
   }finally{
@@ -558,6 +562,7 @@ const allTabs=[
 {id:"asist",l:"Asistencia",i:"⏱",perm:"ver_asist"},
 {id:"act",l:"Actividades",i:"✅",perm:"ver_act"},
 {id:"fidel",l:"Fidelización",i:"🎯",perm:"ver_fidel"},
+{id:"comunicados",l:"Comunicados",i:"📣",perm:"ver_comunicados"},
 ];
 const T=allTabs.filter(t=>!t.perm||puede(t.perm));
 // Pantalla de carga
@@ -590,7 +595,16 @@ return <>
 </button>
 </div>
 <nav style={{flex:1,padding:"12px 8px",overflowY:"auto"}}>
-{T.map(t=>{const a=tab===t.id;return <button key={t.id} onClick={()=>setTab(t.id)} title={t.l} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",borderRadius:8,marginBottom:2,background:a?ACC+"18":"transparent",color:a?ACC:MUT,border:"none",textAlign:"left",fontSize:13,fontWeight:a?600:400,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden"}}><span style={{flexShrink:0}}>{t.i}</span>{menuAbierto&&t.l}</button>;})}
+{T.map(t=>{
+  const a=tab===t.id;
+  const lsKey="borgers_com_visto_"+userActivo?.id;
+  const ultimoVisto=t.id==="comunicados"?(()=>{try{return localStorage.getItem(lsKey)||"0";}catch{return"0";}})():null;
+  const badgeCom=t.id==="comunicados"?comunicados.filter(c=>(c.sucursal===null||c.sucursal===undefined||c.sucursal===""||c.sucursal===userActivo?.sucursal||userActivo?.rol==="superadmin")&&new Date(c.created_at)>new Date(ultimoVisto)).length:0;
+  return <button key={t.id} onClick={()=>setTab(t.id)} title={t.l} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",borderRadius:8,marginBottom:2,background:a?ACC+"18":"transparent",color:a?ACC:MUT,border:"none",textAlign:"left",fontSize:13,fontWeight:a?600:400,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",position:"relative"}}>
+    <span style={{flexShrink:0,position:"relative"}}>{t.i}{badgeCom>0&&<span style={{position:"absolute",top:-4,right:-6,background:RED,color:"#fff",borderRadius:"50%",fontSize:9,fontWeight:700,width:14,height:14,display:"flex",alignItems:"center",justifyContent:"center"}}>{badgeCom}</span>}</span>
+    {menuAbierto&&t.l}
+  </button>;
+})}
 </nav>
 </div>
 {/* ── Usuario top-right ── */}
@@ -629,6 +643,7 @@ return <>
 {tab==="asist"&&<Asistencia userActivo={userActivo} sucsData={sucsData} users={users}/>}
 {tab==="act"&&<Actividades userActivo={userActivo} sucsData={sucsData} users={users}/>}
 {tab==="fidel"&&<FidelizacionScanner userActivo={userActivo} sucs={sucs}/>}
+{tab==="comunicados"&&<Comunicados comunicados={comunicados} setComunicados={setComunicados} userActivo={userActivo} sucs={sucs}/>}
 </div>
 </div>
 </>;
@@ -6692,6 +6707,173 @@ function CustomerRegister({programId}){
       </>}
     </Card>
   </div>;
+}
+// ── Comunicados ────────────────────────────────────────────────────────────────
+function Comunicados({comunicados,setComunicados,userActivo,sucs}){
+  const esSA=userActivo?.rol==="superadmin";
+  const esAdmin=["superadmin","admin_suc"].includes(userActivo?.rol);
+  const [vista,setVista]=useState("lista");
+  const [selec,setSelec]=useState(null);
+  const [form,setForm]=useState({titulo:"",mensaje:"",sucursal:esSA?"":userActivo?.sucursal||""});
+  const [media,setMedia]=useState([]);
+  const [uploading,setUploading]=useState(false);
+  const [sending,setSending]=useState(false);
+  const CRON_SECRET="borgers2026";
+
+  // Comunicados visibles para este usuario
+  const misSuc=userActivo?.sucursal;
+  const visibles=comunicados
+    .filter(c=>c.sucursal===null||c.sucursal===undefined||c.sucursal===""||c.sucursal===misSuc||(esSA))
+    .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+
+  // Badge: leídos guardados en localStorage
+  const lsKey="borgers_com_visto_"+userActivo?.id;
+  const [ultimoVisto,setUltimoVisto]=useState(()=>{try{return localStorage.getItem(lsKey)||"0";}catch{return"0";}});
+  const noLeidos=visibles.filter(c=>new Date(c.created_at)>new Date(ultimoVisto)).length;
+
+  function marcarLeidos(){
+    const t=new Date().toISOString();
+    setUltimoVisto(t);
+    try{localStorage.setItem(lsKey,t);}catch{}
+  }
+
+  async function subirArchivo(e){
+    const file=e.target.files[0];
+    if(!file)return;
+    setUploading(true);
+    try{
+      const result=await uploadCloudinary(file);
+      setMedia(p=>[...p,result]);
+    }catch(err){alert("Error subiendo archivo: "+err.message);}
+    finally{setUploading(false);}
+  }
+
+  async function enviar(){
+    if(!form.titulo.trim())return;
+    setSending(true);
+    try{
+      const data={
+        autor_id:userActivo.id,
+        autor_nombre:userActivo.nombre||userActivo.email||"Admin",
+        sucursal:form.sucursal||null,
+        titulo:form.titulo,
+        mensaje:form.mensaje,
+        media,
+        created_at:new Date().toISOString()
+      };
+      const[cr]=await supaPost("comunicados",data);
+      const nuevo={...data,id:cr?.id||Date.now()};
+      setComunicados(p=>[nuevo,...p]);
+      // Enviar push
+      fetch("/api/push-comunicado",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-cron-secret":CRON_SECRET},
+        body:JSON.stringify({sucursal:form.sucursal||null,titulo:form.titulo,autor:data.autor_nombre})
+      }).catch(()=>{});
+      setForm({titulo:"",mensaje:"",sucursal:esSA?"":userActivo?.sucursal||""});
+      setMedia([]);
+      setVista("lista");
+      // Marcar como leído para el emisor
+      const t=new Date().toISOString();
+      setUltimoVisto(t);
+      try{localStorage.setItem(lsKey,t);}catch{}
+    }catch(err){alert("Error: "+err.message);}
+    finally{setSending(false);}
+  }
+
+  function formatFecha(iso){
+    const d=new Date(iso);
+    return d.toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  }
+
+  if(vista==="nuevo") return(
+    <div style={{maxWidth:600,margin:"0 auto",padding:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
+        <button onClick={()=>setVista("lista")} style={{background:"none",border:"none",color:ACC,cursor:"pointer",fontSize:20,padding:0}}>←</button>
+        <h2 style={{margin:0,color:TXT,fontSize:18,fontWeight:700}}>Nuevo Comunicado</h2>
+      </div>
+      {esSA&&<label style={{display:"block",marginBottom:16}}>
+        <div style={{fontSize:11,color:MUT,marginBottom:4}}>DESTINATARIO</div>
+        <select value={form.sucursal} onChange={e=>setForm(p=>({...p,sucursal:e.target.value}))} style={{width:"100%",background:SRF,color:TXT,border:b1(BRD),borderRadius:8,padding:"8px 12px"}}>
+          <option value="">📢 Todos los usuarios</option>
+          {sucs.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+      </label>}
+      <label style={{display:"block",marginBottom:16}}>
+        <div style={{fontSize:11,color:MUT,marginBottom:4}}>TÍTULO *</div>
+        <input value={form.titulo} onChange={e=>setForm(p=>({...p,titulo:e.target.value}))} placeholder="Ej: Reunión de equipo este viernes" style={{width:"100%",background:SRF,color:TXT,border:b1(BRD),borderRadius:8,padding:"8px 12px",boxSizing:"border-box"}}/>
+      </label>
+      <label style={{display:"block",marginBottom:16}}>
+        <div style={{fontSize:11,color:MUT,marginBottom:4}}>MENSAJE</div>
+        <textarea value={form.mensaje} onChange={e=>setForm(p=>({...p,mensaje:e.target.value}))} rows={5} placeholder="Escribe el mensaje aquí..." style={{width:"100%",background:SRF,color:TXT,border:b1(BRD),borderRadius:8,padding:"8px 12px",resize:"vertical",boxSizing:"border-box"}}/>
+      </label>
+      {/* Media */}
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,color:MUT,marginBottom:8}}>FOTOS / VIDEOS</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+          {media.map((m,i)=>(
+            <div key={i} style={{position:"relative",width:80,height:80,borderRadius:8,overflow:"hidden",border:b1(BRD)}}>
+              {m.tipo==="video"
+                ?<video src={m.url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                :<img src={m.url} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>}
+              <button onClick={()=>setMedia(p=>p.filter((_,j)=>j!==i))} style={{position:"absolute",top:2,right:2,background:RED,border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+          ))}
+          <label style={{width:80,height:80,border:"2px dashed "+BRD,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",cursor:uploading?"not-allowed":"pointer",color:MUT,flexDirection:"column",gap:4,fontSize:11}}>
+            {uploading?"...":"+"}<span style={{fontSize:9}}>Foto/Video</span>
+            <input type="file" accept="image/*,video/*" style={{display:"none"}} onChange={subirArchivo} disabled={uploading}/>
+          </label>
+        </div>
+      </div>
+      <button onClick={enviar} disabled={sending||!form.titulo.trim()} style={{width:"100%",background:ACC,color:"#000",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:15,cursor:sending?"not-allowed":"pointer",opacity:sending?0.6:1}}>
+        {sending?"Enviando...":"📤 Enviar comunicado"}
+      </button>
+    </div>
+  );
+
+  if(vista==="detalle"&&selec) return(
+    <div style={{maxWidth:600,margin:"0 auto",padding:20}}>
+      <button onClick={()=>setVista("lista")} style={{background:"none",border:"none",color:ACC,cursor:"pointer",fontSize:20,padding:0,marginBottom:16}}>← Volver</button>
+      <div style={{background:CRD,borderRadius:12,padding:20,border:b1(BRD)}}>
+        <div style={{fontSize:11,color:MUT,marginBottom:6}}>{formatFecha(selec.created_at)} · {selec.autor_nombre||"Admin"} · {selec.sucursal||"Todos"}</div>
+        <h2 style={{margin:"0 0 12px",color:TXT,fontSize:18}}>{selec.titulo}</h2>
+        {selec.mensaje&&<p style={{color:TXT,fontSize:14,lineHeight:1.6,whiteSpace:"pre-wrap",margin:"0 0 16px"}}>{selec.mensaje}</p>}
+        {(selec.media||[]).length>0&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {selec.media.map((m,i)=>(
+            <div key={i} style={{borderRadius:10,overflow:"hidden"}}>
+              {m.tipo==="video"
+                ?<video src={m.url} controls style={{width:"100%",borderRadius:10}}/>
+                :<img src={m.url} style={{width:"100%",borderRadius:10}} alt=""/>}
+            </div>
+          ))}
+        </div>}
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{maxWidth:600,margin:"0 auto",padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <h2 style={{margin:0,color:TXT,fontSize:20,fontWeight:700}}>📣 Comunicados</h2>
+        {esAdmin&&<button onClick={()=>{setVista("nuevo");marcarLeidos();}} style={{background:ACC,color:"#000",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Nuevo</button>}
+      </div>
+      {visibles.length===0&&<div style={{textAlign:"center",color:MUT,padding:40,fontSize:14}}>No hay comunicados aún</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {visibles.map(c=>{
+          const noLeido=new Date(c.created_at)>new Date(ultimoVisto);
+          return(
+            <div key={c.id} onClick={()=>{setSelec(c);setVista("detalle");marcarLeidos();}} style={{background:CRD,border:b1(noLeido?ACC+"66":BRD),borderRadius:12,padding:16,cursor:"pointer",position:"relative"}}>
+              {noLeido&&<div style={{position:"absolute",top:12,right:12,width:8,height:8,background:ACC,borderRadius:"50%"}}/>}
+              <div style={{fontSize:11,color:MUT,marginBottom:4}}>{formatFecha(c.created_at)} · {c.autor_nombre||"Admin"}{c.sucursal?" · "+c.sucursal:" · Todos"}</div>
+              <div style={{color:TXT,fontWeight:600,fontSize:14,marginBottom:4}}>{c.titulo}</div>
+              {c.mensaje&&<div style={{color:MUT,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.mensaje}</div>}
+              {(c.media||[]).length>0&&<div style={{fontSize:11,color:BLU,marginTop:4}}>📎 {c.media.length} archivo{c.media.length>1?"s":""}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 // ── PublicLoyaltyPage (entry point para rutas públicas de fidelización) ────────
 export function PublicLoyaltyPage({type,param}){
