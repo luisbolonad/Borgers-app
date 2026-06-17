@@ -499,7 +499,7 @@ dbProvs,dbInv,dbRp,dbRv,dbReqs,
 dbInvSucs,dbRegs,dbVentas,dbMarcas,dbCierres,
 dbManualTemas,dbManualArticulos,dbConfig,dbComunicados
 ]=await Promise.all([
-supaGet("users","?select=id,nombre,email,rol,sucursal,activo,cedula,celular,face_ids,onboarding_done,created_at&order=created_at"),
+supaGet("users","?select=*&order=created_at"),
 supaGet("sucursales","?select=*&order=nombre"),
 supaGet("categorias_inv","?select=*"),
 supaGet("categorias_venta","?select=*"),
