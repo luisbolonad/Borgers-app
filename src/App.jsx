@@ -388,7 +388,7 @@ async function intentarLogin(){
   try{
     const res=await fetch(SUPA_URL+"/functions/v1/login",{
       method:"POST",
-      headers:{"Content-Type":"application/json","apikey":SUPA_KEY},
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_KEY},
       body:JSON.stringify({email:email.trim(),password:pass})
     });
     const data=await res.json();
