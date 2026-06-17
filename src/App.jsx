@@ -377,14 +377,25 @@ Sin resultados
   </div>;
 }
 // ── Login ───────────────────────────────────────────────────────────────────
-function Login({users,onLogin}){
+function Login({onLogin}){
 const[email,setEmail]=useState("");
 const[pass,setPass]=useState("");
 const[error,setError]=useState("");
-function intentarLogin(){
-const u=users.find(u=>u.email.toLowerCase()===email.toLowerCase()&&u.password===pass&&u.activo);
-if(u){onLogin(u);setError("");}
-else setError("Email o contraseña incorrectos");
+const[loading,setLoading]=useState(false);
+async function intentarLogin(){
+  if(loading) return;
+  setLoading(true);setError("");
+  try{
+    const res=await fetch(SUPA_URL+"/functions/v1/login",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SUPA_KEY},
+      body:JSON.stringify({email:email.trim(),password:pass})
+    });
+    const data=await res.json();
+    if(!res.ok||data.error){setError(data.error||"Email o contraseña incorrectos");}
+    else{onLogin(data.user);}
+  }catch{setError("Error de conexión. Verifica tu internet.");}
+  finally{setLoading(false);}
 }
 return <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
 <div style={{width:"100%",maxWidth:400}}>
@@ -410,7 +421,7 @@ style={{width:"100%"}} placeholder="••••••••" autoComplete="curr
 </LI>
 </div>
 {error&&<div style={{background:RED+"18",color:RED,borderRadius:8,padding:"10px 14px",fontSize:13,marginBottom:16,border:b1(RED+"44")}}>{error}</div>}
-<Btn onClick={intentarLogin} xtra={{width:"100%",textAlign:"center",padding:"12px"}}>Ingresar</Btn>
+<Btn onClick={intentarLogin} xtra={{width:"100%",textAlign:"center",padding:"12px"}}>{loading?"Verificando...":"Ingresar"}</Btn>
 </Card>
 </div>
   </div>;
@@ -488,7 +499,7 @@ dbProvs,dbInv,dbRp,dbRv,dbReqs,
 dbInvSucs,dbRegs,dbVentas,dbMarcas,dbCierres,
 dbManualTemas,dbManualArticulos,dbConfig,dbComunicados
 ]=await Promise.all([
-supaGet("users","?select=*&order=created_at"),
+supaGet("users","?select=id,nombre,email,rol,sucursal,activo,cedula,celular,face_ids,onboarding_done,created_at&order=created_at"),
 supaGet("sucursales","?select=*&order=nombre"),
 supaGet("categorias_inv","?select=*"),
 supaGet("categorias_venta","?select=*"),
@@ -573,7 +584,7 @@ if(cargando) return <div style={{minHeight:"100vh",background:BG,display:"flex",
 <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
   </div>;
 // Login gate — después de todos los hooks
-if(!userActivo) return <Login users={users} onLogin={loginUser}/>;
+if(!userActivo) return <Login onLogin={loginUser}/>;
 // Onboarding gate — personal sin onboarding completado
 if(userActivo.rol==="personal"&&!userActivo.onboarding_completo)
   return <Onboarding userActivo={userActivo} onComplete={u=>{loginUser(u);setUsers(p=>p.map(x=>x.id===u.id?u:x));}}/>;
