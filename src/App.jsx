@@ -3763,7 +3763,7 @@ return <div>
 <p style={{color:MUT,fontSize:13}}>Gestión de sucursales y categorías del sistema</p>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
-{[["general","⚙️ Datos Generales"],["sucs","🏪 Sucursales"],["geo","📍 Geo Sucursales"],["rostros","🤳 Reconocimiento Facial"],["acttypes","✅ Tipos Actividad"],["asignaciones","📋 Asignaciones"],["fidelizacion","🎯 Programas Fidelización"],["giftcards","🎁 Gift Cards"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
+{[["general","⚙️ Datos Generales"],["horarios","🕐 Horarios"],["sucs","🏪 Sucursales"],["geo","📍 Geo Sucursales"],["rostros","🤳 Reconocimiento Facial"],["acttypes","✅ Tipos Actividad"],["asignaciones","📋 Asignaciones"],["fidelizacion","🎯 Programas Fidelización"],["giftcards","🎁 Gift Cards"],["cats","Categ. Inventario"],["catv","Categ. Productos Venta"],["cat2","Categ. Inv. Sucursales"],["marcas","🏷 Marcas"],["provs","🚚 Proveedores"],["users","👤 Usuarios"]].map(([id,l])=>{
 const a=seccion===id;
 return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT,fontWeight:a?600:400}}>{l}</button>;
 })}
@@ -3842,6 +3842,7 @@ return <button key={id} onClick={()=>setSeccion(id)} style={{padding:"8px 20px",
     <div style={{fontSize:11,color:MUT,marginTop:8}}>Al agregar una sucursal podrás descargar su plantilla de requerimiento desde esta misma pantalla.</div>
   </Card>
 </div>}
+{seccion==="horarios"&&<HorariosConfig sucs={sucs} userActivo={userActivo}/>}
 {seccion==="geo"&&<GeoSucsConfig sucsData={sucsData} setSucsData={setSucsData}/>}
 {seccion==="rostros"&&<RostrosConfig users={users} setUsers={setUsers} sucs={sucs}/>}
 {seccion==="acttypes"&&<ActTiposConfig/>}
@@ -4562,6 +4563,93 @@ return <div>
 </div>;
 }
 
+// ── HorariosConfig ────────────────────────────────────────────────────────────
+const DIAS=["","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+function HorariosConfig({sucs,userActivo}){
+const esSuperadmin=userActivo?.rol==="superadmin";
+const miSucursal=userActivo?.sucursal;
+const sucsFiltradas=esSuperadmin?sucs:sucs.filter(s=>s===miSucursal);
+const[sucSel,setSucSel]=useState(sucsFiltradas[0]||"");
+const[horarios,setHorarios]=useState([]);
+const[saving,setSaving]=useState(false);
+const[form,setForm]=useState({});
+
+useEffect(()=>{
+  if(!sucSel)return;
+  supaGet("horarios_sucursal",`?sucursal=eq.${encodeURIComponent(sucSel)}&order=dia_semana`)
+    .then(rows=>{
+      const map={};
+      (rows||[]).forEach(r=>{map[r.dia_semana]={...r};});
+      setHorarios(map);
+      const f={};
+      for(let d=1;d<=7;d++){
+        f[d]={hora_entrada:map[d]?.hora_entrada?.slice(0,5)||"",hora_salida:map[d]?.hora_salida?.slice(0,5)||"",activo:map[d]?.activo??false};
+      }
+      setForm(f);
+    }).catch(()=>{});
+},[sucSel]);
+
+async function guardar(){
+  if(!sucSel)return;
+  setSaving(true);
+  try{
+    for(let d=1;d<=7;d++){
+      const f=form[d];
+      if(!f.activo){
+        if(horarios[d]?.id) await supaDelete("horarios_sucursal",`?id=eq.${horarios[d].id}`).catch(()=>{});
+        continue;
+      }
+      if(!f.hora_entrada||!f.hora_salida)continue;
+      const row={sucursal:sucSel,dia_semana:d,hora_entrada:f.hora_entrada,hora_salida:f.hora_salida,activo:true};
+      if(horarios[d]?.id){
+        await supaPatch("horarios_sucursal",`?id=eq.${horarios[d].id}`,row).catch(()=>{});
+      }else{
+        await supaPost("horarios_sucursal",row).catch(()=>{});
+      }
+    }
+    // Recargar
+    const rows=await supaGet("horarios_sucursal",`?sucursal=eq.${encodeURIComponent(sucSel)}&order=dia_semana`);
+    const map={};(rows||[]).forEach(r=>{map[r.dia_semana]={...r};});setHorarios(map);
+    alert("Horarios guardados.");
+  }catch(e){alert("Error: "+e.message);}
+  setSaving(false);
+}
+
+return <div>
+  <div style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC,letterSpacing:1,marginBottom:16}}>HORARIOS POR SUCURSAL</div>
+  <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:20,flexWrap:"wrap"}}>
+    <LI label="Sucursal">
+      <select value={sucSel} onChange={e=>setSucSel(e.target.value)} style={{minWidth:200}}>
+        {sucsFiltradas.map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
+    </LI>
+  </div>
+  <Card xtra={{padding:0,overflowX:"auto"}}>
+    <table><thead><tr>
+      <th>Día</th><th style={{textAlign:"center"}}>Activo</th>
+      <th>Entrada</th><th>Salida</th>
+    </tr></thead><tbody>
+    {[1,2,3,4,5,6,7].map(d=>{
+      const f=form[d]||{hora_entrada:"",hora_salida:"",activo:false};
+      const setF=v=>setForm(p=>({...p,[d]:{...p[d],...v}}));
+      return <tr key={d}>
+        <td style={{fontWeight:500}}>{DIAS[d]}</td>
+        <td style={{textAlign:"center"}}>
+          <input type="checkbox" checked={!!f.activo} onChange={e=>setF({activo:e.target.checked})}/>
+        </td>
+        <td><input type="time" value={f.hora_entrada} onChange={e=>setF({hora_entrada:e.target.value})} disabled={!f.activo} style={{fontFamily:"'DM Mono'",fontSize:13,width:110}}/></td>
+        <td><input type="time" value={f.hora_salida} onChange={e=>setF({hora_salida:e.target.value})} disabled={!f.activo} style={{fontFamily:"'DM Mono'",fontSize:13,width:110}}/></td>
+      </tr>;
+    })}
+    </tbody></table>
+  </Card>
+  <div style={{marginTop:16}}>
+    <Btn onClick={guardar} disabled={saving}>{saving?"Guardando...":"Guardar horarios"}</Btn>
+  </div>
+  <div style={{marginTop:12,fontSize:12,color:MUT}}>Los horarios configurados aquí se usarán para enviar recordatorios automáticos al personal.</div>
+</div>;
+}
+
 // ── GeoSucsConfig ─────────────────────────────────────────────────────────────
 function GeoSucsConfig({sucsData,setSucsData}){
 const[geoEdit,setGeoEdit]=useState({});
@@ -4829,14 +4917,47 @@ return <div>
 }
 
 // ── Asistencia (Clock-In / Clock-Out con Reconocimiento Facial) ──────────────
+function calcHoras(recs){
+  // Agrupa por user_id+fecha, empareja entrada/salida, devuelve minutos totales
+  const grupos={};
+  [...recs].sort((a,b)=>a.hora.localeCompare(b.hora)).forEach(r=>{
+    const k=`${r.user_id}_${r.fecha}`;
+    if(!grupos[k])grupos[k]=[];
+    grupos[k].push(r);
+  });
+  let mins=0;
+  Object.values(grupos).forEach(g=>{
+    let entrada=null;
+    g.forEach(r=>{
+      if(r.tipo==="entrada"){entrada=r.hora;}
+      else if(r.tipo==="salida"&&entrada){
+        const [eh,em]=entrada.split(":").map(Number);
+        const [sh,sm]=r.hora.split(":").map(Number);
+        let diff=(sh*60+sm)-(eh*60+em);
+        if(diff<0)diff+=24*60; // turno cruza medianoche
+        mins+=diff;
+        entrada=null;
+      }
+    });
+  });
+  return mins;
+}
+function fmtHoras(mins){
+  const h=Math.floor(mins/60),m=mins%60;
+  return `${h}h ${m.toString().padStart(2,"0")}m`;
+}
 function Asistencia({userActivo,sucsData,users}){
 const esAdmin=userActivo?.rol==="superadmin"||userActivo?.rol==="admin_suc";
+const esSuperadmin=userActivo?.rol==="superadmin";
 const esKiosko=userActivo?.rol==="kiosko";
 const userId=userActivo?.id;
 const hoyFecha=today();
 const[clockRecs,setClockRecs]=useState([]);
 const[loading,setLoading]=useState(true);
 const[fechaFiltro,setFechaFiltro]=useState(hoyFecha);
+const[vistaAdmin,setVistaAdmin]=useState("dia"); // "dia" | "semana" | "mes"
+const[recsExtended,setRecsExtended]=useState([]); // para semana/mes
+const[loadingExt,setLoadingExt]=useState(false);
 const videoRef=useRef(null);
 const streamRef=useRef(null);
 const scanIntervalRef=useRef(null);
@@ -4851,10 +4972,40 @@ const[scanning,setScanning]=useState(false);
 const miSucursal=userActivo?.sucursal;
 const sucData=sucsData.find(s=>s.nombre===miSucursal);
 const geoConfigurado=sucData?.lat&&sucData?.lng;
+const userMap={};users.forEach(u=>{userMap[u.id]=u;});
+
+// Filtrar por sucursal: admin_suc solo ve su propia sucursal
+const userIdsDeSuc=esSuperadmin?null:users.filter(u=>u.sucursal===miSucursal).map(u=>u.id);
+const clockRecsFiltrados=esAdmin&&!esSuperadmin
+  ?clockRecs.filter(r=>userIdsDeSuc.includes(r.user_id))
+  :clockRecs;
+
 const myRecs=clockRecs.filter(r=>r.user_id===userId);
 const lastRec=myRecs[0];
 const dentroAhora=lastRec?.tipo==="entrada";
-const userMap={};users.forEach(u=>{userMap[u.id]=u;});
+
+// Cargar rango extendido (semana / mes)
+useEffect(()=>{
+  if(!esAdmin||vistaAdmin==="dia")return;
+  setLoadingExt(true);
+  const d=new Date(fechaFiltro+"T12:00:00");
+  let desde,hasta;
+  if(vistaAdmin==="semana"){
+    const dow=d.getDay()===0?6:d.getDay()-1;
+    const lun=new Date(d);lun.setDate(d.getDate()-dow);
+    const dom=new Date(lun);dom.setDate(lun.getDate()+6);
+    desde=lun.toISOString().slice(0,10);hasta=dom.toISOString().slice(0,10);
+  }else{
+    desde=fechaFiltro.slice(0,7)+"-01";
+    const ult=new Date(d.getFullYear(),d.getMonth()+1,0);
+    hasta=ult.toISOString().slice(0,10);
+  }
+  supaGet("clock_registros",`?fecha=gte.${desde}&fecha=lte.${hasta}&order=fecha.asc,hora.asc`)
+    .then(d=>setRecsExtended(d||[]))
+    .catch(()=>{})
+    .finally(()=>setLoadingExt(false));
+},[vistaAdmin,fechaFiltro,esAdmin]);
+
 useEffect(()=>{
   setLoading(true);
   const q=esAdmin?`?fecha=eq.${fechaFiltro}&order=created_at.desc`:`?user_id=eq.${userId}&fecha=eq.${fechaFiltro}&order=created_at.desc`;
@@ -5032,26 +5183,97 @@ return <div>
     {geoMsg&&<div style={{marginTop:12,fontSize:13,padding:"10px 14px",borderRadius:8,background:geoMsg.startsWith("📍")||geoMsg.startsWith("🔍")?ACC+"11":RED+"11",color:geoMsg.startsWith("📍")||geoMsg.startsWith("🔍")?ACC:RED}}>{geoMsg}</div>}
   </Card>
 </>}
-<div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:16,flexWrap:"wrap"}}>
-  {esAdmin&&<LI label="Fecha"><input type="date" value={fechaFiltro} onChange={e=>setFechaFiltro(e.target.value)} style={{width:180}}/></LI>}
-  <div style={{fontSize:13,color:MUT}}>{clockRecs.length} registro(s)</div>
+{esAdmin&&<>
+  {/* Pestañas vista admin */}
+  <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+    {["dia","semana","mes"].map(v=><button key={v} onClick={()=>setVistaAdmin(v)} style={{padding:"6px 16px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(vistaAdmin===v?ACC:BRD),background:vistaAdmin===v?ACC+"18":"transparent",color:vistaAdmin===v?ACC:MUT,fontWeight:vistaAdmin===v?600:400}}>
+      {v==="dia"?"📅 Día":v==="semana"?"📆 Semana":"🗓 Mes"}
+    </button>)}
+    <div style={{flex:1}}/>
+    <LI label="Fecha referencia" xtra={{marginBottom:0}}><input type="date" value={fechaFiltro} onChange={e=>setFechaFiltro(e.target.value)} style={{width:160}}/></LI>
+    <Btn v="ghost" s="sm" onClick={()=>{
+      const recs=vistaAdmin==="dia"?clockRecsFiltrados:recsExtended.filter(r=>esSuperadmin||userIdsDeSuc?.includes(r.user_id));
+      if(!window.XLSX){alert("SheetJS cargando, intenta en un momento.");return;}
+      // Construir resumen por empleado+fecha
+      const filas=[];
+      const usersDeFiltro=[...new Set(recs.map(r=>r.user_id))];
+      const fechas=[...new Set(recs.map(r=>r.fecha))].sort();
+      usersDeFiltro.forEach(uid=>{
+        fechas.forEach(fecha=>{
+          const recsDelDia=recs.filter(r=>r.user_id===uid&&r.fecha===fecha).sort((a,b)=>a.hora.localeCompare(b.hora));
+          if(!recsDelDia.length)return;
+          const entradas=recsDelDia.filter(r=>r.tipo==="entrada");
+          const salidas=recsDelDia.filter(r=>r.tipo==="salida");
+          const mins=calcHoras(recsDelDia);
+          filas.push({
+            "Empleado":userMap[uid]?.nombre||"#"+uid,
+            "Sucursal":userMap[uid]?.sucursal||"",
+            "Fecha":fecha,
+            "Entradas":entradas.map(r=>r.hora).join(", "),
+            "Salidas":salidas.map(r=>r.hora).join(", "),
+            "Horas trabajadas":fmtHoras(mins),
+            "Total minutos":mins,
+          });
+        });
+      });
+      const ws=window.XLSX.utils.json_to_sheet(filas);
+      const wb=window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb,ws,"Asistencia");
+      window.XLSX.writeFile(wb,`asistencia_${vistaAdmin}_${fechaFiltro}.xlsx`);
+    }}>📥 Exportar Excel</Btn>
+  </div>
+
+  {/* Vista resumen por empleado (semana/mes) */}
+  {vistaAdmin!=="dia"&&<Card xtra={{padding:0,marginBottom:16,overflowX:"auto"}}>
+    <div style={{padding:"12px 20px",borderBottom:b1(BRD),fontFamily:"'Bebas Neue'",fontSize:15,color:ACC,letterSpacing:1}}>
+      RESUMEN {vistaAdmin==="semana"?"SEMANA":"MES"} · HORAS TRABAJADAS
+    </div>
+    {loadingExt?<div style={{padding:24,textAlign:"center",color:MUT,fontSize:13}}>Cargando...</div>
+    :<table><thead><tr><th>Empleado</th><th>Sucursal</th><th style={{textAlign:"right"}}>Total horas</th></tr></thead><tbody>
+    {[...new Set(recsExtended.filter(r=>esSuperadmin||userIdsDeSuc?.includes(r.user_id)).map(r=>r.user_id))].map(uid=>{
+      const recsUsr=recsExtended.filter(r=>r.user_id===uid);
+      const mins=calcHoras(recsUsr);
+      return <tr key={uid}>
+        <td style={{fontWeight:500}}>{userMap[uid]?.nombre||"#"+uid}</td>
+        <td style={{fontSize:12,color:MUT}}>{userMap[uid]?.sucursal||""}</td>
+        <td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:13}}>{fmtHoras(mins)}</td>
+      </tr>;
+    })}
+    </tbody></table>}
+  </Card>}
+</>}
+
+<div style={{display:"flex",gap:12,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+  <div style={{fontFamily:"'Bebas Neue'",fontSize:15,color:ACC,letterSpacing:1}}>{esAdmin?"REGISTROS DEL EQUIPO":"MIS REGISTROS"}</div>
+  <div style={{fontSize:13,color:MUT}}>{clockRecsFiltrados.length} registro(s)</div>
 </div>
 <Card xtra={{padding:0}}>
-  <div style={{padding:"14px 20px",borderBottom:b1(BRD),fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1}}>{esAdmin?"REGISTROS DEL EQUIPO":"MIS REGISTROS"}</div>
   {loading?<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>Cargando...</div>
-  :clockRecs.length===0?<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>Sin registros para esta fecha.</div>
+  :clockRecsFiltrados.length===0?<div style={{padding:32,textAlign:"center",color:MUT,fontSize:13}}>Sin registros para esta fecha.</div>
   :<table><thead><tr>
     {esAdmin&&<th>Empleado</th>}
     <th>Tipo</th><th>Hora</th><th style={{textAlign:"center"}}>Distancia</th>
     {esAdmin&&<th>Sucursal</th>}
+    {esAdmin&&<th style={{textAlign:"right"}}>Horas día</th>}
   </tr></thead><tbody>
-  {clockRecs.map(r=><tr key={r.id}>
-    {esAdmin&&<td style={{fontWeight:500}}>{userMap[r.user_id]?.nombre||"#"+r.user_id}</td>}
-    <td><Bdg c={r.tipo==="entrada"?"green":"red"}>{r.tipo==="entrada"?"🟢 Entrada":"🔴 Salida"}</Bdg></td>
-    <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{r.hora}</td>
-    <td style={{textAlign:"center",fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{r.distancia_metros!=null?r.distancia_metros+"m":"—"}</td>
-    {esAdmin&&<td style={{fontSize:12,color:MUT}}>{r.sucursal}</td>}
-  </tr>)}
+  {Object.entries(
+    clockRecsFiltrados.reduce((acc,r)=>{
+      const k=`${r.user_id}_${r.fecha}`;
+      if(!acc[k])acc[k]=[];
+      acc[k].push(r);
+      return acc;
+    },{})
+  ).flatMap(([k,recs])=>{
+    const mins=calcHoras(recs);
+    return recs.map((r,i)=><tr key={r.id}>
+      {esAdmin&&<td style={{fontWeight:500}}>{userMap[r.user_id]?.nombre||"#"+r.user_id}</td>}
+      <td><Bdg c={r.tipo==="entrada"?"green":"red"}>{r.tipo==="entrada"?"🟢 Entrada":"🔴 Salida"}</Bdg></td>
+      <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{r.hora}</td>
+      <td style={{textAlign:"center",fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{r.distancia_metros!=null?r.distancia_metros+"m":"—"}</td>
+      {esAdmin&&<td style={{fontSize:12,color:MUT}}>{r.sucursal}</td>}
+      {esAdmin&&<td style={{textAlign:"right",fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{i===0&&mins>0?fmtHoras(mins):"—"}</td>}
+    </tr>);
+  })}
   </tbody></table>}
 </Card>
 </div>;
