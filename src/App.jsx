@@ -5097,7 +5097,9 @@ async function scanKiosko(){
       const lastForUser=(await supaGet("clock_registros",`?user_id=eq.${matchedUserId}&order=created_at.desc&limit=1`))||[];
       const tipo=lastForUser[0]?.tipo==="entrada"?"salida":"entrada";
       const hora=new Date().toTimeString().slice(0,5);
-      const rec={user_id:parseInt(matchedUserId),sucursal:miSucursal||"",tipo,fecha:hoyFecha,hora,lat:null,lng:null,distancia_metros:null,foto_url:null};
+      // Si es salida, usar la fecha del turno que inició (para turnos que cruzan medianoche)
+      const fecha=tipo==="salida"&&lastForUser[0]?.fecha?lastForUser[0].fecha:hoyFecha;
+      const rec={user_id:parseInt(matchedUserId),sucursal:miSucursal||"",tipo,fecha,hora,lat:null,lng:null,distancia_metros:null,foto_url:null};
       const[created]=await supaPost("clock_registros",rec);
       const nombre=userMap[parseInt(matchedUserId)]?.nombre||"Empleado";
       setMsg({type:"ok",text:`✅ ${nombre} — ${tipo==="entrada"?"🟢 ENTRADA":"🔴 SALIDA"} · ${hora}`});
@@ -5139,7 +5141,9 @@ async function registrarConRostro(){
       setRegistrando(false);return;
     }
     const hora=new Date().toTimeString().slice(0,5);
-    const rec={user_id:userId,sucursal:miSucursal||"",tipo:geoOk.tipo,fecha:hoyFecha,hora,lat:geoOk.lat,lng:geoOk.lng,distancia_metros:geoOk.distancia,foto_url:null};
+    // Si es salida, usar la fecha del turno que inició (para turnos que cruzan medianoche)
+    const fechaReg=geoOk.tipo==="salida"&&lastRec?.fecha?lastRec.fecha:hoyFecha;
+    const rec={user_id:userId,sucursal:miSucursal||"",tipo:geoOk.tipo,fecha:fechaReg,hora,lat:geoOk.lat,lng:geoOk.lng,distancia_metros:geoOk.distancia,foto_url:null};
     const[created]=await supaPost("clock_registros",rec);
     setClockRecs(p=>[created||{...rec,id:Date.now()},...p]);
     setGeoMsg(null);setGeoOk(null);
