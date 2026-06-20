@@ -5010,7 +5010,13 @@ const clockRecsFiltrados=esAdmin&&!esSuperadmin
   :clockRecs;
 
 const myRecs=clockRecs.filter(r=>r.user_id===userId);
-const lastRec=myRecs[0];
+const[lastRecReal,setLastRecReal]=useState(null);
+useEffect(()=>{
+  if(esAdmin||esKiosko||!userId)return;
+  supaGet("clock_registros",`?user_id=eq.${userId}&order=created_at.desc&limit=1`)
+    .then(d=>setLastRecReal(d?.[0]||null)).catch(()=>{});
+},[]);
+const lastRec=lastRecReal??myRecs[0];
 const dentroAhora=lastRec?.tipo==="entrada";
 
 // Cargar rango extendido (semana / mes)
