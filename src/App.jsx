@@ -5282,6 +5282,8 @@ return <div>
 // ── Actividades ──────────────────────────────────────────────────────────────
 function Actividades({userActivo,sucsData,users}){
 const esAdmin=userActivo?.rol==="superadmin"||userActivo?.rol==="admin_suc";
+const esSuperadmin=userActivo?.rol==="superadmin";
+const miSucursal=userActivo?.sucursal;
 const userId=userActivo?.id;
 const hoyFecha=today();
 const hoyNum=new Date().getDay()===0?7:new Date().getDay();
@@ -5296,8 +5298,14 @@ const[archivos,setArchivos]=useState([]);
 const[subiendo,setSubiendo]=useState(false);
 const[fechaRep,setFechaRep]=useState(hoyFecha);
 const[repRecs,setRepRecs]=useState([]);
+const[filtroSuc,setFiltroSuc]=useState("");
+const[filtroUser,setFiltroUser]=useState("");
 const mediaRef=useRef(null);
 const mediaVideoRef=useRef(null);
+
+// IDs de empleados de la sucursal del admin
+const userIdsDeSuc=esSuperadmin?null:users.filter(u=>u.sucursal===miSucursal).map(u=>u.id);
+
 useEffect(()=>{
   Promise.all([
     supaGet("act_tipos","?activo=eq.true&order=nombre"),
@@ -5307,8 +5315,8 @@ useEffect(()=>{
 },[]);
 useEffect(()=>{
   if(!esAdmin)return;
-  const q=esAdmin?`?fecha=eq.${fechaRep}&order=created_at.desc`:`?user_id=eq.${userId}&fecha=eq.${fechaRep}&order=created_at.desc`;
-  supaGet("act_registros",q).then(d=>setRepRecs(d||[])).catch(console.error);
+  supaGet("act_registros",`?fecha=eq.${fechaRep}&order=created_at.desc`)
+    .then(d=>setRepRecs(d||[])).catch(console.error);
 },[fechaRep]);
 // Tareas asignadas para hoy — expandidas en slots por turno
 const horaActual=new Date().toTimeString().slice(0,5);
@@ -5481,30 +5489,51 @@ return <div>
 {/* ── Tab: Reporte (admin) ── */}
 {esAdmin&&tab==="reporte"&&<div>
   <div style={{display:"flex",gap:12,alignItems:"flex-end",marginBottom:20,flexWrap:"wrap"}}>
-    <LI label="Fecha"><input type="date" value={fechaRep} onChange={e=>setFechaRep(e.target.value)} style={{width:180}}/></LI>
-    <div style={{fontSize:13,color:MUT}}>{repRecs.length} registro(s)</div>
+    <LI label="Fecha"><input type="date" value={fechaRep} onChange={e=>setFechaRep(e.target.value)} style={{width:160}}/></LI>
+    {esSuperadmin&&<LI label="Sucursal">
+      <select value={filtroSuc} onChange={e=>{setFiltroSuc(e.target.value);setFiltroUser("");}} style={{minWidth:160}}>
+        <option value="">Todas</option>
+        {[...new Set(users.map(u=>u.sucursal).filter(Boolean))].sort().map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
+    </LI>}
+    {esSuperadmin&&<LI label="Responsable">
+      <select value={filtroUser} onChange={e=>setFiltroUser(e.target.value)} style={{minWidth:160}}>
+        <option value="">Todos</option>
+        {users.filter(u=>!filtroSuc||u.sucursal===filtroSuc).map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+      </select>
+    </LI>}
   </div>
-  {repRecs.length===0?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin registros de actividades para esta fecha.</Card>:
-  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-    {repRecs.map(r=><Card key={r.id} xtra={{padding:"14px 16px"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
-        <div>
-          <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>{r.tipo_nombre||"Actividad libre"}</div>
-          <div style={{fontSize:12,color:MUT,marginBottom:6}}>
-            {userMap[r.user_id]?.nombre||"#"+r.user_id} · {r.sucursal} · {r.hora}
-            {r.asignacion_id&&<Bdg c="blue" xtra={{marginLeft:8,fontSize:10}}>Asignada</Bdg>}
+  {(()=>{
+    let recs=repRecs;
+    // admin_suc: solo ve su sucursal
+    if(!esSuperadmin) recs=recs.filter(r=>userIdsDeSuc.includes(r.user_id));
+    // superadmin: filtros opcionales
+    if(filtroSuc) recs=recs.filter(r=>r.sucursal===filtroSuc||(userMap[r.user_id]?.sucursal===filtroSuc));
+    if(filtroUser) recs=recs.filter(r=>String(r.user_id)===String(filtroUser));
+    return recs.length===0
+      ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin registros de actividades para esta fecha.</Card>
+      :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{fontSize:13,color:MUT,marginBottom:4}}>{recs.length} registro(s)</div>
+        {recs.map(r=><Card key={r.id} xtra={{padding:"14px 16px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>{r.tipo_nombre||"Actividad libre"}</div>
+              <div style={{fontSize:12,color:MUT,marginBottom:6}}>
+                {userMap[r.user_id]?.nombre||"#"+r.user_id} · {r.sucursal} · {r.hora}
+                {r.asignacion_id&&<Bdg c="blue" xtra={{marginLeft:8,fontSize:10}}>Asignada</Bdg>}
+              </div>
+              {r.nota&&<div style={{fontSize:12,fontStyle:"italic",color:MUT}}>{r.nota}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {(r.archivos||[]).map((a,i)=>a.tipo==="foto"
+                ?<a key={i} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt="" style={{width:56,height:56,objectFit:"cover",borderRadius:6,border:b1(BRD)}}/></a>
+                :<a key={i} href={a.url} target="_blank" rel="noreferrer"><div style={{width:56,height:56,borderRadius:6,border:b1(BRD),background:FNT,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🎥</div></a>
+              )}
+            </div>
           </div>
-          {r.nota&&<div style={{fontSize:12,fontStyle:"italic",color:MUT}}>{r.nota}</div>}
-        </div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {(r.archivos||[]).map((a,i)=>a.tipo==="foto"
-            ?<a key={i} href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt="" style={{width:56,height:56,objectFit:"cover",borderRadius:6,border:b1(BRD)}}/></a>
-            :<a key={i} href={a.url} target="_blank" rel="noreferrer"><div style={{width:56,height:56,borderRadius:6,border:b1(BRD),background:FNT,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🎥</div></a>
-          )}
-        </div>
-      </div>
-    </Card>)}
-  </div>}
+        </Card>)}
+      </div>;
+  })()}
 </div>}
 {/* Modal completar tarea */}
 {modalCompletar&&tab==="tareas"&&<div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
