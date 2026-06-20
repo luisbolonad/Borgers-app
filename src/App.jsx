@@ -3673,7 +3673,7 @@ return <tr key={r.id}><td style={{fontWeight:500}}>{r.sucursal}</td><td style={{
   </div>;
 }
 // ── Configuración ───────────────────────────────────────────────────────────
-function Config({sucs,setSucs,sucsData,setSucsData,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede,marcas,setMarcas,sucsMarcas,setSucsMarcas,ivaRate=0.15,setIvaRate}){
+function Config({sucs,setSucs,sucsData,setSucsData,cats,setCats,catV,setCatV,cats2,setCats2,rp,xlsxReady,invSucs,setInvSucs,setRegsSucs,provs,setProvs,users,setUsers,puede,marcas,setMarcas,sucsMarcas,setSucsMarcas,ivaRate=0.15,setIvaRate,userActivo}){
 const[seccion,setSeccion]=useState("general");
 const[ivaInput,setIvaInput]=useState((ivaRate*100).toFixed(1));
 async function guardarIva(){
