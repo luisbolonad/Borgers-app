@@ -4918,20 +4918,19 @@ return <div>
 
 // ── Asistencia (Clock-In / Clock-Out con Reconocimiento Facial) ──────────────
 function calcMinsDelDia(recsDelDia){
-  // Empareja entrada/salida ordenados por hora, devuelve minutos trabajados
-  const sorted=[...recsDelDia].sort((a,b)=>a.hora.localeCompare(b.hora));
-  let mins=0,entrada=null;
-  sorted.forEach(r=>{
-    if(r.tipo==="entrada"){entrada=r.hora;}
-    else if(r.tipo==="salida"&&entrada){
-      const[eh,em]=entrada.split(":").map(Number);
-      const[sh,sm]=r.hora.split(":").map(Number);
-      let diff=(sh*60+sm)-(eh*60+em);
-      if(diff<0)diff+=24*60;
-      mins+=diff;
-      entrada=null;
-    }
-  });
+  // Separa entradas y salidas, las ordena y empareja por posición
+  // Así funciona correctamente con turnos que cruzan medianoche (salida 00:12 < entrada 11:53)
+  const entradas=recsDelDia.filter(r=>r.tipo==="entrada").map(r=>r.hora).sort();
+  const salidas=recsDelDia.filter(r=>r.tipo==="salida").map(r=>r.hora).sort();
+  let mins=0;
+  const pares=Math.min(entradas.length,salidas.length);
+  for(let i=0;i<pares;i++){
+    const[eh,em]=entradas[i].split(":").map(Number);
+    const[sh,sm]=salidas[i].split(":").map(Number);
+    let diff=(sh*60+sm)-(eh*60+em);
+    if(diff<0)diff+=24*60; // turno cruza medianoche
+    mins+=diff;
+  }
   return mins;
 }
 function calcHoras(recs){
