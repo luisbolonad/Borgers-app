@@ -2287,6 +2287,19 @@ function Manual({manualTemas,setManualTemas,manualArticulos,setManualArticulos,u
     {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
   </div>;
 }
+function horaA24h(h){
+  // Convierte "12:00 pm", "01:30 am", "23:00 pm", "23:00" → "HH:MM" 24h
+  if(!h)return "";
+  const s=h.trim().toLowerCase();
+  const m24=/^([01][0-9]|2[0-3]):([0-5][0-9])$/.exec(s);
+  if(m24)return s; // ya está en 24h
+  const m12=/^(0?[0-9]|1[0-2]):([0-5][0-9])\s*(am|pm)$/.exec(s);
+  if(!m12)return s;
+  let hh=parseInt(m12[1]),mm=m12[2],periodo=m12[3];
+  if(periodo==="am"&&hh===12)hh=0;
+  else if(periodo==="pm"&&hh!==12)hh+=12;
+  return String(hh).padStart(2,"0")+":"+mm;
+}
 function CierreCaja({cierresCaja,setCierresCaja,sucs,userActivo,puede}){
 const esAdmin=puede("config_total")||userActivo?.rol==="admin_suc";
 const sucsV=userActivo?.rol==="superadmin"?sucs:sucs.filter(s=>s===userActivo?.sucursal);
@@ -2315,7 +2328,7 @@ function abrirNuevo(){
   setVista("form");
 }
 function abrirEditar(c){
-  setForm({fecha:(c.fecha||"").slice(0,10)||today(),caja_num:c.caja_num,responsable:c.responsable||"",hora_inicio:c.hora_inicio||"",hora_termino:c.hora_termino||"",ini_billetes:{...F0_BILL,...(c.ini_billetes||{})},ini_monedas:{...F0_COIN,...(c.ini_monedas||{})},fin_billetes:{...F0_BILL,...(c.fin_billetes||{})},fin_monedas:{...F0_COIN,...(c.fin_monedas||{})},ventas_medianet:c.ventas_medianet||0,nota_credito:c.nota_credito||0,pedidos_ya:c.pedidos_ya||0,uber:c.uber||0,rappi:c.rappi||0,pagina_web:c.pagina_web||0,transferencias:c.transferencias||0,propina:c.propina||0,observaciones:c.observaciones||"",pago_delivery:c.pago_delivery||0,gastos_autorizados:c.gastos_autorizados||0,reposicion_caja:c.reposicion_caja||0,total_contificado:c.total_contificado||0,venta_efectivo_entregado:c.venta_efectivo_entregado||0});
+  setForm({fecha:(c.fecha||"").slice(0,10)||today(),caja_num:c.caja_num,responsable:c.responsable||"",hora_inicio:horaA24h(c.hora_inicio||""),hora_termino:horaA24h(c.hora_termino||""),ini_billetes:{...F0_BILL,...(c.ini_billetes||{})},ini_monedas:{...F0_COIN,...(c.ini_monedas||{})},fin_billetes:{...F0_BILL,...(c.fin_billetes||{})},fin_monedas:{...F0_COIN,...(c.fin_monedas||{})},ventas_medianet:c.ventas_medianet||0,nota_credito:c.nota_credito||0,pedidos_ya:c.pedidos_ya||0,uber:c.uber||0,rappi:c.rappi||0,pagina_web:c.pagina_web||0,transferencias:c.transferencias||0,propina:c.propina||0,observaciones:c.observaciones||"",pago_delivery:c.pago_delivery||0,gastos_autorizados:c.gastos_autorizados||0,reposicion_caja:c.reposicion_caja||0,total_contificado:c.total_contificado||0,venta_efectivo_entregado:c.venta_efectivo_entregado||0});
   setEditId(c.id);
   setModoVer(false);
   setVista("form");
