@@ -1100,13 +1100,29 @@ async function saveRepair(){
 }
 const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:"",marcas:[]};
 const fP={nombre:"",unidad:"und",rendimiento:1,ings:[],marcas:[]};
+const fC0={nombre:"",categoria:catV[0]||"",precio:0,slots:[]};
 const[fv,setFv]=useState(fV);
 const[fp,setFp]=useState(fP);
+const[fC,setFC]=useState(fC0);
 const CV=catV;
 // Lista única de nombres de ítems de sucursal para el datalist
 const sucItemsUnicos=[...new Set((invSucs||[]).flatMap(s=>s.items.map(i=>i.nombre)))].sort((a,b)=>a.localeCompare(b,"es"));
 function ccv(ings){return ings.reduce((s,ing)=>{if(ing.tipo==="inv"){const item=inv.find(i=>i.id===ing.refId);return s+(item?item.costo*ing.cantidad:0);}else{const r=rp.find(x=>x.id===ing.refId);if(!r)return s;const cp=r.ings.reduce((cs,ri)=>{const item=inv.find(i=>i.id===ri.invId);return cs+(item?item.costo*ri.cantidad:0);},0);return s+(cp/r.rendimiento)*ing.cantidad;}},0);}
+function ccCombo(combo){return(combo.slots||[]).reduce((t,slot)=>{if(slot.tipo==="fijo_inv"){const it=inv.find(i=>i.id===slot.refId);return t+(it?.costo||0)*(slot.cantidad||1);}if(slot.tipo==="fijo_rv"){const sub=rv.find(r=>r.id===slot.recetaId);return t+(sub?ccv(sub.ings||[]):0);}return t;},0);}
 async function sv(){if(!fv.nombre)return;if(editR){await supaPatch("recetas_venta","?id=eq."+editR.id,fv).catch(console.error);setRv(p=>p.map(r=>r.id===editR.id?{...editR,...fv}:r));}else{const[created]=await supaPost("recetas_venta",fv).catch(()=>[fv]);setRv(p=>[...p,created||fv]);}setModal(null);setEditR(null);setFv(fV);}
+async function sc(){
+  if(!fC.nombre)return;
+  const data={...fC,tipo:"combo",ings:[]};
+  if(editR){await supaPatch("recetas_venta","?id=eq."+editR.id,data).catch(console.error);setRv(p=>p.map(r=>r.id===editR.id?{...r,...data}:r));}
+  else{const[created]=await supaPost("recetas_venta",data).catch(()=>[data]);setRv(p=>[...p,created||data]);}
+  setModal(null);setEditR(null);setFC(fC0);
+}
+function addSlot(tipo){setFC(p=>({...p,slots:[...p.slots,tipo==="fijo_inv"?{tipo:"fijo_inv",nombre:"",refId:inv[0]?.id||0,sucItemNombre:"",unidad:"und",cantidad:1}:tipo==="fijo_rv"?{tipo:"fijo_rv",nombre:"",recetaId:rv.filter(r=>r.tipo!=="combo")[0]?.id||0}:tipo==="var_inv"?{tipo:"var_inv",nombre:"",opciones:[]}:{tipo:"var_rv",nombre:"",opciones:[]}]}));}
+function updSlot(idx,val){setFC(p=>({...p,slots:p.slots.map((s,i)=>i===idx?val:s)}));}
+function delSlot(idx){setFC(p=>({...p,slots:p.slots.filter((_,i)=>i!==idx)}));}
+function addOpt(slotIdx){setFC(p=>({...p,slots:p.slots.map((s,i)=>{if(i!==slotIdx)return s;const opt=s.tipo==="var_inv"?{nombre:"",refId:inv[0]?.id||0,sucItemNombre:"",unidad:"und",cantidad:1}:{nombre:"",recetaId:rv.filter(r=>r.tipo!=="combo")[0]?.id||0};return{...s,opciones:[...(s.opciones||[]),opt]};})}));}
+function updOpt(slotIdx,optIdx,val){setFC(p=>({...p,slots:p.slots.map((s,i)=>i!==slotIdx?s:{...s,opciones:s.opciones.map((o,j)=>j===optIdx?val:o)})}));}
+function delOpt(slotIdx,optIdx){setFC(p=>({...p,slots:p.slots.map((s,i)=>i!==slotIdx?s:{...s,opciones:s.opciones.filter((_,j)=>j!==optIdx)})}));}
 async function sp2(){if(!fp.nombre)return;if(editR){await supaPatch("recetas_produccion","?id=eq."+editR.id,fp).catch(console.error);setRp(p=>p.map(r=>r.id===editR.id?{...editR,...fp}:r));}else{const[created]=await supaPost("recetas_produccion",{...fp,stock:0}).catch(()=>[fp]);const nid=created?.id||Date.now();setRp(p=>[...p,{...fp,id:nid}]);setSp(p=>[...p,{recetaId:nid,stock:0}]);}setModal(null);setEditR(null);setFp(fP);}
 // FIX: al cambiar ingrediente, actualizar unidad automáticamente
 function cambiarIngV(idx,campo,valor){
@@ -1135,17 +1151,50 @@ return <div>
 {totalRotos>0&&<Btn v="ghost" onClick={()=>{setRepairMap({});setRepairModal(true);}} style={{borderColor:RED,color:RED,background:RED+"11"}}>
   🔧 Reparar ingredientes ({totalRotos} rotos)
 </Btn>}
-{(!puede||puede("editar_recetas"))&&<Btn onClick={()=>{setEditR(null);st==="v"?setFv(fV):setFp(fP);setModal("f");}}>+ Nueva Receta</Btn>}
+{(!puede||puede("editar_recetas"))&&<Btn onClick={()=>{setEditR(null);if(st==="v"){setFv(fV);setModal("f");}else if(st==="c"){setFC(fC0);setModal("combo");}else{setFp(fP);setModal("f");}}}>+ {st==="c"?"Nuevo Combo":"Nueva Receta"}</Btn>}
 </div>
 </div>
 <div style={{display:"flex",gap:8,marginBottom:20}}>
-{[["v","Productos de Venta"],["p","Producción Interna"]]
+{[["v","Productos de Venta"],["c","🍔 Combos"],["p","Producción Interna"]]
 .filter(([id])=>id!=="p"||(puede&&(puede("editar_recetas")||puede("ver_prod"))))
 .map(([id,l])=>{const a=st===id;return <button key={id} onClick={()=>setSt(id)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT}}>{l}</button>;})}
 </div>
 
+{st==="c"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+  {rv.filter(r=>r.tipo==="combo").map(r=>{
+    const cFijo=ccCombo(r);
+    const tieneVar=(r.slots||[]).some(s=>s.tipo==="var_inv"||s.tipo==="var_rv");
+    return <Card key={r.id}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+        <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="purple">Combo</Bdg>{r.categoria&&<Bdg c="blue" xtra={{marginLeft:4}}>{r.categoria}</Bdg>}</div>
+        {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{setEditR(r);setFC({nombre:r.nombre,categoria:r.categoria||"",precio:r.precio||0,slots:r.slots||[]});setModal("combo");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+          <button onClick={()=>setConfirmar({msg:"¿Eliminar combo "+r.nombre+"?",fn:()=>{setRv(p=>p.filter(x=>x.id!==r.id));supaDelete("recetas_venta","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
+        </div>}
+      </div>
+      <div style={{borderTop:b1(BRD),paddingTop:10,marginBottom:10}}>
+        {(r.slots||[]).map((slot,i)=><div key={i} style={{fontSize:12,marginBottom:4,display:"flex",gap:6,alignItems:"flex-start"}}>
+          <span style={{color:(slot.tipo==="var_inv"||slot.tipo==="var_rv")?ACC:MUT,fontWeight:500,flexShrink:0}}>
+            {slot.tipo==="fijo_inv"?"📦":slot.tipo==="fijo_rv"?"🍔":slot.tipo==="var_inv"?"🔀📦":"🔀🍔"}
+          </span>
+          <div>
+            <span style={{color:TXT}}>{slot.nombre||"Sin nombre"}</span>
+            {(slot.tipo==="var_inv"||slot.tipo==="var_rv")&&<span style={{color:MUT,fontSize:11}}> ({(slot.opciones||[]).length} opciones)</span>}
+            {slot.tipo==="fijo_inv"&&<span style={{color:MUT}}> × {slot.cantidad} {slot.unidad}</span>}
+          </div>
+        </div>)}
+      </div>
+      {(!puede||puede("editar_recetas"))&&<div style={{borderTop:b1(BRD),paddingTop:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:MUT}}>Costo fijo</span><span style={{fontFamily:"'DM Mono'",fontSize:12}}>{fmt(cFijo)}{tieneVar&&<span style={{color:MUT}}> + var.</span>}</span></div>
+        <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:12,color:MUT}}>Precio</span><span style={{fontFamily:"'DM Mono'",fontSize:12,color:ACC}}>{fmt(r.precio||0)}</span></div>
+      </div>}
+    </Card>;
+  })}
+  {rv.filter(r=>r.tipo==="combo").length===0&&<div style={{color:MUT,fontSize:13,padding:24}}>No hay combos creados aún. Haz clic en "+ Nuevo Combo" para empezar.</div>}
+</div>}
+
 {st==="v"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
-  {rv.map(r=>{const c=ccv(r.ings),m=r.precio>0?((r.precio-c)/r.precio*100):0;return <Card key={r.id}>
+  {rv.filter(r=>r.tipo!=="combo").map(r=>{const c=ccv(r.ings),m=r.precio>0?((r.precio-c)/r.precio*100):0;return <Card key={r.id}>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
       <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="blue">{r.categoria}</Bdg>{r.codigo&&<span style={{fontSize:11,fontFamily:"'DM Mono'",color:MUT,marginLeft:6}}>#{r.codigo}</span>}</div>
       {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
@@ -1307,6 +1356,61 @@ return <div>
   <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={sp2}>Guardar</Btn></div>
 </Mdl>}
 {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
+
+{modal==="combo"&&<Mdl title={editR?"EDITAR COMBO":"NUEVO COMBO"} onClose={()=>{setModal(null);setEditR(null);setFC(fC0);}} wide>
+  <datalist id="suc-items-combo">{sucItemsUnicos.map(n=><option key={n} value={n}/>)}</datalist>
+  <div style={{display:"grid",gap:14,marginBottom:20}}>
+    <LI label="Nombre del combo"><input value={fC.nombre} onChange={e=>setFC(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}} placeholder="Ej: Combo Burgers, Combo Martes..."/></LI>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <LI label="Categoría"><input value={fC.categoria} onChange={e=>setFC(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}} list="catv-list"/><datalist id="catv-list">{catV.map(c=><option key={c} value={c}/>)}</datalist></LI>
+      <LI label="Precio de venta ($)"><input type="number" step="0.01" value={fC.precio} onChange={e=>setFC(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
+    </div>
+  </div>
+  <div style={{fontFamily:"'Bebas Neue'",fontSize:15,color:ACC,letterSpacing:1,marginBottom:12}}>COMPONENTES DEL COMBO</div>
+  <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+    <Btn s="sm" v="ghost" onClick={()=>addSlot("fijo_inv")}>+ Ítem inventario fijo</Btn>
+    <Btn s="sm" v="ghost" onClick={()=>addSlot("fijo_rv")}>+ Receta fija</Btn>
+    <Btn s="sm" v="ghost" onClick={()=>addSlot("var_inv")}>+ Ítem variable (bebida)</Btn>
+    <Btn s="sm" v="ghost" onClick={()=>addSlot("var_rv")}>+ Receta variable (burger)</Btn>
+  </div>
+  <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+    {(fC.slots||[]).map((slot,idx)=><div key={idx} style={{background:FNT,borderRadius:8,padding:14,border:b1(BRD)}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <Bdg c={slot.tipo.startsWith("fijo")?"blue":"orange"}>{slot.tipo==="fijo_inv"?"📦 Ítem fijo":slot.tipo==="fijo_rv"?"🍔 Receta fija":slot.tipo==="var_inv"?"🔀 Ítem variable":"🔀 Receta variable"}</Bdg>
+        <button onClick={()=>delSlot(idx)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 8px",fontSize:12,cursor:"pointer"}}>✕ Quitar</button>
+      </div>
+      {slot.tipo==="fijo_inv"&&<div style={{display:"grid",gap:8}}>
+        <LI label="Ítem de inventario (costo)"><select value={slot.refId||""} onChange={e=>{const it=inv.find(i=>i.id===parseInt(e.target.value));updSlot(idx,{...slot,refId:parseInt(e.target.value),unidad:it?.unidad||"und"});}} style={{width:"100%"}}>{inv.map(i=><option key={i.id} value={i.id}>{i.nombre}</option>)}</select></LI>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8}}>
+          <LI label="Nombre ítem sucursal (egreso inv.)"><input value={slot.sucItemNombre||""} onChange={e=>updSlot(idx,{...slot,sucItemNombre:e.target.value})} list="suc-items-combo" style={{width:"100%"}} placeholder="Como aparece en Inv. Sucursal"/></LI>
+          <LI label="Cantidad"><input type="number" step="0.01" value={slot.cantidad||1} onChange={e=>updSlot(idx,{...slot,cantidad:parseFloat(e.target.value)||0})} style={{width:"100%"}}/></LI>
+        </div>
+      </div>}
+      {slot.tipo==="fijo_rv"&&<LI label="Receta de venta"><select value={slot.recetaId||""} onChange={e=>{const r=rv.find(x=>x.id===parseInt(e.target.value));updSlot(idx,{...slot,recetaId:parseInt(e.target.value),nombre:r?.nombre||""});}} style={{width:"100%"}}>{rv.filter(r=>r.tipo!=="combo").map(r=><option key={r.id} value={r.id}>{r.nombre}</option>)}</select></LI>}
+      {(slot.tipo==="var_inv"||slot.tipo==="var_rv")&&<div>
+        <LI label="Nombre del slot (ej: Bebida, Burger 1)"><input value={slot.nombre||""} onChange={e=>updSlot(idx,{...slot,nombre:e.target.value})} style={{width:"100%"}} placeholder="Nombre que verá el operador"/></LI>
+        <div style={{marginTop:10}}>
+          <div style={{fontSize:12,color:MUT,fontWeight:600,marginBottom:6}}>OPCIONES</div>
+          {(slot.opciones||[]).map((opt,oidx)=><div key={oidx} style={{background:BG,borderRadius:6,padding:10,marginBottom:6,border:b1(BRD)}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <LI label="Nombre opción" xtra={{flex:1,marginBottom:0,marginRight:8}}><input value={opt.nombre||""} onChange={e=>updOpt(idx,oidx,{...opt,nombre:e.target.value})} style={{width:"100%"}} placeholder="Ej: Coca-Cola Combo"/></LI>
+              <button onClick={()=>delOpt(idx,oidx)} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"3px 6px",fontSize:11,cursor:"pointer",marginTop:18}}>✕</button>
+            </div>
+            {slot.tipo==="var_inv"&&<div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:6}}>
+              <LI label="Ítem inventario (costo)" xtra={{marginBottom:0}}><select value={opt.refId||""} onChange={e=>{const it=inv.find(i=>i.id===parseInt(e.target.value));updOpt(idx,oidx,{...opt,refId:parseInt(e.target.value),unidad:it?.unidad||"und"});}} style={{width:"100%"}}>{inv.map(i=><option key={i.id} value={i.id}>{i.nombre}</option>)}</select></LI>
+              <LI label="Ítem sucursal" xtra={{marginBottom:0}}><input value={opt.sucItemNombre||""} onChange={e=>updOpt(idx,oidx,{...opt,sucItemNombre:e.target.value})} list="suc-items-combo" style={{width:"100%"}}/></LI>
+              <LI label="Cant." xtra={{marginBottom:0}}><input type="number" step="0.01" value={opt.cantidad||1} onChange={e=>updOpt(idx,oidx,{...opt,cantidad:parseFloat(e.target.value)||0})} style={{width:"100%"}}/></LI>
+            </div>}
+            {slot.tipo==="var_rv"&&<LI label="Receta" xtra={{marginBottom:0}}><select value={opt.recetaId||""} onChange={e=>{const r=rv.find(x=>x.id===parseInt(e.target.value));updOpt(idx,oidx,{...opt,recetaId:parseInt(e.target.value),nombre:opt.nombre||r?.nombre||""});}} style={{width:"100%"}}>{rv.filter(r=>r.tipo!=="combo").map(r=><option key={r.id} value={r.id}>{r.nombre}</option>)}</select></LI>}
+          </div>)}
+          <Btn s="sm" v="ghost" xtra={{marginTop:6}} onClick={()=>addOpt(idx)}>+ Agregar opción</Btn>
+        </div>
+      </div>}
+    </div>)}
+    {(fC.slots||[]).length===0&&<div style={{color:MUT,fontSize:13,padding:12,textAlign:"center",border:`1px dashed ${BRD}`,borderRadius:8}}>Agrega componentes con los botones de arriba</div>}
+  </div>
+  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>{setModal(null);setEditR(null);setFC(fC0);}}>Cancelar</Btn><Btn onClick={sc}>Guardar combo</Btn></div>
+</Mdl>}
 
 {repairModal&&<Mdl title="🔧 REPARAR INGREDIENTES ROTOS" onClose={()=>setRepairModal(false)} wide>
   <div style={{background:RED+"11",border:"1px solid "+RED+"44",borderRadius:8,padding:12,marginBottom:20,fontSize:13,color:TXT}}>
@@ -3294,6 +3398,8 @@ const sucsVisiblesCos=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol
 const[dSuc,setDSuc]=useState(sucsVisiblesCos[0]||"");
 const[dBuscar,setDBuscar]=useState("");
 const[dCants,setDCants]=useState({});
+const[dCombosCants,setDCombosCants]=useState({}); // {rId: qty}
+const[dCombosSlots,setDCombosSlots]=useState({}); // {rId: {slotNombre: {opcion: qty}}}
 const[filtDesde,setFiltDesde]=useState("");
 const[filtHasta,setFiltHasta]=useState("");
 const[editVenta,setEditVenta]=useState(null);
@@ -3376,18 +3482,34 @@ setDFecha(today());
 setDSuc(sucsVisiblesCos[0]||"");
 setDBuscar("");
 setDCants({});
+setDCombosCants({});
+setDCombosSlots({});
 setModal(true);
 }
-function setCant(rId,val){
-setDCants(p=>({...p,[rId]:val}));
-}
-const dResumen=rv.map(r=>({r,cant:dCants[r.id]||0})).filter(x=>x.cant>0);
+function setCant(rId,val){setDCants(p=>({...p,[rId]:val}));}
+function setComboSlot(rId,slotNombre,opcion,val){setDCombosSlots(p=>({...p,[rId]:{...(p[rId]||{}),[slotNombre]:{...((p[rId]||{})[slotNombre]||{}),[opcion]:parseFloat(val)||0}}}))}
+const dResumen=rv.filter(r=>r.tipo!=="combo").map(r=>({r,cant:dCants[r.id]||0})).filter(x=>x.cant>0);
+const dResumenCombos=rv.filter(r=>r.tipo==="combo").map(r=>({r,cant:parseFloat(dCombosCants[r.id])||0,slotsSel:dCombosSlots[r.id]||{}})).filter(x=>x.cant>0);
+function ccComboConSel(combo,slotsSel){return(combo.slots||[]).reduce((t,slot)=>{if(slot.tipo==="fijo_inv"){const it=inv.find(i=>i.id===slot.refId);return t+(it?.costo||0)*(slot.cantidad||1);}if(slot.tipo==="fijo_rv"){const sub=rv.find(r=>r.id===slot.recetaId);return t+(sub?cc(sub):0);}if(slot.tipo==="var_inv"){const sel=slotsSel?.[slot.nombre]||{};return t+(slot.opciones||[]).reduce((s,opt)=>{const qty=parseFloat(sel[opt.nombre]||0);if(!qty)return s;const it=inv.find(i=>i.id===opt.refId);return s+(it?.costo||0)*(opt.cantidad||1)*qty;},0);}if(slot.tipo==="var_rv"){const sel=slotsSel?.[slot.nombre]||{};return t+(slot.opciones||[]).reduce((s,opt)=>{const qty=parseFloat(sel[opt.nombre]||0);if(!qty)return s;const sub=rv.find(r=>r.id===opt.recetaId);return s+(sub?cc(sub)*qty:0);},0);}return t;},0);}
+function calcEgresosCombo(combo,slotsSel,cant){const m={};(combo.slots||[]).forEach(slot=>{if(slot.tipo==="fijo_inv"){if(!slot.sucItemNombre)return;const k=slot.sucItemNombre.trim().toLowerCase();m[k]=(m[k]||0)+(slot.cantidad||1)*cant;}else if(slot.tipo==="fijo_rv"){const sub=rv.find(r=>r.id===slot.recetaId);if(!sub)return;(sub.ings||[]).forEach(ing=>{if(!ing.sucItemNombre)return;const k=ing.sucItemNombre.trim().toLowerCase();m[k]=(m[k]||0)+ing.cantidad*cant;});}else if(slot.tipo==="var_inv"){const sel=slotsSel?.[slot.nombre]||{};(slot.opciones||[]).forEach(opt=>{const qty=parseFloat(sel[opt.nombre]||0);if(!qty||!opt.sucItemNombre)return;const k=opt.sucItemNombre.trim().toLowerCase();m[k]=(m[k]||0)+(opt.cantidad||1)*qty;});}else if(slot.tipo==="var_rv"){const sel=slotsSel?.[slot.nombre]||{};(slot.opciones||[]).forEach(opt=>{const qty=parseFloat(sel[opt.nombre]||0);if(!qty)return;const sub=rv.find(r=>r.id===opt.recetaId);if(!sub)return;(sub.ings||[]).forEach(ing=>{if(!ing.sucItemNombre)return;const k=ing.sucItemNombre.trim().toLowerCase();m[k]=(m[k]||0)+ing.cantidad*qty;});});}});return m;}
 const precioConIva=(r)=>r.precio*(1+ivaRate);
-const dTotalIngreso=dResumen.reduce((s,{r,cant})=>s+precioConIva(r)*cant,0);
-const dTotalCosto=dResumen.reduce((s,{r,cant})=>s+cc(r)*cant,0);
+const dTotalIngreso=dResumen.reduce((s,{r,cant})=>s+precioConIva(r)*cant,0)+dResumenCombos.reduce((s,{r,cant})=>s+precioConIva(r)*cant,0);
+const dTotalCosto=dResumen.reduce((s,{r,cant})=>s+cc(r)*cant,0)+dResumenCombos.reduce((s,{r,cant,slotsSel})=>s+ccComboConSel(r,slotsSel)*cant,0);
 async function confirmarDia(){
-if(!dResumen.length){return;}
-const nuevas=dResumen.map(({r,cant})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant,iva_rate:ivaRate}));
+if(!dResumen.length&&!dResumenCombos.length){return;}
+// Validar que combos con slots variables tengan el desglose completo
+for(const{r,cant,slotsSel}of dResumenCombos){
+  for(const slot of(r.slots||[])){
+    if(slot.tipo!=="var_inv"&&slot.tipo!=="var_rv")continue;
+    const sel=slotsSel[slot.nombre]||{};
+    const suma=Object.values(sel).reduce((s,v)=>s+(parseFloat(v)||0),0);
+    if(Math.abs(suma-cant)>0.001){alert(`Combo "${r.nombre}" — slot "${slot.nombre}": las opciones suman ${suma} pero vendiste ${cant}. Ajusta el desglose.`);return;}
+  }
+}
+const nuevas=[
+  ...dResumen.map(({r,cant})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant,iva_rate:ivaRate,slots_sel:{}})),
+  ...dResumenCombos.map(({r,cant,slotsSel})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant,iva_rate:ivaRate,slots_sel:slotsSel})),
+];
 await Promise.all(nuevas.map(v=>supaPost("ventas",v).catch(console.error)));
 setVentas(p=>[...nuevas.map((v,i)=>({...v,id:Date.now()+i})),...p]);
 
@@ -3399,6 +3521,11 @@ dResumen.forEach(({r,cant})=>{
     const nombre=ing.sucItemNombre.trim().toLowerCase();
     egresosPorItem[nombre]=(egresosPorItem[nombre]||0)+ing.cantidad*cant;
   });
+});
+// Egresos de combos
+dResumenCombos.forEach(({r,cant,slotsSel})=>{
+  const m=calcEgresosCombo(r,slotsSel,cant);
+  Object.entries(m).forEach(([k,v])=>{egresosPorItem[k]=(egresosPorItem[k]||0)+v;});
 });
 if(Object.keys(egresosPorItem).length===0){setModal(false);return;}
 // Obtener ítems de la sucursal para mapear nombre → itemId
@@ -3438,6 +3565,7 @@ setModal(false);
 }
 function matchMarcasCos(itemMarcas,sucMarcasArr){if(!sucMarcasArr||sucMarcasArr.length===0)return true;if(!itemMarcas||itemMarcas.length===0)return true;if(itemMarcas.includes("General"))return true;return itemMarcas.some(m=>sucMarcasArr.includes(m));}
 function cc(r){
+if(r.tipo==="combo")return 0; // combos usan ccComboConSel con selección real
 return r.ings.reduce((s,ing)=>{
 if(ing.tipo==="inv"){const item=inv.find(i=>i.id===ing.refId);return s+(item?item.costo*ing.cantidad:0);}
 else{const p=rp.find(x=>x.id===ing.refId);if(!p)return s;const cp=p.ings.reduce((cs,ri)=>{const item=inv.find(i=>i.id===ri.invId);return cs+(item?item.costo*ri.cantidad:0);},0);return s+(cp/p.rendimiento)*ing.cantidad;}
@@ -3448,7 +3576,7 @@ const ventasVis=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol==="st
 :ventas;
 const precioVenta=(r,x)=>r.precio*(1+(x.iva_rate??0));
 const tI=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?precioVenta(r,x)*x.cant:0);},0);
-const tC=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);return s+(r?cc(r)*x.cant:0);},0);
+const tC=ventasVis.reduce((s,x)=>{const r=rv.find(r=>r.id===x.rId);if(!r)return s;if(r.tipo==="combo"){if(typeof ccComboConSel==="function")return s+ccComboConSel(r,x.slots_sel||{})*x.cant;return s;}return s+cc(r)*x.cant;},0);
 const u=tI-tC;
 const ps=sucsVisiblesCos.map(suc=>{
 const vs=ventas.filter(x=>x.sucursal===suc);
@@ -3563,17 +3691,17 @@ return <div>
     style={{width:"100%",marginBottom:16,boxSizing:"border-box"}}
     autoFocus
   />
-  {/* Lista de productos */}
-  <div style={{maxHeight:400,overflowY:"auto",marginBottom:16}}>
+  {/* Lista de productos (no combos) */}
+  <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:ACC,letterSpacing:1,marginBottom:8}}>PRODUCTOS</div>
+  <div style={{maxHeight:300,overflowY:"auto",marginBottom:16}}>
   <table>
     <thead><tr>
-      <th style={{width:80}}>Código</th>
-      <th>Producto</th>
-      <th style={{width:110}}>Precio c/IVA ({(ivaRate*100).toFixed(0)}%)</th>
+      <th style={{width:80}}>Código</th><th>Producto</th>
+      <th style={{width:110}}>Precio c/IVA</th>
       <th style={{width:130}}>Cantidad</th>
       <th style={{width:90,textAlign:"right"}}>Subtotal</th>
     </tr></thead>
-    <tbody>{[...rv]
+    <tbody>{[...rv].filter(r=>r.tipo!=="combo")
       .filter(r=>{
         const sm=sucsMarcas?.[dSuc]||[];
         if(!matchMarcasCos(r.marcas,sm))return false;
@@ -3586,35 +3714,80 @@ return <div>
         const cant=dCants[r.id]||0;
         return <tr key={r.id} style={{background:cant>0?ACC+"0D":"transparent"}}>
           <td style={{fontFamily:"'DM Mono'",fontSize:12,color:MUT}}>{r.codigo||"—"}</td>
-          <td>
-            <div style={{fontWeight:cant>0?600:400,fontSize:13}}>{r.nombre}</div>
-            <div style={{fontSize:11,color:MUT}}>{r.categoria}</div>
-          </td>
+          <td><div style={{fontWeight:cant>0?600:400,fontSize:13}}>{r.nombre}</div><div style={{fontSize:11,color:MUT}}>{r.categoria}</div></td>
           <td style={{fontFamily:"'DM Mono'",fontSize:13}}>{fmt(precioConIva(r))}</td>
-          <td>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <button onClick={()=>setCant(r.id,Math.max(0,(cant||0)-1))}
-                style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:28,height:28,fontSize:16,flexShrink:0,cursor:"pointer"}}>-</button>
-              <input type="number" min="0" step="0.01" value={cant||""}
-                onChange={e=>setCant(r.id,parseFloat(e.target.value)||0)}
-                placeholder="0"
-                style={{width:55,textAlign:"center",fontFamily:"'DM Mono'",fontSize:14,fontWeight:600}}/>
-              <button onClick={()=>setCant(r.id,(cant||0)+1)}
-                style={{background:ACC,color:"#000",border:"none",borderRadius:6,width:28,height:28,fontSize:16,fontWeight:700,flexShrink:0,cursor:"pointer"}}>+</button>
-            </div>
-          </td>
+          <td><div style={{display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>setCant(r.id,Math.max(0,(cant||0)-1))} style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:28,height:28,fontSize:16,flexShrink:0,cursor:"pointer"}}>-</button>
+            <input type="number" min="0" step="0.01" value={cant||""} onChange={e=>setCant(r.id,parseFloat(e.target.value)||0)} placeholder="0" style={{width:55,textAlign:"center",fontFamily:"'DM Mono'",fontSize:14,fontWeight:600}}/>
+            <button onClick={()=>setCant(r.id,(cant||0)+1)} style={{background:ACC,color:"#000",border:"none",borderRadius:6,width:28,height:28,fontSize:16,fontWeight:700,flexShrink:0,cursor:"pointer"}}>+</button>
+          </div></td>
           <td style={{fontFamily:"'DM Mono'",fontSize:13,color:cant>0?GRN:MUT,textAlign:"right"}}>{cant>0?fmt(precioConIva(r)*cant):"—"}</td>
         </tr>;
       })}
     </tbody>
   </table>
   </div>
+
+  {/* Sección de COMBOS */}
+  {rv.some(r=>r.tipo==="combo")&&<>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:ACC,letterSpacing:1,marginBottom:8,marginTop:8}}>COMBOS</div>
+    <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
+    {rv.filter(r=>r.tipo==="combo")
+      .filter(r=>{const q=dBuscar.toLowerCase().trim();return !q||r.nombre.toLowerCase().includes(q);})
+      .sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
+      .map(r=>{
+        const cant=parseFloat(dCombosCants[r.id])||0;
+        const slotsSel=dCombosSlots[r.id]||{};
+        const varSlots=(r.slots||[]).filter(s=>s.tipo==="var_inv"||s.tipo==="var_rv");
+        return <div key={r.id} style={{background:cant>0?ACC+"0D":FNT,borderRadius:8,padding:14,border:b1(cant>0?ACC+"44":BRD)}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:cant>0&&varSlots.length>0?12:0,flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:14}}>{r.nombre}</div>
+              <div style={{fontSize:12,color:MUT}}>{fmt(precioConIva(r))} c/IVA</div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <button onClick={()=>setDCombosCants(p=>({...p,[r.id]:Math.max(0,(parseFloat(p[r.id])||0)-1)}))} style={{background:FNT,color:TXT,border:"none",borderRadius:6,width:28,height:28,fontSize:16,cursor:"pointer"}}>-</button>
+              <input type="number" min="0" value={cant||""} onChange={e=>setDCombosCants(p=>({...p,[r.id]:parseFloat(e.target.value)||0}))} placeholder="0" style={{width:55,textAlign:"center",fontFamily:"'DM Mono'",fontSize:14,fontWeight:600}}/>
+              <button onClick={()=>setDCombosCants(p=>({...p,[r.id]:(parseFloat(p[r.id])||0)+1}))} style={{background:ACC,color:"#000",border:"none",borderRadius:6,width:28,height:28,fontSize:16,fontWeight:700,cursor:"pointer"}}>+</button>
+              {cant>0&&<span style={{fontFamily:"'DM Mono'",fontSize:13,color:GRN,marginLeft:8}}>{fmt(precioConIva(r)*cant)}</span>}
+            </div>
+          </div>
+          {cant>0&&varSlots.length>0&&<div style={{background:BG,borderRadius:6,padding:12}}>
+            <div style={{fontSize:11,color:MUT,fontWeight:600,marginBottom:8}}>DESGLOSE POR VARIABLE (deben sumar {cant})</div>
+            {varSlots.map(slot=>{
+              const sel=slotsSel[slot.nombre]||{};
+              const suma=Object.values(sel).reduce((s,v)=>s+(parseFloat(v)||0),0);
+              const ok=Math.abs(suma-cant)<0.001;
+              return <div key={slot.nombre} style={{marginBottom:10}}>
+                <div style={{fontSize:12,fontWeight:600,marginBottom:4,color:ok?GRN:TXT}}>
+                  {slot.nombre} — {ok?"✅":"⚠️"} {suma}/{cant}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:6}}>
+                  {(slot.opciones||[]).map(opt=><div key={opt.nombre}>
+                    <div style={{fontSize:11,color:MUT,marginBottom:2}}>{opt.nombre}</div>
+                    <input type="number" min="0" value={sel[opt.nombre]||""} onChange={e=>setComboSlot(r.id,slot.nombre,opt.nombre,e.target.value)} placeholder="0" style={{width:"100%",fontFamily:"'DM Mono'",fontSize:13,textAlign:"center"}}/>
+                  </div>)}
+                </div>
+              </div>;
+            })}
+          </div>}
+        </div>;
+      })}
+    </div>
+  </>}
+
   {/* Resumen del día */}
-  {dResumen.length>0&&<Card xtra={{marginBottom:16,borderColor:GRN+"44"}}>
+  {(dResumen.length>0||dResumenCombos.length>0)&&<Card xtra={{marginBottom:16,borderColor:GRN+"44"}}>
     <div style={{fontFamily:"'Bebas Neue'",fontSize:15,color:GRN,marginBottom:10}}>RESUMEN DEL DÍA</div>
     {dResumen.map(({r,cant})=>(
-      <div key={r.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
+      <div key={r.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
         <span>{r.nombre} × {fmtN(cant)}</span>
+        <span style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(precioConIva(r)*cant)}</span>
+      </div>
+    ))}
+    {dResumenCombos.map(({r,cant})=>(
+      <div key={r.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
+        <span>🍔 {r.nombre} × {fmtN(cant)}</span>
         <span style={{fontFamily:"'DM Mono'",color:GRN}}>{fmt(precioConIva(r)*cant)}</span>
       </div>
     ))}
@@ -3626,7 +3799,7 @@ return <div>
   </Card>}
   <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
     <Btn v="ghost" onClick={()=>setModal(false)}>Cancelar</Btn>
-    <Btn onClick={confirmarDia} disabled={!dResumen.length}>Confirmar ventas del día</Btn>
+    <Btn onClick={confirmarDia} disabled={!dResumen.length&&!dResumenCombos.length}>Confirmar ventas del día</Btn>
   </div>
 </Mdl>}
 
