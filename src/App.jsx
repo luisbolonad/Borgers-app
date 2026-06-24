@@ -2663,10 +2663,10 @@ function asegurarReg(fec,suc,itemsList){
 const itsToUse=itemsList||sucData.items;
 setRegsSucs(p=>{
 const existe=p.find(r=>r.sucursal===suc&&r.fecha===fec);
-// Solo tomar el último registro CERRADO como base para inv inicial
-const ant=[...p]
-.filter(r=>r.sucursal===suc&&r.fecha<fec&&r.estado==="cerrado")
-.sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+// Tomar el registro más reciente como base (cerrado preferido, sino el último disponible)
+const cerrados=[...p].filter(r=>r.sucursal===suc&&r.fecha<fec&&r.estado==="cerrado").sort((a,b)=>b.fecha.localeCompare(a.fecha));
+const cualquiera=[...p].filter(r=>r.sucursal===suc&&r.fecha<fec).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+const ant=cerrados[0]||cualquiera[0];
 
   function getInvInicial(itemId){
     if(!ant)return 0;
@@ -2888,10 +2888,28 @@ return <div>
 </div>
 {/* ── REGISTRO DEL DÍA ── */}
 {vista==="hoy"&&<div>
-  <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:16}}>
+  <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
     <LI label="Fecha del registro">
       <input type="date" value={fecha} onChange={e=>{setFecha(e.target.value);}} style={{width:180}}/>
     </LI>
+    {regHoy&&!diaCerrado&&<Btn v="ghost" s="sm" onClick={async()=>{
+      // Recarga inv. inicial desde el registro anterior más reciente
+      const ant=[...regsSucs]
+        .filter(r=>r.sucursal===sucSel&&r.fecha<fecha)
+        .sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+      if(!ant){alert("No hay registro anterior disponible.");return;}
+      if(!window.confirm(`¿Reinicializar inv. inicial desde el ${ant.fecha}?`))return;
+      const filasActualizadas=regHoy.filas.map(f=>{
+        const filaAnt=ant.filas.find(a=>a.itemId===f.itemId);
+        const nuevoInicial=filaAnt
+          ?(filaAnt.stockReal!=null&&filaAnt.stockReal!==""?parseFloat(filaAnt.stockReal)||0:parseFloat(filaAnt.stockFinal)||0)
+          :f.invInicial;
+        return{...f,invInicial:nuevoInicial,stockFinal:nuevoInicial+(parseFloat(f.ingreso)||0)-(parseFloat(f.egreso)||0)};
+      });
+      setRegsSucs(p=>p.map(r=>r.sucursal===sucSel&&r.fecha===fecha?{...r,filas:filasActualizadas}:r));
+      await supaPatch("registros_sucursales",`?id=eq.${regHoy.id}`,{filas:filasActualizadas}).catch(console.error);
+      alert(`Inv. inicial actualizado desde el ${ant.fecha}.`);
+    }}>🔄 Recargar inv. inicial</Btn>}
     {items.length===0&&<div style={{color:MUT,fontSize:13,marginTop:16}}>Esta sucursal no tiene ítems configurados. Ve a la pestaña "Ítems" para agregar.</div>}
   </div>
   {items.length>0&&<>
