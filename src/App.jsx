@@ -2324,14 +2324,13 @@ function abrirVer(c){
   abrirEditar(c);
   setModoVer(true);
 }
-const HORA_RX=/^(0[0-9]|1[0-2]):[0-5][0-9] ?(am|pm)$/i;
-function horaValida(h){return HORA_RX.test((h||"").trim());}
+function horaValida(h){return /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test((h||"").trim());}
 async function guardar(cerrar){
   if(!form.responsable.trim()){alert("El nombre del responsable es obligatorio.");return;}
   if(!form.caja_num){alert("El número de caja es obligatorio.");return;}
   if(!form.fecha){alert("La fecha es obligatoria.");return;}
-  if(!horaValida(form.hora_inicio)){alert("Hora inicio inválida.\nFormato: 09:30 am  o  01:45 pm");return;}
-  if(!horaValida(form.hora_termino)){alert("Hora término inválida.\nFormato: 09:30 am  o  01:45 pm");return;}
+  if(!horaValida(form.hora_inicio)){alert("Hora inicio inválida.");return;}
+  if(!horaValida(form.hora_termino)){alert("Hora término inválida.");return;}
   if((calcFaltante>0||calcSobrante>0)&&!form.observaciones.trim()){alert("Existe una diferencia (faltante/sobrante). Debe ingresar una observación con la explicación.");return;}
   const esCerradoActual=editId&&cierresCaja.find(c=>c.id===editId)?.estado==="cerrado";
   const data={...form,faltante:calcFaltante,sobrante:calcSobrante,sucursal:sucSel,estado:cerrar||esCerradoActual?"cerrado":"borrador"};
@@ -2372,8 +2371,8 @@ if(vista==="form"){
             :<div style={{fontFamily:"'DM Mono'",padding:"8px 12px",background:FNT,borderRadius:6,fontSize:14,fontWeight:600}}>{form.caja_num}</div>}
         </LI>
         <LI label="Responsable *"><input value={form.responsable} onChange={e=>F("responsable",e.target.value)} disabled={bloqueado} placeholder="Nombre completo..." style={{width:"100%",borderColor:!form.responsable.trim()?RED+"66":BRD}}/></LI>
-        <LI label="Hora inicio *"><input type="text" value={form.hora_inicio} onChange={e=>F("hora_inicio",e.target.value)} disabled={bloqueado} placeholder="09:30 am" style={{width:"100%",borderColor:!bloqueado&&form.hora_inicio&&!horaValida(form.hora_inicio)?RED+"66":BRD}}/></LI>
-        <LI label="Hora término *"><input type="text" value={form.hora_termino} onChange={e=>F("hora_termino",e.target.value)} disabled={bloqueado} placeholder="09:30 am" style={{width:"100%",borderColor:!bloqueado&&form.hora_termino&&!horaValida(form.hora_termino)?RED+"66":BRD}}/></LI>
+        <LI label="Hora inicio *"><input type="time" value={form.hora_inicio} onChange={e=>F("hora_inicio",e.target.value)} disabled={bloqueado} style={{width:"100%",borderColor:!bloqueado&&form.hora_inicio&&!horaValida(form.hora_inicio)?RED+"66":BRD}}/></LI>
+        <LI label="Hora término *"><input type="time" value={form.hora_termino} onChange={e=>F("hora_termino",e.target.value)} disabled={bloqueado} style={{width:"100%",borderColor:!bloqueado&&form.hora_termino&&!horaValida(form.hora_termino)?RED+"66":BRD}}/></LI>
       </div>
     </Card>
     {/* Sección 1 */}
