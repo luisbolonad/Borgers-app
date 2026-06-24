@@ -2892,7 +2892,7 @@ return <div>
     <LI label="Fecha del registro">
       <input type="date" value={fecha} onChange={e=>{setFecha(e.target.value);}} style={{width:180}}/>
     </LI>
-    {regHoy&&!diaCerrado&&<Btn v="ghost" s="sm" onClick={async()=>{
+    {regHoy&&!diaCerrado&&(userActivo?.rol==="superadmin"||userActivo?.rol==="admin_suc")&&<Btn v="ghost" s="sm" onClick={async()=>{
       // Recarga inv. inicial desde el registro anterior más reciente
       const ant=[...regsSucs]
         .filter(r=>r.sucursal===sucSel&&r.fecha<fecha)
