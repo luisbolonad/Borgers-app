@@ -1100,7 +1100,7 @@ async function saveRepair(){
 }
 const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:"",marcas:[]};
 const fP={nombre:"",unidad:"und",rendimiento:1,ings:[],marcas:[]};
-const fC0={nombre:"",categoria:catV[0]||"",precio:0,slots:[]};
+const fC0={nombre:"",categoria:catV[0]||"",precio:0,codigo:"",slots:[]};
 const[fv,setFv]=useState(fV);
 const[fp,setFp]=useState(fP);
 const[fC,setFC]=useState(fC0);
@@ -1166,9 +1166,9 @@ return <div>
     const tieneVar=(r.slots||[]).some(s=>s.tipo==="var_inv"||s.tipo==="var_rv");
     return <Card key={r.id}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-        <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="purple">Combo</Bdg>{r.categoria&&<Bdg c="blue" xtra={{marginLeft:4}}>{r.categoria}</Bdg>}</div>
+        <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="purple">Combo</Bdg>{r.categoria&&<Bdg c="blue" xtra={{marginLeft:4}}>{r.categoria}</Bdg>}{r.codigo&&<span style={{fontSize:11,fontFamily:"'DM Mono'",color:MUT,marginLeft:6}}>#{r.codigo}</span>}</div>
         {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
-          <button onClick={()=>{setEditR(r);setFC({nombre:r.nombre,categoria:r.categoria||"",precio:r.precio||0,slots:r.slots||[]});setModal("combo");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+          <button onClick={()=>{setEditR(r);setFC({nombre:r.nombre,categoria:r.categoria||"",precio:r.precio||0,codigo:r.codigo||"",slots:r.slots||[]});setModal("combo");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
           <button onClick={()=>setConfirmar({msg:"¿Eliminar combo "+r.nombre+"?",fn:()=>{setRv(p=>p.filter(x=>x.id!==r.id));supaDelete("recetas_venta","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
         </div>}
       </div>
@@ -1361,8 +1361,9 @@ return <div>
   <datalist id="suc-items-combo">{sucItemsUnicos.map(n=><option key={n} value={n}/>)}</datalist>
   <div style={{display:"grid",gap:14,marginBottom:20}}>
     <LI label="Nombre del combo"><input value={fC.nombre} onChange={e=>setFC(p=>({...p,nombre:e.target.value}))} style={{width:"100%"}} placeholder="Ej: Combo Burgers, Combo Martes..."/></LI>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
       <LI label="Categoría"><input value={fC.categoria} onChange={e=>setFC(p=>({...p,categoria:e.target.value}))} style={{width:"100%"}} list="catv-list"/><datalist id="catv-list">{catV.map(c=><option key={c} value={c}/>)}</datalist></LI>
+      <LI label="Código único"><input value={fC.codigo||""} onChange={e=>setFC(p=>({...p,codigo:e.target.value}))} style={{width:"100%"}} placeholder="Ej: CB01"/></LI>
       <LI label="Precio de venta ($)"><input type="number" step="0.01" value={fC.precio} onChange={e=>setFC(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
     </div>
   </div>
