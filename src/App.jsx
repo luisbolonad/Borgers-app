@@ -2559,6 +2559,20 @@ if(sucSel&&!invSucs.find(s=>s.sucursal===sucSel)){
 setInvSucs(p=>[...p,{sucursal:sucSel,items:[]}]);
 }
 },[sucSel]);
+// Recargar registros de la sucursal al entrar al módulo o cambiar sucursal
+// Esto evita que datos del día anterior no aparezcan por tener el app abierto de antes
+useEffect(()=>{
+  if(!sucSel)return;
+  supaGet("registros_sucursales",`?sucursal=eq.${encodeURIComponent(sucSel)}&order=fecha.desc&limit=30`)
+    .then(rows=>{
+      if(!Array.isArray(rows)||!rows.length)return;
+      const nuevos=rows.map(r=>({...r,numInv:r.numInv||1,filas:r.filas||[],ventas:r.ventas||[]}));
+      setRegsSucs(p=>{
+        const sinEsta=p.filter(r=>r.sucursal!==sucSel);
+        return [...sinEsta,...nuevos];
+      });
+    }).catch(()=>{});
+},[sucSel]);
 function matchMarcas(itemMarcas,sucMarcasArr){if(!sucMarcasArr||sucMarcasArr.length===0)return true;if(!itemMarcas||itemMarcas.length===0)return true;if(itemMarcas.includes("General"))return true;return itemMarcas.some(m=>sucMarcasArr.includes(m));}
 const items=[...sucData.items].filter(i=>matchMarcas(i.marcas,sucsMarcas?.[sucSel]||[])).sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
 // Registro de hoy para esta sucursal
