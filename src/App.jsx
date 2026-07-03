@@ -1100,7 +1100,7 @@ async function saveRepair(){
 }
 const fV={nombre:"",categoria:catV[0]||"",precio:0,ings:[],codigo:"",marcas:[]};
 const fP={nombre:"",unidad:"und",rendimiento:1,ings:[],marcas:[]};
-const fC0={nombre:"",categoria:catV[0]||"",precio:0,codigo:"",slots:[]};
+const fC0={nombre:"",categoria:catV[0]||"",precio:0,codigo:"",slots:[],marcas:[]};
 const[fv,setFv]=useState(fV);
 const[fp,setFp]=useState(fP);
 const[fC,setFC]=useState(fC0);
@@ -1166,9 +1166,9 @@ return <div>
     const tieneVar=(r.slots||[]).some(s=>s.tipo==="var_inv"||s.tipo==="var_rv");
     return <Card key={r.id}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-        <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="purple">Combo</Bdg>{r.categoria&&<Bdg c="blue" xtra={{marginLeft:4}}>{r.categoria}</Bdg>}{r.codigo&&<span style={{fontSize:11,fontFamily:"'DM Mono'",color:MUT,marginLeft:6}}>#{r.codigo}</span>}</div>
+        <div><div style={{fontWeight:600,fontSize:15}}>{r.nombre}</div><Bdg c="purple">Combo</Bdg>{r.categoria&&<Bdg c="blue" xtra={{marginLeft:4}}>{r.categoria}</Bdg>}{r.codigo&&<span style={{fontSize:11,fontFamily:"'DM Mono'",color:MUT,marginLeft:6}}>#{r.codigo}</span>}{(r.marcas||[]).length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>{(r.marcas||[]).map(m=><span key={m} style={{fontSize:10,background:ACC+"22",color:ACC,borderRadius:4,padding:"1px 6px"}}>{m}</span>)}</div>}</div>
         {(!puede||puede("editar_recetas"))&&<div style={{display:"flex",gap:6}}>
-          <button onClick={()=>{setEditR(r);setFC({nombre:r.nombre,categoria:r.categoria||"",precio:r.precio||0,codigo:r.codigo||"",slots:r.slots||[]});setModal("combo");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
+          <button onClick={()=>{setEditR(r);setFC({nombre:r.nombre,categoria:r.categoria||"",precio:r.precio||0,codigo:r.codigo||"",slots:r.slots||[],marcas:r.marcas||[]});setModal("combo");}} style={{background:FNT,color:MUT,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>E</button>
           <button onClick={()=>setConfirmar({msg:"¿Eliminar combo "+r.nombre+"?",fn:()=>{setRv(p=>p.filter(x=>x.id!==r.id));supaDelete("recetas_venta","?id=eq."+r.id).catch(console.error);}})} style={{background:RED+"18",color:RED,border:"none",borderRadius:4,padding:"4px 8px",fontSize:11}}>X</button>
         </div>}
       </div>
@@ -1367,6 +1367,20 @@ return <div>
       <LI label="Precio de venta ($)"><input type="number" step="0.01" value={fC.precio} onChange={e=>setFC(p=>({...p,precio:parseFloat(e.target.value)||0}))} style={{width:"100%"}}/></LI>
     </div>
   </div>
+  {(marcas||[]).length>0&&<div style={{marginBottom:20}}>
+    <LI label="Marcas">
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingTop:4}}>
+        {[...(marcas||[])].sort((a,b)=>a.nombre==="General"?-1:b.nombre==="General"?1:a.nombre.localeCompare(b.nombre,"es")).map(m=>{
+          const sel=(fC.marcas||[]).includes(m.nombre);
+          return <label key={m.id} style={{display:"flex",alignItems:"center",gap:5,fontSize:13,cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={sel} onChange={()=>setFC(p=>({...p,marcas:sel?p.marcas.filter(x=>x!==m.nombre):[...(p.marcas||[]),m.nombre]}))}/>
+            {m.nombre}
+          </label>;
+        })}
+      </div>
+    </LI>
+    <div style={{fontSize:11,color:MUT,marginTop:6}}>Sin marca = visible para todas las sucursales.</div>
+  </div>}
   <div style={{fontFamily:"'Bebas Neue'",fontSize:15,color:ACC,letterSpacing:1,marginBottom:12}}>COMPONENTES DEL COMBO</div>
   <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
     <Btn s="sm" v="ghost" onClick={()=>addSlot("fijo_inv")}>+ Ítem inventario fijo</Btn>
