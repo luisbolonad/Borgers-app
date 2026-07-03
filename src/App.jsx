@@ -3745,10 +3745,11 @@ return <div>
   </div>
 
   {/* Sección de COMBOS */}
-  {rv.some(r=>r.tipo==="combo")&&<>
+  {rv.some(r=>r.tipo==="combo"&&matchMarcasCos(r.marcas,sucsMarcas?.[dSuc]||[]))&&<>
     <div style={{fontFamily:"'Bebas Neue'",fontSize:14,color:ACC,letterSpacing:1,marginBottom:8,marginTop:8}}>COMBOS</div>
     <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
     {rv.filter(r=>r.tipo==="combo")
+      .filter(r=>matchMarcasCos(r.marcas,sucsMarcas?.[dSuc]||[]))
       .filter(r=>{const q=dBuscar.toLowerCase().trim();return !q||r.nombre.toLowerCase().includes(q);})
       .sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
       .map(r=>{
