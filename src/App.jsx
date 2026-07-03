@@ -3419,6 +3419,9 @@ const[filtDesde,setFiltDesde]=useState("");
 const[filtHasta,setFiltHasta]=useState("");
 const[editVenta,setEditVenta]=useState(null);
 const[formVenta,setFormVenta]=useState({});
+const[confVenta,setConfVenta]=useState(false);
+const getDraft=()=>{try{return JSON.parse(localStorage.getItem("borgers_venta_borrador")||"null");}catch{return null;}};
+const[hayBorrador,setHayBorrador]=useState(()=>!!getDraft());
 function abrirEditVenta(x){setFormVenta({fecha:x.fecha,sucursal:x.sucursal,rId:x.rId,cant:x.cant});setEditVenta(x);}
 // Calcula el mapa de egresos por nombre de ítem de sucursal para una venta {rId, cant}
 function calcEgresosPorItem(rId,cant){
@@ -3499,7 +3502,28 @@ setDBuscar("");
 setDCants({});
 setDCombosCants({});
 setDCombosSlots({});
+setConfVenta(false);
 setModal(true);
+}
+function retomarBorrador(){
+  const d=getDraft();
+  if(!d)return;
+  setDFecha(d.dFecha||today());
+  setDSuc(d.dSuc||sucsVisiblesCos[0]||"");
+  setDBuscar("");
+  setDCants(d.dCants||{});
+  setDCombosCants(d.dCombosCants||{});
+  setDCombosSlots(d.dCombosSlots||{});
+  setConfVenta(false);
+}
+function guardarPendiente(){
+  localStorage.setItem("borgers_venta_borrador",JSON.stringify({dFecha,dSuc,dCants,dCombosCants,dCombosSlots}));
+  setHayBorrador(true);
+  setModal(false);
+}
+function descartarBorrador(){
+  localStorage.removeItem("borgers_venta_borrador");
+  setHayBorrador(false);
 }
 function setCant(rId,val){setDCants(p=>({...p,[rId]:val}));}
 function setComboSlot(rId,slotNombre,opcion,val){setDCombosSlots(p=>({...p,[rId]:{...(p[rId]||{}),[slotNombre]:{...((p[rId]||{})[slotNombre]||{}),[opcion]:parseFloat(val)||0}}}))}
@@ -3511,9 +3535,8 @@ function calcEgresosCombo(combo,slotsSel,cant){const m={};(combo.slots||[]).forE
 const precioConIva=(r)=>r.precio*(1+ivaRate);
 const dTotalIngreso=dResumen.reduce((s,{r,cant})=>s+precioConIva(r)*cant,0)+dResumenCombos.reduce((s,{r,cant})=>s+precioConIva(r)*cant,0);
 const dTotalCosto=dResumen.reduce((s,{r,cant})=>s+cc(r)*cant,0)+dResumenCombos.reduce((s,{r,cant,slotsSel})=>s+ccComboConSel(r,slotsSel,cant),0);
-async function confirmarDia(){
+function confirmarDia(){
 if(!dResumen.length&&!dResumenCombos.length){return;}
-// Validar que combos con slots variables tengan el desglose completo
 for(const{r,cant,slotsSel}of dResumenCombos){
   for(const slot of(r.slots||[])){
     if(slot.tipo!=="var_inv"&&slot.tipo!=="var_rv")continue;
@@ -3522,6 +3545,9 @@ for(const{r,cant,slotsSel}of dResumenCombos){
     if(Math.abs(suma-cant)>0.001){alert(`Combo "${r.nombre}" — slot "${slot.nombre}": las opciones suman ${suma} pero vendiste ${cant}. Ajusta el desglose.`);return;}
   }
 }
+setConfVenta(true);
+}
+async function ejecutarConfirmarDia(){
 const nuevas=[
   ...dResumen.map(({r,cant})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant,iva_rate:ivaRate,slots_sel:{}})),
   ...dResumenCombos.map(({r,cant,slotsSel})=>({fecha:dFecha,sucursal:dSuc,rId:r.id,cant,iva_rate:ivaRate,slots_sel:slotsSel})),
@@ -3576,8 +3602,10 @@ setRegsSucs(p=>{
     return[...p,regActualizado];
   }
 });
+localStorage.removeItem("borgers_venta_borrador");
+setHayBorrador(false);
+setConfVenta(false);
 setModal(false);
-
 }
 function matchMarcasCos(itemMarcas,sucMarcasArr){if(!sucMarcasArr||sucMarcasArr.length===0)return true;if(!itemMarcas||itemMarcas.length===0)return true;if(itemMarcas.includes("General"))return true;return itemMarcas.some(m=>sucMarcasArr.includes(m));}
 function cc(r){
@@ -3609,7 +3637,10 @@ const registros=[...ventasFiltradas]
 return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
 <h1 style={{fontFamily:"'Bebas Neue'",fontSize:36,letterSpacing:2}}>COSTOS & INGRESOS</h1>
-{(!puede||puede('registrar_venta'))&&<Btn onClick={abrirModal}>+ Registrar Ventas del Día</Btn>}
+<div style={{display:"flex",gap:10,alignItems:"center"}}>
+  {(!puede||puede('registrar_venta'))&&hayBorrador&&<Btn v="ghost" onClick={()=>{retomarBorrador();setModal(true);}} xtra={{borderColor:ACC+"88",color:ACC}}>⏸ Retomar venta pendiente</Btn>}
+  {(!puede||puede('registrar_venta'))&&<Btn onClick={abrirModal}>+ Registrar Ventas del Día</Btn>}
+</div>
 </div>
 
 <div style={{display:"grid",gridTemplateColumns:userActivo?.rol==="staff_suc"?"1fr":"repeat(3,1fr)",gap:16,marginBottom:24}}>
@@ -3688,6 +3719,13 @@ return <div>
 </Card>
 {/* Modal registro diario */}
 {modal&&<Mdl title="REGISTRO DE VENTAS DEL DÍA" onClose={()=>setModal(false)} wide>
+  {hayBorrador&&<div style={{background:ACC+"18",border:`1px solid ${ACC}55`,borderRadius:8,padding:12,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+    <span style={{fontSize:13,color:ACC}}>⏸ Tienes una venta guardada como pendiente.</span>
+    <div style={{display:"flex",gap:8,flexShrink:0}}>
+      <Btn s="sm" onClick={retomarBorrador}>Retomar</Btn>
+      <Btn s="sm" v="ghost" onClick={descartarBorrador}>Descartar</Btn>
+    </div>
+  </div>}
   {/* Cabecera: fecha y sucursal */}
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
     <LI label="Fecha">
@@ -3814,10 +3852,21 @@ return <div>
       <div><div style={{fontSize:10,color:MUT,marginBottom:2}}>UTILIDAD</div><div style={{fontFamily:"'DM Mono'",fontWeight:700,color:dTotalIngreso-dTotalCosto>0?ACC:RED}}>{fmt(dTotalIngreso-dTotalCosto)}</div></div>
     </div>
   </Card>}
-  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+  {confVenta?<div style={{background:FNT,border:`1px solid ${ACC}55`,borderRadius:10,padding:16,marginTop:8}}>
+    <div style={{fontFamily:"'Bebas Neue'",fontSize:16,color:ACC,letterSpacing:1,marginBottom:10}}>CONFIRMAR REGISTRO</div>
+    <div style={{fontSize:13,color:TXT,marginBottom:14,lineHeight:1.6}}>
+      ¿Estás seguro que deseas registrar <strong>{dResumen.length+dResumenCombos.length}</strong> producto(s) para el <strong>{dFecha}</strong> en <strong>{dSuc}</strong>?<br/>
+      Total ingresos: <strong style={{color:GRN}}>{fmt(dTotalIngreso)}</strong> &nbsp;·&nbsp; Esta acción registrará las ventas y descontará el inventario.
+    </div>
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+      <Btn v="ghost" onClick={()=>setConfVenta(false)}>Revisar más</Btn>
+      <Btn onClick={ejecutarConfirmarDia}>Sí, registrar ventas</Btn>
+    </div>
+  </div>:<div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
     <Btn v="ghost" onClick={()=>setModal(false)}>Cancelar</Btn>
+    <Btn v="ghost" onClick={guardarPendiente} disabled={!dResumen.length&&!dResumenCombos.length}>⏸ Guardar pendiente</Btn>
     <Btn onClick={confirmarDia} disabled={!dResumen.length&&!dResumenCombos.length}>Confirmar ventas del día</Btn>
-  </div>
+  </div>}
 </Mdl>}
 
 {editVenta&&<Mdl title="EDITAR VENTA" onClose={()=>setEditVenta(null)}>
