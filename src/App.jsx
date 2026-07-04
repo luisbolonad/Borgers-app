@@ -3417,6 +3417,7 @@ const[dCombosCants,setDCombosCants]=useState({}); // {rId: qty}
 const[dCombosSlots,setDCombosSlots]=useState({}); // {rId: {slotNombre: {opcion: qty}}}
 const[filtDesde,setFiltDesde]=useState("");
 const[filtHasta,setFiltHasta]=useState("");
+const[filtSuc,setFiltSuc]=useState("");
 const[editVenta,setEditVenta]=useState(null);
 const[formVenta,setFormVenta]=useState({});
 const[confVenta,setConfVenta]=useState(false);
@@ -3632,7 +3633,7 @@ const ventasFiltradas=(userActivo&&(userActivo.rol==="admin_suc"||userActivo.rol
 ?ventas.filter(v=>v.sucursal===userActivo.sucursal)
 :ventas;
 const registros=[...ventasFiltradas]
-.filter(v=>(!filtDesde||v.fecha>=filtDesde)&&(!filtHasta||v.fecha<=filtHasta))
+.filter(v=>(!filtDesde||v.fecha>=filtDesde)&&(!filtHasta||v.fecha<=filtHasta)&&(!filtSuc||v.sucursal===filtSuc))
 .sort((a,b)=>b.fecha.localeCompare(a.fecha));
 return <div>
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
@@ -3680,13 +3681,19 @@ return <div>
   <div style={{padding:"16px 20px",borderBottom:b1(BRD),display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
     <span style={{fontFamily:"'Bebas Neue'",fontSize:18,color:ACC}}>REGISTRO DE VENTAS</span>
     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      {sucsVisiblesCos.length>1&&<LI label="Sucursal" xtra={{margin:0}}>
+        <select value={filtSuc} onChange={e=>setFiltSuc(e.target.value)} style={{width:160}}>
+          <option value="">Todas</option>
+          {sucsVisiblesCos.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+      </LI>}
       <LI label="Desde" xtra={{margin:0}}>
         <input type="date" value={filtDesde} onChange={e=>setFiltDesde(e.target.value)} style={{width:140}}/>
       </LI>
       <LI label="Hasta" xtra={{margin:0}}>
         <input type="date" value={filtHasta} onChange={e=>setFiltHasta(e.target.value)} style={{width:140}}/>
       </LI>
-      {(filtDesde||filtHasta)&&<button onClick={()=>{setFiltDesde("");setFiltHasta("");}} style={{background:"transparent",border:"none",color:MUT,cursor:"pointer",fontSize:12,padding:"4px 8px",borderRadius:4}}>✕ Limpiar</button>}
+      {(filtDesde||filtHasta||filtSuc)&&<button onClick={()=>{setFiltDesde("");setFiltHasta("");setFiltSuc("");}} style={{background:"transparent",border:"none",color:MUT,cursor:"pointer",fontSize:12,padding:"4px 8px",borderRadius:4}}>✕ Limpiar</button>}
       <span style={{fontSize:12,color:MUT}}>{registros.length} registros</span>
     </div>
   </div>
