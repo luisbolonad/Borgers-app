@@ -143,7 +143,7 @@ ver_cos:        ["superadmin","admin_suc","staff_suc"],
 ver_caja:       ["superadmin","admin_suc","staff_suc"],
 ver_hist:       ["superadmin","admin_suc","produccion"],
 ver_config:     ["superadmin"],
-ver_manual:     ["superadmin","admin_suc","staff_suc","produccion"],
+ver_manual:     ["superadmin","admin_suc","staff_suc","personal","produccion"],
 ver_ce:         ["superadmin","caja_eventos"],
 ver_asist:      ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion","kiosko"],
 ver_act:        ["superadmin","admin_suc","staff_suc","caja_eventos","personal","produccion"],
@@ -2188,7 +2188,7 @@ function Watermark({nombre}){
   const svg=`<svg xmlns='http://www.w3.org/2000/svg' width='300' height='180'><text x='50%' y='50%' transform='rotate(-25 150 90)' font-family='Arial' font-size='13' fill='rgba(240,237,230,0.055)' text-anchor='middle' dominant-baseline='middle'>${(nombre||"").replace(/[<>&'"]/g,"")}</text></svg>`;
   return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,pointerEvents:"none",zIndex:9998,backgroundImage:`url("data:image/svg+xml,${encodeURIComponent(svg)}")`,backgroundRepeat:"repeat",backgroundSize:"300px 180px"}}/>;
 }
-const ROLES_MANUAL=["admin_suc","staff_suc","produccion"];
+const ROLES_MANUAL=["admin_suc","staff_suc","personal","produccion"];
 function ytEmbed(url){const m=(url||"").match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);return m?`https://www.youtube.com/embed/${m[1]}`:null;}
 function fixImgUrl(url){
   if(!url)return "";
