@@ -2429,6 +2429,8 @@ const[modoVer,setModoVer]=useState(false);
 const nextNum=()=>{const ns=cierresCaja.filter(c=>c.sucursal===sucSel);return ns.length>0?Math.max(...ns.map(c=>c.caja_num||0))+1:1;};
 const[form,setForm]=useState(()=>formCaja0(userActivo,1));
 const[confirmar,setConfirmar]=useState(null);
+const[filtDesde,setFiltDesde]=useState("");
+const[filtHasta,setFiltHasta]=useState("");
 function F(k,v){setForm(p=>({...p,[k]:v}));}
 function FB(sec,denom,val){setForm(p=>({...p,[sec]:{...p[sec],[denom]:parseFloat(val)||0}}));}
 // Calculated
@@ -2476,6 +2478,10 @@ async function guardar(cerrar){
   setVista("lista");
 }
 const cierresSuc=[...cierresCaja.filter(c=>c.sucursal===sucSel)].sort((a,b)=>b.caja_num-a.caja_num);
+const calcTotalEq=c=>["ventas_medianet","nota_credito","pedidos_ya","uber","rappi","pagina_web","transferencias","total_contificado"].reduce((s,k)=>s+(parseFloat(c[k])||0),0);
+const cierresFil=cierresSuc.filter(c=>(!filtDesde||c.fecha>=filtDesde)&&(!filtHasta||c.fecha<=filtHasta));
+const sumTotalCierre=cierresFil.reduce((s,c)=>{const sf=calcSaldo({...F0_BILL,...(c.fin_billetes||{})},{...F0_COIN,...(c.fin_monedas||{})});return s+(sf-(c.venta_efectivo_entregado||0));},0);
+const sumTotalEq=cierresFil.reduce((s,c)=>s+calcTotalEq(c),0);
 if(vista==="form"){
   const cerrado=editId&&cierresCaja.find(c=>c.id===editId)?.estado==="cerrado";
   const bloqueado=(cerrado&&!esAdmin)||modoVer;
@@ -2601,14 +2607,27 @@ return <div>
   {sucsV.length>1&&<div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
     {sucsV.map(s=>{const a=sucSel===s;return <button key={s} onClick={()=>setSucSel(s)} style={{padding:"8px 18px",borderRadius:8,fontSize:13,cursor:"pointer",border:b1(a?ACC:BRD),background:a?ACC+"18":"transparent",color:a?ACC:MUT}}>{s}</button>;})}
   </div>}
+  <Card xtra={{padding:"12px 16px",marginBottom:16}}>
+    <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
+      <LI label="Desde" xtra={{margin:0}}>
+        <input type="date" value={filtDesde} onChange={e=>setFiltDesde(e.target.value)} style={{width:150}}/>
+      </LI>
+      <LI label="Hasta" xtra={{margin:0}}>
+        <input type="date" value={filtHasta} onChange={e=>setFiltHasta(e.target.value)} style={{width:150}}/>
+      </LI>
+      {(filtDesde||filtHasta)&&<button onClick={()=>{setFiltDesde("");setFiltHasta("");}} style={{background:"transparent",border:"none",color:MUT,cursor:"pointer",fontSize:12,padding:"4px 8px",borderRadius:4,marginBottom:2}}>✕ Limpiar</button>}
+      <span style={{fontSize:12,color:MUT,marginBottom:4}}>{cierresFil.length} registro{cierresFil.length!==1?"s":""}</span>
+    </div>
+  </Card>
   {cierresSuc.length===0
     ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin cuadres de caja registrados para {sucSel}.</Card>
     :<Card xtra={{padding:0}}>
       <table>
-        <thead><tr><th>Fecha</th><th>Caja #</th><th>Responsable</th><th>Hora Inicio</th><th>Hora Término</th><th>Total Cierre</th><th>Estado</th><th></th></tr></thead>
-        <tbody>{cierresSuc.map(c=>{
+        <thead><tr><th>Fecha</th><th>Caja #</th><th>Responsable</th><th>Hora Inicio</th><th>Hora Término</th><th>Total Facturado</th><th>Total Cierre</th><th>Estado</th><th></th></tr></thead>
+        <tbody>{cierresFil.map(c=>{
           const sf=calcSaldo({...F0_BILL,...(c.fin_billetes||{})},{...F0_COIN,...(c.fin_monedas||{})});
           const tc=sf-(c.venta_efectivo_entregado||0);
+          const teq=calcTotalEq(c);
           const cerrado=c.estado==="cerrado";
           return <tr key={c.id}>
             <td>{c.fecha}</td>
@@ -2616,6 +2635,7 @@ return <div>
             <td style={{fontWeight:500}}>{c.responsable}</td>
             <td style={{color:MUT,fontSize:12}}>{c.hora_inicio||"—"}</td>
             <td style={{color:MUT,fontSize:12}}>{c.hora_termino||"—"}</td>
+            <td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:600}}>${fmtN(teq)}</td>
             <td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:600}}>${fmtN(tc)}</td>
             <td><Bdg c={cerrado?"green":"orange"}>{cerrado?"Cerrado":"Borrador"}</Bdg></td>
             <td>
@@ -2626,7 +2646,14 @@ return <div>
               </div>
             </td>
           </tr>;
-        })}</tbody>
+        })}
+        {cierresFil.length>0&&<tr style={{borderTop:"2px solid "+BRD,background:FNT}}>
+          <td colSpan={5} style={{fontFamily:"'Bebas Neue'",fontSize:13,letterSpacing:1,color:MUT,paddingTop:10,paddingBottom:10}}>TOTALES ({cierresFil.length} registros)</td>
+          <td style={{fontFamily:"'DM Mono'",fontWeight:700,color:GRN,paddingTop:10,paddingBottom:10}}>${fmtN(sumTotalEq)}</td>
+          <td style={{fontFamily:"'DM Mono'",fontWeight:700,color:ACC,paddingTop:10,paddingBottom:10}}>${fmtN(sumTotalCierre)}</td>
+          <td colSpan={2}/>
+        </tr>}
+        </tbody>
       </table>
     </Card>}
   {confirmar&&<Confirmar mensaje={confirmar.msg} onSi={()=>{confirmar.fn();setConfirmar(null);}} onNo={()=>setConfirmar(null)}/>}
