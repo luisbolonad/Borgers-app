@@ -2482,6 +2482,7 @@ const calcTotalEq=c=>["ventas_medianet","nota_credito","pedidos_ya","uber","rapp
 const cierresFil=cierresSuc.filter(c=>(!filtDesde||c.fecha>=filtDesde)&&(!filtHasta||c.fecha<=filtHasta));
 const sumTotalCierre=cierresFil.reduce((s,c)=>{const sf=calcSaldo({...F0_BILL,...(c.fin_billetes||{})},{...F0_COIN,...(c.fin_monedas||{})});return s+(sf-(c.venta_efectivo_entregado||0));},0);
 const sumTotalEq=cierresFil.reduce((s,c)=>s+calcTotalEq(c),0);
+const sumEntrega=cierresFil.reduce((s,c)=>s+(parseFloat(c.venta_efectivo_entregado)||0),0);
 if(vista==="form"){
   const cerrado=editId&&cierresCaja.find(c=>c.id===editId)?.estado==="cerrado";
   const bloqueado=(cerrado&&!esAdmin)||modoVer;
@@ -2623,11 +2624,12 @@ return <div>
     ?<Card xtra={{textAlign:"center",padding:48,color:MUT}}>Sin cuadres de caja registrados para {sucSel}.</Card>
     :<Card xtra={{padding:0}}>
       <table>
-        <thead><tr><th>Fecha</th><th>Caja #</th><th>Responsable</th><th>Hora Inicio</th><th>Hora Término</th><th>Total Facturado</th><th>Total Cierre</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Caja #</th><th>Responsable</th><th>Hora Inicio</th><th>Hora Término</th><th>Total Facturado</th><th>Entrega Efectivo</th><th>Total Cierre</th><th>Estado</th><th></th></tr></thead>
         <tbody>{cierresFil.map(c=>{
           const sf=calcSaldo({...F0_BILL,...(c.fin_billetes||{})},{...F0_COIN,...(c.fin_monedas||{})});
           const tc=sf-(c.venta_efectivo_entregado||0);
           const teq=calcTotalEq(c);
+          const entrega=parseFloat(c.venta_efectivo_entregado)||0;
           const cerrado=c.estado==="cerrado";
           return <tr key={c.id}>
             <td>{c.fecha}</td>
@@ -2636,6 +2638,7 @@ return <div>
             <td style={{color:MUT,fontSize:12}}>{c.hora_inicio||"—"}</td>
             <td style={{color:MUT,fontSize:12}}>{c.hora_termino||"—"}</td>
             <td style={{fontFamily:"'DM Mono'",color:GRN,fontWeight:600}}>${fmtN(teq)}</td>
+            <td style={{fontFamily:"'DM Mono'",color:BLU,fontWeight:600}}>${fmtN(entrega)}</td>
             <td style={{fontFamily:"'DM Mono'",color:ACC,fontWeight:600}}>${fmtN(tc)}</td>
             <td><Bdg c={cerrado?"green":"orange"}>{cerrado?"Cerrado":"Borrador"}</Bdg></td>
             <td>
@@ -2650,6 +2653,7 @@ return <div>
         {cierresFil.length>0&&<tr style={{borderTop:"2px solid "+BRD,background:FNT}}>
           <td colSpan={5} style={{fontFamily:"'Bebas Neue'",fontSize:13,letterSpacing:1,color:MUT,paddingTop:10,paddingBottom:10}}>TOTALES ({cierresFil.length} registros)</td>
           <td style={{fontFamily:"'DM Mono'",fontWeight:700,color:GRN,paddingTop:10,paddingBottom:10}}>${fmtN(sumTotalEq)}</td>
+          <td style={{fontFamily:"'DM Mono'",fontWeight:700,color:BLU,paddingTop:10,paddingBottom:10}}>${fmtN(sumEntrega)}</td>
           <td style={{fontFamily:"'DM Mono'",fontWeight:700,color:ACC,paddingTop:10,paddingBottom:10}}>${fmtN(sumTotalCierre)}</td>
           <td colSpan={2}/>
         </tr>}
