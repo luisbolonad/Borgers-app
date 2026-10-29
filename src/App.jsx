@@ -7306,7 +7306,13 @@ function CustomerRegister({programId}){
       }
       let[card]=await supaGet("loyalty_cards","?customer_id=eq."+cust.id+"&program_id=eq."+programId);
       if(!card)[card]=await supaPost("loyalty_cards",{customer_id:cust.id,program_id:programId,sellos:0,puntos:0});
-      setDone({token:cust.token});
+      let gwUrl=null;
+      try{
+        const gwr=await fetch("/api/wallet-google",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"save-link",card,customer:cust,program:prog})});
+        const gwd=await gwr.json();
+        if(gwd.url)gwUrl=gwd.url;
+      }catch(e){console.warn("Wallet:",e);}
+      setDone({token:cust.token,gwUrl});
     }catch(e){setErr(e.message);}
     setLoading(false);
   }
@@ -7319,7 +7325,11 @@ function CustomerRegister({programId}){
       <div style={{fontFamily:"'Bebas Neue'",fontSize:20,color:GRN,letterSpacing:1,marginBottom:8}}>¡REGISTRO EXITOSO!</div>
       <div style={{fontSize:13,color:MUT,marginBottom:20}}>Ya eres parte de {prog?.nombre||"nuestra familia"}</div>
       <img src={qrImgUrl(APP_URL+"/c/"+done.token)} alt="QR" style={{width:180,height:180,borderRadius:8,marginBottom:12}}/>
-      <div style={{fontSize:12,color:MUT,marginBottom:20}}>Guarda este QR — muéstralo al cajero en tu próxima visita</div>
+      <div style={{fontSize:12,color:MUT,marginBottom:16}}>Guarda este QR — muéstralo al cajero en tu próxima visita</div>
+      {done.gwUrl&&<a href={done.gwUrl} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"13px 0",borderRadius:12,background:"#000",color:"#fff",textDecoration:"none",fontSize:14,fontWeight:600,marginBottom:10}}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" fill="#4285F4"/><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2" fill="#34A853"/><path d="M12 2C17.523 2 22 6.477 22 12" fill="#FBBC05"/><path d="M22 12c0 5.523-4.477 10-10 10" fill="#EA4335"/><circle cx="12" cy="12" r="5" fill="white"/><path d="M14.5 10h-5v1.5h3.5L11.5 14H14.5v-1.5H11l1.5-2.5z" fill="#4285F4"/></svg>
+        Agregar a Google Wallet
+      </a>}
       <a href={APP_URL+"/c/"+done.token} style={{display:"block",padding:"12px 0",background:ACC,color:"#000",borderRadius:8,fontSize:14,fontWeight:700,textDecoration:"none"}}>Ver mi tarjeta</a>
     </Card>
   </div>;
