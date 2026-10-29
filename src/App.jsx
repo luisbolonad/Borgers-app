@@ -6676,6 +6676,7 @@ function FidelizacionScanner({userActivo,sucs}){
       await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"sello",valor:1,descripcion:desc,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
       setResult(p=>({...p,card:{...p.card,sellos:nuevos}}));
       setMsg({t:"ok",s:nuevos>=max?"🎉 ¡Tarjeta completa! El cliente puede canjear su recompensa.":"✅ Sello aplicado. "+nuevos+"/"+max});
+      fetch("/api/wallet-google",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update-pass",cardId:card.id,balance:nuevos,label:"Sellos"})}).catch(()=>{});
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
   }
@@ -6691,6 +6692,7 @@ function FidelizacionScanner({userActivo,sucs}){
       await supaPost("loyalty_transactions",{card_id:card.id,customer_id:customer.id,tipo:"puntos",valor:pts,descripcion:"Compra $"+monto,staff_id:userActivo?.id||null,sucursal:userActivo?.sucursal||null});
       setResult(p=>({...p,card:{...p.card,puntos:nuevos}}));
       setMsg({t:"ok",s:"✅ +"+pts+" puntos. Total: "+nuevos+" pts"});setMonto("");
+      fetch("/api/wallet-google",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update-pass",cardId:card.id,balance:Math.floor(nuevos),label:"Puntos"})}).catch(()=>{});
     }catch(e){setMsg({t:"err",s:e.message});}
     setLoading(false);
   }
@@ -7052,6 +7054,8 @@ function CustomerPortal({token}){
   const [err,setErr]=useState("");
   const [selCard,setSelCard]=useState(null);
   const [txns,setTxns]=useState([]);
+  const [gwUrl,setGwUrl]=useState(null);
+  const [gwLoading,setGwLoading]=useState(false);
 
   useEffect(()=>{if(token)load();},[token]);
 
@@ -7080,6 +7084,18 @@ function CustomerPortal({token}){
   if(err)return<div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}><style>{globalCss}</style><div style={{textAlign:"center"}}><div style={{fontFamily:"'Bebas Neue'",fontSize:52,color:ACC,letterSpacing:6,marginBottom:20}}>BORGERS</div><div style={{color:RED,fontSize:14}}>{err}</div></div></div>;
 
   const prog=progs.find(p=>selCard?.program_id===p.id);
+
+  async function getGoogleWalletUrl(){
+    if(!selCard||!customer||!prog)return;
+    setGwLoading(true);setGwUrl(null);
+    try{
+      const r=await fetch("/api/wallet-google",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"save-link",card:selCard,customer,program:prog})});
+      const d=await r.json();
+      if(d.url)setGwUrl(d.url);
+    }catch(e){console.warn("Google Wallet:",e);}
+    setGwLoading(false);
+  }
+  useEffect(()=>{if(selCard&&customer&&prog)getGoogleWalletUrl();},[selCard?.id]);
   const sellos=selCard?.sellos||0;
   const puntos=selCard?.puntos||0;
   const max=prog?.config?.sellos_max||10;
@@ -7176,6 +7192,13 @@ function CustomerPortal({token}){
         <div style={{fontSize:10,color:"#bbb",fontFamily:"'DM Mono'",letterSpacing:1,marginBottom:6}}>{token}</div>
         <div style={{fontSize:12,color:"#888"}}>Muéstralo al cajero para acumular sellos</div>
       </div>
+
+      {/* ── Google Wallet ── */}
+      {gwUrl&&<a href={gwUrl} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"13px 0",borderRadius:14,background:"#000",color:"#fff",textDecoration:"none",marginBottom:16,fontSize:14,fontWeight:600,boxShadow:"0 4px 16px rgba(0,0,0,0.4)"}}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" fill="#4285F4"/><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2" fill="#34A853"/><path d="M12 2C17.523 2 22 6.477 22 12" fill="#FBBC05"/><path d="M22 12c0 5.523-4.477 10-10 10" fill="#EA4335"/><circle cx="12" cy="12" r="5" fill="white"/><path d="M14.5 10h-5v1.5h3.5L11.5 14H14.5v-1.5H11l1.5-2.5z" fill="#4285F4"/></svg>
+        Agregar a Google Wallet
+      </a>}
+      {gwLoading&&<div style={{textAlign:"center",marginBottom:16,fontSize:12,color:MUT}}>Generando pase...</div>}
 
       {/* ── Historial ── */}
       {txns.length>0&&<div>
