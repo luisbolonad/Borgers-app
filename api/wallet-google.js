@@ -40,8 +40,12 @@ async function ensureClass(tok, program) {
   const chk = await fetch(`${base}/${encodeURIComponent(classId)}`, {
     headers: { Authorization: `Bearer ${tok}` }
   });
-  if (chk.ok) return classId;
-  await fetch(base, {
+  if (chk.ok) {
+    console.log("[wallet-google] class exists:", classId);
+    return classId;
+  }
+  console.log("[wallet-google] creating class:", classId, "GET status:", chk.status);
+  const createRes = await fetch(base, {
     method: "POST",
     headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -57,6 +61,9 @@ async function ensureClass(tok, program) {
       hexBackgroundColor: program.config?.color_card || "#1E1A0E"
     })
   });
+  const createBody = await createRes.json();
+  console.log("[wallet-google] class create status:", createRes.status, JSON.stringify(createBody));
+  if (!createRes.ok) throw new Error("Class create failed: " + JSON.stringify(createBody));
   return classId;
 }
 
