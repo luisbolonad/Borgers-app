@@ -1,32 +1,23 @@
 const crypto = require("crypto");
 
-const SA_EMAIL = "borgers-wallet@borgers-gestion.iam.gserviceaccount.com";
 const ISSUER_ID = process.env.GOOGLE_WALLET_ISSUER_ID;
 const APP_URL = "https://borgers-app.vercel.app";
 
-function getPrivateKey() {
-  let raw = (process.env.GOOGLE_WALLET_PRIVATE_KEY || "")
-    .trim()
-    .replace(/^["']|["']$/g, "")   // quita comillas si las hay
-    .replace(/\\n/g, "\n");         // \n literal → salto de línea real
-  // reconstruye PEM limpio extrayendo solo el contenido base64
-  const b64 = raw.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
-  const lines = b64.match(/.{1,64}/g) || [];
-  return `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----`;
-}
+// Lee el service account completo del JSON (evita problemas de encoding con la private key)
+const SA = JSON.parse(process.env.GOOGLE_WALLET_SERVICE_ACCOUNT || "{}");
+const SA_EMAIL = SA.client_email || "";
+const SA_KEY = SA.private_key || "";
 
 function signRS256(payload, privateKey) {
   const hdr = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
   const bod = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sign = crypto.createSign("RSA-SHA256");
   sign.update(`${hdr}.${bod}`);
-  const keyObj = crypto.createPrivateKey({ key: privateKey, format: "pem", type: "pkcs8" });
-  return `${hdr}.${bod}.${sign.sign(keyObj, "base64url")}`;
+  return `${hdr}.${bod}.${sign.sign(privateKey, "base64url")}`;
 }
 
 async function getAccessToken() {
   const now = Math.floor(Date.now() / 1000);
-  const SA_KEY = getPrivateKey();
   const signed = signRS256({
     iss: SA_EMAIL,
     scope: "https://www.googleapis.com/auth/wallet_object.issuer",
@@ -75,7 +66,7 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  if (!ISSUER_ID || !SA_KEY) {
+  if (!ISSUER_ID || !SA_KEY || !SA_EMAIL) {
     return res.status(503).json({ error: "Google Wallet no configurado aún" });
   }
 
@@ -99,7 +90,6 @@ module.exports = async function handler(req, res) {
         hexBackgroundColor: program.config?.color_card || "#1E1A0E"
       };
 
-      const SA_KEY = getPrivateKey();
       const jwt = signRS256({
         iss: SA_EMAIL, aud: "google", typ: "savetowallet",
         iat: Math.floor(Date.now() / 1000),
