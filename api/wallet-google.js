@@ -1,20 +1,32 @@
 const crypto = require("crypto");
 
 const SA_EMAIL = "borgers-wallet@borgers-gestion.iam.gserviceaccount.com";
-const SA_KEY = (process.env.GOOGLE_WALLET_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 const ISSUER_ID = process.env.GOOGLE_WALLET_ISSUER_ID;
 const APP_URL = "https://borgers-app.vercel.app";
+
+function getPrivateKey() {
+  let raw = (process.env.GOOGLE_WALLET_PRIVATE_KEY || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")   // quita comillas si las hay
+    .replace(/\\n/g, "\n");         // \n literal → salto de línea real
+  // reconstruye PEM limpio extrayendo solo el contenido base64
+  const b64 = raw.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const lines = b64.match(/.{1,64}/g) || [];
+  return `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----`;
+}
 
 function signRS256(payload, privateKey) {
   const hdr = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
   const bod = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sign = crypto.createSign("RSA-SHA256");
   sign.update(`${hdr}.${bod}`);
-  return `${hdr}.${bod}.${sign.sign(privateKey, "base64url")}`;
+  const keyObj = crypto.createPrivateKey({ key: privateKey, format: "pem", type: "pkcs8" });
+  return `${hdr}.${bod}.${sign.sign(keyObj, "base64url")}`;
 }
 
 async function getAccessToken() {
   const now = Math.floor(Date.now() / 1000);
+  const SA_KEY = getPrivateKey();
   const signed = signRS256({
     iss: SA_EMAIL,
     scope: "https://www.googleapis.com/auth/wallet_object.issuer",
@@ -87,6 +99,7 @@ module.exports = async function handler(req, res) {
         hexBackgroundColor: program.config?.color_card || "#1E1A0E"
       };
 
+      const SA_KEY = getPrivateKey();
       const jwt = signRS256({
         iss: SA_EMAIL, aud: "google", typ: "savetowallet",
         iat: Math.floor(Date.now() / 1000),
