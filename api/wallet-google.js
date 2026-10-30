@@ -75,6 +75,10 @@ module.exports = async function handler(req, res) {
   try {
     // Genera link "Agregar a Google Wallet"
     if (action === "save-link") {
+      // Primero asegura que la clase exista en Google Wallet
+      const accessToken = await getAccessToken();
+      await ensureClass(accessToken, program);
+
       const objectId = `${ISSUER_ID}.borgers_card_${card.id}`;
       const classId = `${ISSUER_ID}.borgers_prog_${program.id}`;
       const pts = program.tipo === "puntos" ? Math.floor(card.puntos || 0) : (card.sellos || 0);
